@@ -59,6 +59,8 @@ struct Params {
     double adaptivity = 1.0;
     double anisotropy = 1.0;
     AutoRemesher::ModelType modelType = AutoRemesher::ModelType::Organic;
+    bool symmetryEnabled = false;
+    int symmetryAxis = -1; // -1 = auto-detect, 0/1/2 = X/Y/Z
     bool quiet = false;
 };
 
@@ -94,6 +96,11 @@ static void printUsage(const char* argv0)
               << "                              (default: 1.0, range: 0.0-1.0)\n"
               << "  --model-type <organic|hardsurface>\n"
               << "                              Model type hint (default: organic)\n"
+              << "  --symmetry <off|auto|x|y|z>  Mirror-symmetry constraints\n"
+              << "                              (default: off). auto detects the dominant\n"
+              << "                              plane; x/y/z pin it. Falls back to\n"
+              << "                              unconstrained output when the input scores\n"
+              << "                              below threshold on the chosen plane\n"
               << "  --quiet                     Silence progress and info output; only\n"
               << "                              warnings, errors and the report print\n"
               << "  -h, --help                  Show this help\n"
@@ -243,6 +250,29 @@ static bool parseArgs(int argc, char** argv, Params* params)
                 return false;
         } else if (matches(arg, "--quiet", '\0')) {
             params->quiet = true;
+        } else if (matches(arg, "--symmetry", '\0')) {
+            if (!takeValue(argc, argv, i, "--symmetry", &value))
+                return false;
+            if (value == "off") {
+                params->symmetryEnabled = false;
+                params->symmetryAxis = -1;
+            } else if (value == "auto") {
+                params->symmetryEnabled = true;
+                params->symmetryAxis = -1;
+            } else if (value == "x" || value == "X") {
+                params->symmetryEnabled = true;
+                params->symmetryAxis = 0;
+            } else if (value == "y" || value == "Y") {
+                params->symmetryEnabled = true;
+                params->symmetryAxis = 1;
+            } else if (value == "z" || value == "Z") {
+                params->symmetryEnabled = true;
+                params->symmetryAxis = 2;
+            } else {
+                std::cerr << "Error: --symmetry expects 'off', 'auto', 'x', 'y' or 'z', got '"
+                          << value << "'" << '\n';
+                return false;
+            }
         } else if (matches(arg, "--model-type", '\0')) {
             if (!takeValue(argc, argv, i, "--model-type", &value))
                 return false;
@@ -453,6 +483,8 @@ static RungResult remeshLoadedMesh(const Params& params,
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
     remesher.setTargetTriangleCount(static_cast<size_t>(targetQuads) * 2);
+    remesher.setSymmetryEnabled(params.symmetryEnabled);
+    remesher.setSymmetryPlane(params.symmetryAxis);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);
@@ -757,6 +789,8 @@ int main(int argc, char** argv)
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
     remesher.setTargetTriangleCount(static_cast<size_t>(params.targetQuads) * 2);
+    remesher.setSymmetryEnabled(params.symmetryEnabled);
+    remesher.setSymmetryPlane(params.symmetryAxis);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);

@@ -62,3 +62,13 @@ target_compile_definitions(test_cli_glb PRIVATE
 )
 add_dependencies(test_cli_glb retopo)
 set_tests_properties(test_cli_glb PROPERTIES TIMEOUT 600)
+
+# CLI --symmetry: flag wiring end to end (help text, bogus value, fallback
+# on an asymmetric input, mirror-symmetric output on a cube).
+retopo_add_test(test_cli_symmetry test_cli_symmetry.cpp)
+target_compile_definitions(test_cli_symmetry PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_FANDISK=\"${CMAKE_SOURCE_DIR}/bench/models/fandisk.obj\""
+)
+add_dependencies(test_cli_symmetry retopo)
+set_tests_properties(test_cli_symmetry PROPERTIES TIMEOUT 600)
