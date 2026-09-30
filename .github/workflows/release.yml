@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   appimage-upload:
+    # Parked: macOS-only for now (stock ubuntu-22.04 GCC cannot compile
+    # C++ modules). Re-enable with an LLVM/GCC-14+ toolchain later.
+    if: false
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -245,6 +248,9 @@ jobs:
           path: autoremesher-${{ github.ref_name }}.AppImage
 
   win32-msvc-upload:
+    # Parked: macOS-only for now. Re-enable with a oneTBB source
+    # solution (e.g. FetchContent) when Windows support returns.
+    if: false
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -432,9 +438,9 @@ jobs:
       - name: Install Qt
         run: |
           brew install qtbase
-      - name: Install LLVM
+      - name: Install LLVM and Ninja
         run: |
-          brew install llvm
+          brew install llvm ninja
       - name: Install TBB
         run: |
           brew install tbb
@@ -443,9 +449,10 @@ jobs:
           brew install create-dmg
       - name: Build application
         run: |
-          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
             -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j$(sysctl -n hw.logicalcpu)
+          cmake --build build
       - name: Generate DMG
         run: |
           export PATH="$(brew --prefix qtbase)/bin:$PATH"

@@ -10,7 +10,7 @@ third-party software. Full license texts live next to each dependency under
 | Dependency | License | How it is used | Full text |
 |---|---|---|---|
 | Eigen | MPL 2.0 (some files BSD/MPL2-compatible) | Header-only linear algebra | `thirdparty/eigen/COPYING.*` |
-| oneTBB | Apache-2.0 | Linked (system install, or `thirdparty/tbb` on Windows MSVC) | `thirdparty/tbb/LICENSE` |
+| oneTBB | Apache-2.0 | Linked from the system install (Homebrew `tbb` / apt `libtbb-dev`) | https://github.com/oneapi-src/oneTBB |
 | meshoptimizer | MIT | `simplifier.cpp`, `indexgenerator.cpp` compiled in | `thirdparty/meshoptimizer/LICENSE.md` |
 | tinyobjloader | MIT | Header-only OBJ loader | `thirdparty/tinyobjloader/tiny_obj_loader.h` |
 | isotropicremesher | MIT (Jeremy HU) | Compiled in | `thirdparty/isotropicremesher/LICENSE` |

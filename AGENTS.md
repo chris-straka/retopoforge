@@ -19,11 +19,30 @@ tracks the original repo for merging future fixes.
 
 ## Build
 
-- Everything: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`
+- Everything: `cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build`
   produces `build/cli/retopo` and the Qt6 app (`build/app/autoremesher[.app]`).
-  Needs TBB + Qt6 + LLVM; macOS: `brew install cmake tbb qtbase llvm`.
-  (AppleClang lacks named-modules support, so all macOS builds use LLVM;
-  required once the first .cppm file lands.)
+  Needs TBB + Qt6 + LLVM + Ninja; macOS: `brew install cmake tbb qtbase llvm ninja`.
+  (Ninja is mandatory: the only macOS generator with C++ modules support.
+  AppleClang cannot build this tree at all once `.cppm` files exist.)
+
+## Modules conversion pattern (established by the positionkey pilot)
+
+- One named module per component: `retopo.core.snake_name`. Interface in
+  `core/<name>.cppm`, implementation stays in `core/<name>.cpp`.
+- Interface unit shape: copyright header, then `module;` + third-party and
+  not-yet-converted includes (global fragment), then
+  `export module retopo.core.<name>;`, then `export`ed declarations.
+- Implementation unit shape: `module;` + includes, then `module <name>;`,
+  then the definitions (includes AFTER the module decl attach to the
+  module itself — always use the leading `module;` fragment).
+- Importers swap `#include <AutoRemesher/X>` for the `import`, and keep
+  direct includes/imports for everything else they use (no transitive
+  reliance — the build enforces it).
+- Delete the old `.h` and its `core/include/AutoRemesher/` forwarder.
+- CMake: list the `.cppm` in the target's `FILE_SET CXX_MODULES`, and set
+  `CXX_SCAN_FOR_MODULES ON` on every target with importers (plain `.cpp`
+  files are otherwise compiled unscanned: no BMI flags, no ordering).
+- Every conversion commit must keep `bench/run.py --check` green.
 - Headless only (no Qt): add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to configure.
 - Qt app smoke test (ask first): `QT_QPA_PLATFORM=offscreen` + `--help`
   (must exit 0), plus a headless `--input` remesh compared against the

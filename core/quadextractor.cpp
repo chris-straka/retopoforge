@@ -19,7 +19,7 @@
  */
 #include <AutoRemesher/Double>
 #include <AutoRemesher/MeshSeparator>
-#include <AutoRemesher/PositionKey>
+import retopo.core.position_key;
 #include <AutoRemesher/QuadExtractor>
 #include <algorithm>
 #include <axisalignedboundingbox.h>
