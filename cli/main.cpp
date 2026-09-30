@@ -27,7 +27,7 @@
 // dependency: no QApplication, no event loop, works over ssh and in CI.
 
 #include <AutoRemesher/AutoRemesher>
-#include <AutoRemesher/Vector3>
+import retopo.core.vector3;
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"

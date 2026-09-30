@@ -22,8 +22,8 @@
 #ifndef AUTO_REMESHER_SURFACE_MESH_H
 #define AUTO_REMESHER_SURFACE_MESH_H
 
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
+import retopo.core.vector2;
+import retopo.core.vector3;
 #include <array>
 #include <cstddef>
 #include <limits>

@@ -23,7 +23,7 @@
 #include <AutoRemesher/IsotropicRemesher>
 #include <AutoRemesher/MeshSeparator>
 #include <AutoRemesher/Parameterizer>
-#include <AutoRemesher/QuadExtractor>
+import retopo.core.quad_extractor;
 #include <algorithm>
 #include <atomic>
 #include <chrono>

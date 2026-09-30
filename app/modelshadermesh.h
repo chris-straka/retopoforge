@@ -22,7 +22,7 @@
 #ifndef AUTO_REMESHER_MODEL_SHADER_MESH_H
 #define AUTO_REMESHER_MODEL_SHADER_MESH_H
 #include "modelshadervertex.h"
-#include <AutoRemesher/Vector3>
+import retopo.core.vector3;
 #include <QColor>
 #include <QImage>
 #include <QObject>

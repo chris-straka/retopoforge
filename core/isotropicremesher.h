@@ -21,10 +21,12 @@
  */
 #ifndef AUTO_REMESHER_ISOTROPIC_REMESHER_H
 #define AUTO_REMESHER_ISOTROPIC_REMESHER_H
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector3>
+#include <cstddef>
 #include <unordered_set>
 #include <utility>
+#include <vector>
+import retopo.core.progress;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

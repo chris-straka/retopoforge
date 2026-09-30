@@ -8,6 +8,9 @@ project(retopoforge VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# Every target gets module dependency scanning: plain .cpp importers (in the
+# core library, the CLI, and the Qt app) need BMI flags and build ordering.
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 # --- Core static library (Qt-free) ---
 # Source list mirrors autoremesher.pro minus the Qt GUI shell.
@@ -34,7 +37,14 @@ set(CORE_SOURCES
 add_library(retopo_core STATIC ${CORE_SOURCES})
 
 # C++ named modules, one per converted component (importable by dependents).
-target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES core/positionkey.cppm)
+target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
+    core/positionkey.cppm
+    core/double.cppm
+    core/progress.cppm
+    core/vector2.cppm
+    core/vector3.cppm
+    core/quadextractor.cppm
+)
 # Scan every source for module use: without this, plain .cpp importers are
 # compiled unscanned (no BMI flags, no ordering after the module build).
 set_target_properties(retopo_core PROPERTIES CXX_SCAN_FOR_MODULES ON)
@@ -81,4 +91,36 @@ add_subdirectory(cli)
 option(RETOPOFORGE_BUILD_QT_APP "Build the Qt6 desktop app" ON)
 if(RETOPOFORGE_BUILD_QT_APP)
     add_subdirectory(app)
+endif()
+if(TARGET autoremesher)
+    # AUTOMOC's unity file includes moc outputs for app headers that now import
+    # retopo.core modules, but CMake compiles autogen sources with the unscanned
+    # rule (no dyndep BMI flags), so hand the unity file the module files it
+    # needs plus build-order edges on them. Revisit if CMake starts scanning
+    # autogen sources or if more lane modules land (extend both lists).
+    set(_RETOPO_MMI ${CMAKE_BINARY_DIR}/app/autoremesher_autogen/mocs_compilation.cpp)
+    set(_RETOPO_PCM_DIR ${CMAKE_BINARY_DIR}/CMakeFiles/retopo_core.dir)
+    set(_RETOPO_PCM_NAMES
+        retopo.core.double_utils
+        retopo.core.progress
+        retopo.core.vector2
+        retopo.core.vector3
+        retopo.core.quad_extractor
+    )
+    set(_RETOPO_MMI_FLAGS "")
+    set(_RETOPO_MMI_PCMS "")
+    foreach(_mod IN LISTS _RETOPO_PCM_NAMES)
+        list(APPEND _RETOPO_MMI_FLAGS "-fmodule-file=${_mod}=${_RETOPO_PCM_DIR}/${_mod}.pcm")
+        list(APPEND _RETOPO_MMI_PCMS "${_RETOPO_PCM_DIR}/${_mod}.pcm")
+    endforeach()
+    set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
+        APPEND PROPERTY COMPILE_OPTIONS ${_RETOPO_MMI_FLAGS})
+    set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
+        APPEND PROPERTY OBJECT_DEPENDS ${_RETOPO_MMI_PCMS})
+    unset(_RETOPO_MMI)
+    unset(_RETOPO_PCM_DIR)
+    unset(_RETOPO_PCM_NAMES)
+    unset(_RETOPO_MMI_FLAGS)
+    unset(_RETOPO_MMI_PCMS)
+    unset(_mod)
 endif()

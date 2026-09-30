@@ -23,8 +23,8 @@
 #define AUTO_REMESHER_MAIN_WINDOW_H
 #include "modelshaderwidget.h"
 #include <AutoRemesher/AutoRemesher>
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
+import retopo.core.vector2;
+import retopo.core.vector3;
 #include <QCloseEvent>
 #include <QElapsedTimer>
 #include <QMainWindow>

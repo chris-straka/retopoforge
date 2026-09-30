@@ -20,9 +20,10 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Vector3>
 
 export module retopo.core.position_key;
+
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

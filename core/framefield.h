@@ -22,7 +22,7 @@
 #ifndef AUTO_REMESHER_FRAME_FIELD_H
 #define AUTO_REMESHER_FRAME_FIELD_H
 
-#include <AutoRemesher/Vector3>
+import retopo.core.vector3;
 #include <cstddef>
 #include <vector>
 

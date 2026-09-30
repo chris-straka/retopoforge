@@ -17,10 +17,8 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/Double>
+module;
 #include <AutoRemesher/MeshSeparator>
-import retopo.core.position_key;
-#include <AutoRemesher/QuadExtractor>
 #include <algorithm>
 #include <axisalignedboundingbox.h>
 #include <axisalignedboundingboxtree.h>
@@ -42,6 +40,14 @@ import retopo.core.position_key;
 #endif
 #include <unordered_map>
 #include <unordered_set>
+
+module retopo.core.quad_extractor;
+
+import retopo.core.double_utils;
+import retopo.core.position_key;
+import retopo.core.progress;
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

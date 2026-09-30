@@ -20,7 +20,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/IsotropicRemesher>
-#include <AutoRemesher/Vector3>
+import retopo.core.vector3;
 #include <cstdio>
 
 #include <isotropichalfedgemesh.h>

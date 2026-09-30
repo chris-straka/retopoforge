@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved. 
+ *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved.
  *
  *  Permission is hereby granted, free of charge, to any person obtaining a copy
  *  of this software and associated documentation files (the "Software"), to deal
@@ -17,11 +17,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_QUAD_EXTRACTOR_H
-#define AUTO_REMESHER_QUAD_EXTRACTOR_H
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
+module;
 #include <cstdint>
 #include <map>
 #include <set>
@@ -30,9 +26,15 @@
 #include <utility>
 #include <vector>
 
+export module retopo.core.quad_extractor;
+
+import retopo.core.progress;
+import retopo.core.vector2;
+import retopo.core.vector3;
+
 namespace AutoRemesher {
 
-class QuadExtractor {
+export class QuadExtractor {
 public:
     QuadExtractor(const std::vector<Vector3>* vertices,
         const std::vector<std::vector<size_t>>* triangles,
@@ -159,5 +161,3 @@ private:
 };
 
 }
-
-#endif

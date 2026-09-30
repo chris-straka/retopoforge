@@ -22,9 +22,9 @@
 #ifndef AUTO_REMESHER_QUAD_PARAMETERIZER_H
 #define AUTO_REMESHER_QUAD_PARAMETERIZER_H
 
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
+import retopo.core.progress;
+import retopo.core.vector2;
+import retopo.core.vector3;
 #include <cstddef>
 #include <vector>
 
