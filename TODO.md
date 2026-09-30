@@ -86,7 +86,10 @@ new warnings.
       angle, adaptivity, head-only passes) plus the manual-cleanup
       workflow. Honest scope: no automatic remesher emits
       animator-grade face topology; the goal is 80% + fast cleanup.
-- [ ] Symmetry constraints (characters are the main subject)
+- [x] Symmetry constraints (characters are the main subject):
+      vote-based plane detection + frame-field/vertex symmetrization,
+      default off, CLI `--symmetry off|auto|x|y|z`; positional only
+      (quad connectivity is not mirrored)
 - [ ] Sharp / feature constraints end-to-end (weapons and hard-surface
       props need crisp edges). Research done: NO explicit-constraint
       hook exists anywhere (all sharp handling is automatic dihedral
