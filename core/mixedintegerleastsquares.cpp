@@ -34,8 +34,8 @@ import retopo.core.constrained_least_squares;
 
 namespace AutoRemesher {
 namespace {
-    const size_t noIndex = std::numeric_limits<size_t>::max();
-    const double dropTolerance = 1e-10;
+    constexpr size_t noIndex = std::numeric_limits<size_t>::max();
+    constexpr double dropTolerance = 1e-10;
 }
 
 MixedIntegerLeastSquares::MixedIntegerLeastSquares(size_t size)
@@ -132,7 +132,7 @@ std::vector<MixedIntegerLeastSquares::Coeff> MixedIntegerLeastSquares::multiply(
             m_scatter[b.index] += c.a * b.a;
         }
     }
-    std::sort(m_touched.begin(), m_touched.end());
+    std::ranges::sort(m_touched);
     std::vector<Coeff> out;
     out.reserve(m_touched.size());
     for (size_t index : m_touched) {
@@ -168,9 +168,9 @@ void MixedIntegerLeastSquares::recordConstraint()
 void MixedIntegerLeastSquares::addConstraint(const std::vector<std::pair<size_t, double>>& row)
 {
     m_constraintScratch.clear();
-    for (const auto& c : row)
-        if (c.first < m_size && c.second != 0.0)
-            m_constraintScratch.push_back({ c.first, c.second });
+    for (const auto& [index, a] : row)
+        if (index < m_size && a != 0.0)
+            m_constraintScratch.push_back({ index, a });
     recordConstraint();
 }
 
@@ -206,9 +206,9 @@ void MixedIntegerLeastSquares::addConstraint(size_t a, double ca, size_t b, doub
 
 const std::vector<MixedIntegerLeastSquares::Coeff>& MixedIntegerLeastSquares::recordedConstraint(size_t index) const
 {
-    const auto& range = m_constraintRanges[index];
-    m_rowScratch.assign(m_constraintData.begin() + range.first,
-        m_constraintData.begin() + range.first + range.second);
+    const auto& [offset, count] = m_constraintRanges[index];
+    m_rowScratch.assign(m_constraintData.begin() + offset,
+        m_constraintData.begin() + offset + count);
     return m_rowScratch;
 }
 
@@ -396,7 +396,7 @@ bool MixedIntegerLeastSquares::processConstraint(const std::vector<Coeff>& row)
     if (m_pass == 2) {
         size_t remove = 0;
         for (size_t i = 1; i < r2.size(); ++i)
-            if (double(m_period[r2[i].index]) * std::fabs(r2[i].a) < double(m_period[r2[remove].index]) * std::fabs(r2[remove].a))
+            if (static_cast<double>(m_period[r2[i].index]) * std::fabs(r2[i].a) < static_cast<double>(m_period[r2[remove].index]) * std::fabs(r2[remove].a))
                 remove = i;
         applyRemoveColumn(r2, remove);
         return true;
@@ -427,9 +427,9 @@ void MixedIntegerLeastSquares::addEnergy(const std::vector<std::pair<size_t, dou
     row.rhs = rhs;
     row.weight = weight;
     row.coefficients.reserve(c.size());
-    for (const auto& x : c)
-        if (x.first < m_size && x.second != 0)
-            row.coefficients.push_back({ x.first, x.second });
+    for (const auto& [index, a] : c)
+        if (index < m_size && a != 0)
+            row.coefficients.push_back({ index, a });
     normalize(&row.coefficients);
     if (!row.coefficients.empty())
         m_energy.push_back(std::move(row));
@@ -475,7 +475,7 @@ bool MixedIntegerLeastSquares::solveIteration()
             }
     }
     if (nullptr == m_system) {
-        m_system.reset(new ConstrainedLeastSquares(m_kernelSize));
+        m_system = std::make_unique<ConstrainedLeastSquares>(m_kernelSize);
         std::vector<std::pair<size_t, double>> coefficients;
         for (const Row& energy : m_reducedEnergy) {
             coefficients.clear();
@@ -488,7 +488,7 @@ bool MixedIntegerLeastSquares::solveIteration()
     m_system->clearConstraints();
     for (size_t i = 0; i < m_kernelSize; ++i)
         if (m_fixed[i])
-            m_system->addConstraint({ { i, 1.0 } }, double(m_period[i]) * std::round(m_values[i] / double(m_period[i])));
+            m_system->addConstraint({ { i, 1.0 } }, static_cast<double>(m_period[i]) * std::round(m_values[i] / static_cast<double>(m_period[i])));
     return m_system->solve(&m_values);
 }
 
