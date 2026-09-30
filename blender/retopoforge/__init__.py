@@ -259,6 +259,13 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
                 area.header_text_set(None)
             except RuntimeError:
                 pass
+        log_handle = getattr(self, "_log_handle", None)
+        if log_handle is not None:
+            try:
+                log_handle.close()
+            except OSError:
+                pass
+            self._log_handle = None
         tmpdir = getattr(self, "_tmpdir", "")
         if tmpdir and os.path.isdir(tmpdir):
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -326,6 +333,8 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         self._proc = None
         self._current = None
         self._output_path = ""
+        self._log_path = ""
+        self._log_handle = None
         context.scene.retopoforge_last_report = ""
         wm = context.window_manager
         wm.progress_begin(0, self._total)
@@ -340,9 +349,14 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         index = self._total - len(self._queue) - 1
         input_path = self._export_job(context, obj, index)
         self._output_path = os.path.join(self._tmpdir, f"out_{index}.obj")
+        # Never PIPEs here: the CLI prints megabytes of progress and the
+        # modal poll loop does not drain, so pipes fill and wedge the child
+        # (classic deadlock). A log file is unbounded; parse it at completion.
+        self._log_path = os.path.join(self._tmpdir, f"run_{index}.log")
+        self._log_handle = open(self._log_path, "w")
         self._proc = subprocess.Popen(
             self._params.cli_args(self._binary, input_path, self._output_path),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            stdout=self._log_handle, stderr=subprocess.STDOUT, text=True,
         )
         context.window_manager.progress_update(index)
 
@@ -360,9 +374,14 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
                         f"({self._current['obj'].name}) — ESC to cancel")
                     break
             return {"PASS_THROUGH"}
-        stdout_text, stderr_text = self._proc.communicate()
+        # The child has exited (poll() above); close the log so buffers
+        # flush, then read the whole transcript for the summary / error tail.
+        self._log_handle.close()
+        self._log_handle = None
+        with open(self._log_path, encoding="utf-8", errors="replace") as f:
+            stdout_text = f.read()
         if self._proc.returncode != 0:
-            tail = (stderr_text or "").strip().splitlines()
+            tail = stdout_text.strip().splitlines()
             detail = tail[-1] if tail else "unknown error"
             self._current["obj"].matrix_world = self._current["matrix"]
             self.report({"ERROR"}, f"retopo failed: {detail}")
