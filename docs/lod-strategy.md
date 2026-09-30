@@ -57,3 +57,23 @@ lod1 → lod2 at 10%; mobile lod1 → lod2 at 25%, lod2 → lod3 at 10%.
   faces run to run (parallel scheduling — a rerun gave lod2 as
   2,376q+12nq vs 2,370q+14nq), so always verify the emitted files, not
   this table.
+
+## Godot import-time auto-LOD vs hand chains
+
+Godot 4 generates meshopt-simplified LOD variants per imported mesh when
+`Meshes > Generate LODs` (`meshes/generate_lods`, default true) is on —
+this is automatic decimation of whatever you import, independent of these
+hand-authored chains. The two compose as follows:
+
+- Import each chain rung as its own mesh and pick ONE LOD mechanism per
+  asset: either drive rung switching yourself (load lod0/lod1/lod2 and
+  swap by distance) with `Generate LODs` OFF, or import one rung and let
+  Godot generate the rest. Don't stack both — auto-LOD on top of an
+  already-low rung double-simplifies and wastes import time.
+- Recommended split: characters use hand chains (auto-LOD is known to
+  break skinned meshes — turn it off per-mesh for anything rigged);
+  static environment props can use a single imported mesh with
+  `Generate LODs` ON and skip hand chains entirely.
+- OBJ imports as a bare mesh resource, not a scene: LOD generation
+  needs Import As → Scene + Reimport. Prefer importing the `.glb`
+  chain rungs (the `--lods` outputs keep the `--output` extension).

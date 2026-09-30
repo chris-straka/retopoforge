@@ -63,10 +63,8 @@ new warnings.
 - [x] Blender one-click "Generate LODs" driving CLI `--lods`
       (rungs as `<name>_lodN` siblings; sync operator — modal-ize if
       long chains freeze the UI annoyingly)
-- [ ] Document the rung strategy: rung map + budgets done
-      (`docs/lod-strategy.md`, measured chain); still open: how
-      Godot's import-time auto-LOD interacts with hand-authored
-      chains.
+- [x] Document the rung strategy (`docs/lod-strategy.md`): measured
+      rung map + budgets + Godot import auto-LOD interaction
 
 ## Texturing (AI output is textured; ours is bare)
 
@@ -84,13 +82,12 @@ new warnings.
 
 ## Character quality (engine work that serves the game)
 
-- [ ] Face animation flow (owner's top quality complaint): engine +
-      CLI + Blender guide mechanism DONE (frame-field locks, `--guides`
-      file, edge-selection stroke export with recall); still open: the
-      iterate-loop doc (preset, sharp angle, adaptivity, head-only
-      passes) and the manual-cleanup workflow. Honest scope: no
-      automatic remesher emits animator-grade face topology; the goal
-      is 80% + fast cleanup.
+- [x] Face animation flow (owner's top quality complaint): engine +
+      CLI + Blender guide mechanism done (frame-field locks, `--guides`
+      file, edge-selection stroke export with recall) + iterate-loop
+      doc (`docs/face-flow-iterate.md`: preset/sharp/adaptivity passes,
+      guides, density masks, symmetry, RetopoFlow cleanup). Honest
+      scope stands: 80% automatic + fast cleanup, not one-click faces.
 - [x] Symmetry constraints (characters are the main subject):
       vote-based plane detection + frame-field/vertex symmetrization,
       default off, CLI `--symmetry off|auto|x|y|z`; positional only
