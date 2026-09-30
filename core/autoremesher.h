@@ -119,6 +119,17 @@ public:
         m_symmetryAxis = axis;
     }
 
+    // Local density control for organic remeshing: a per-input-vertex
+    // multiplier field (one entry per constructor vertex, in order).
+    // 1.0 leaves a region unchanged; d > 1 packs ~d times the quads per unit
+    // area there (masked face/hands), d < 1 thins them out. Entries clamp to
+    // [0.25, 4.0] and non-finite entries become 1.0. Default OFF: an empty,
+    // all-1.0, or wrong-sized field disables the modulation entirely and the
+    // run is bit-identical to one without any field. The total budget is
+    // preserved per island: quads move into dense regions instead of being
+    // added. The field is copied; later input edits need a fresh call.
+    void setDensityMultipliers(const std::vector<double>& multipliers);
+
     int symmetryPlaneAxis() const
     {
         return m_symmetryPlane.axis;
@@ -275,6 +286,7 @@ private:
     bool m_symmetryEnabled = false;
     int m_symmetryAxis = -1;
     SymmetryPlane m_symmetryPlane;
+    std::vector<double> m_densityMultipliers;
     AutoRemesherProgressHandler m_progressHandler = nullptr;
     void* m_tag = nullptr;
 
@@ -298,7 +310,9 @@ private:
         std::atomic<long long>* adaptiveFieldTimeUs,
         const ProgressHandler* progressHandler,
         std::vector<Vector3>* decimatedVerticesOut,
-        std::vector<std::vector<size_t>>* decimatedTrianglesOut);
+        std::vector<std::vector<size_t>>* decimatedTrianglesOut,
+        const std::vector<double>* densityIn,
+        std::vector<double>* densityOut);
     static double calculateMeshArea(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles);
 };

@@ -21,6 +21,7 @@ set(CORE_SOURCES
     core/surfacemesh.cpp
     core/singularitysimplifier.cpp
     core/constrainedleastsquares.cpp
+    core/density.cpp
     core/mixedintegerleastsquares.cpp
     core/framefield.cpp
     core/quadparameterizer.cpp
@@ -41,6 +42,7 @@ add_library(retopo_core STATIC ${CORE_SOURCES})
 # C++ named modules, one per converted component (importable by dependents).
 target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
     core/constrainedleastsquares.cppm
+    core/density.cppm
     core/double.cppm
     core/framefield.cppm
     core/isotropicremesher.cppm
