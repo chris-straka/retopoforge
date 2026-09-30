@@ -2,7 +2,11 @@
 
 Fork of huxingyi/autoremesher (MIT): Qt-free headless C++ engine + `retopo`
 CLI + benchmark harness + (planned) Blender addon. The `upstream` git remote
-tracks the original repo for merging future fixes.
+tracks the original repo as a read-only reference only. This fork has
+structurally diverged (C++23 modules, deleted headers, new layout) and is
+ahead of upstream in engineering — NEVER git-merge upstream into this tree,
+it will conflict destructively. Port individual upstream engine fixes by
+hand when relevant, and only with `bench/run.py --check` green.
 
 ## Standing rules
 
