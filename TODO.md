@@ -32,9 +32,14 @@ new warnings.
 
 ## App phase 2: Qt shell headers to modules
 
-- [ ] Scope the moc strategy (AUTOMOC compiles its unity file unscanned;
-      the manual `-fmodule-file` workaround must extend to new modules)
-- [ ] Convert `app/*.h` to `.cppm` in bench-gated lane(s)
+- [x] Converted the 11 plain `app/*.h` to `retopo.app.*` modules,
+      bench-identical, zero warnings (mocs unity workaround extended
+      with the app PCM dir + module-object ordering edges)
+- [ ] Q_OBJECT widgets (14 headers) stay as headers — toolchain limit,
+      not effort: moc emits member definitions plus Qt includes that
+      cannot coexist inside module purview (pilot: one module warns,
+      two modules hard-error). Revisit only if moc gains module support.
+- [ ] Macro-only `version.h` stays (macros don't export from modules)
 - [ ] (needs user decision) QtAwesome replacement: what replaces the
       FontAwesome icons?
 
