@@ -10,6 +10,7 @@
 # Exits 0 on pass or SKIP (binary missing), 1 on failure.
 
 import json
+import math
 import os
 import sys
 
@@ -112,6 +113,35 @@ def main():
         report = bpy.context.scene.retopoforge_last_report
         check("quads" in report.lower(), "report recorded")
         print("report:", report.strip().replace("\n", " | "))
+
+        # --- Orientation: a rotated directional mesh must keep its
+        # world-space orientation (regression: OBJ axis conversion tipped
+        # characters onto their backs while the object matrix stayed put).
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cone_add(radius1=0.3, depth=2.0)
+        tall = bpy.context.active_object
+        tall.rotation_euler = (math.pi / 2, 0, 0)
+        bpy.context.view_layer.update()
+
+        def world_extents(o):
+            ws = [o.matrix_world @ v.co for v in o.data.vertices]
+            xs = [c.x for c in ws]
+            ys = [c.y for c in ws]
+            zs = [c.z for c in ws]
+            return (max(xs) - min(xs), max(ys) - min(ys),
+                    max(zs) - min(zs))
+
+        before = world_extents(tall)
+        check(before[1] > before[0] * 2 and before[1] > before[2] * 2,
+              f"fixture is Y-tall before remesh ({before[0]:.2f}, "
+              f"{before[1]:.2f}, {before[2]:.2f})")
+        bpy.context.scene.retopoforge_params.target_quads = 200
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"orient remesh finished (got {result})")
+        after = world_extents(tall)
+        check(after[1] > after[0] * 1.5 and after[1] > after[2] * 1.5,
+              f"mesh still Y-tall after remesh ({after[0]:.2f}, "
+              f"{after[1]:.2f}, {after[2]:.2f})")
 
         # --- per-object settings recall: fresh object (no blob entry yet),
         # so the distinctive values below survive to the CLI call and get
