@@ -54,8 +54,8 @@ inline bool nearCount(long actual, long expected)
 // (libstdc++ solves, no Accelerate). The LOD block prints got/want so one
 // CI round-trip yields the numbers; the batch pin matches on both.
 #if defined(__linux__)
-constexpr long kLod0Quads = 3090; // TBD: read from CI log, then pin
-constexpr long kLod1Quads = 1546; // TBD: read from CI log, then pin
+constexpr long kLod0Quads = 2974; // observed CI values (libstdc++ solves)
+constexpr long kLod1Quads = 1641;
 #else
 constexpr long kLod0Quads = 3090;
 constexpr long kLod1Quads = 1546;

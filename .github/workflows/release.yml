@@ -371,3 +371,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: retopoforge-${{ github.ref_name }}.dmg
+          path: retopoforge-${{ github.ref_name }}.dmg
