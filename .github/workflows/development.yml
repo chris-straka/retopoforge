@@ -50,3 +50,33 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline.json
+
+  sanitize:
+    # Memory + UB safety net (the mechanical version of the borrow
+    # checker's argument): ASan + UBSan over the full test suite.
+    # Leak detection stays off: pre-existing leaks would fail the gate
+    # before any new bug does; revisit once the suite is leak-quiet.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm cmake ninja-build libtbb-dev
+      - name: Build with sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-san -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-san -j`nproc`
+      - name: Fetch benchmark models
+        run: ./bench/fetch_models.sh
+      - name: Run tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-san --output-on-failure
