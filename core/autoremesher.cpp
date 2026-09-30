@@ -621,6 +621,21 @@ bool AutoRemesher::remesh()
         invalidInputReason = "input mesh has no triangles";
     else if (0 == m_targetTriangleCount)
         invalidInputReason = "target triangle count must be greater than zero";
+    else {
+        // Last line of defense behind the loaders: the island build below
+        // indexes m_vertices[face[i]] for i < 3, so a non-triangle face or
+        // an out-of-range corner is an out-of-bounds access (observed
+        // segfault via a corrupt face line). Valid meshes never trip this.
+        for (const auto& face : m_triangles) {
+            bool faceValid = (3 == face.size());
+            for (size_t corner = 0; faceValid && corner < face.size(); ++corner)
+                faceValid = (face[corner] < m_vertices.size());
+            if (!faceValid) {
+                invalidInputReason = "input mesh has invalid face indices";
+                break;
+            }
+        }
+    }
     if (nullptr != invalidInputReason) {
         std::cerr << "Invalid remesh input: " << invalidInputReason << '\n';
         if (nullptr != m_progressHandler)

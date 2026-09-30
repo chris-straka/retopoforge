@@ -104,3 +104,19 @@ target_compile_definitions(test_cli_density PRIVATE
 )
 add_dependencies(test_cli_density retopo)
 set_tests_properties(test_cli_density PROPERTIES TIMEOUT 600)
+
+# Input validation: loader index rejection, weld NaN drops + stats, engine
+# remesh() entry validation. No binary, no models, no fixtures needed.
+retopo_add_test(test_input_validation test_input_validation.cpp)
+
+# CLI nasty-corpus: every tests/fixtures/nasty-*.obj class plus two
+# procedurally generated large inputs through the built binary (exit
+# codes, output validity, drop accounting). Hermetic: committed fixtures
+# + temp-dir inputs only, no bench/models download required.
+retopo_add_test(test_cli_corpus test_cli_corpus.cpp)
+target_compile_definitions(test_cli_corpus PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_FIXTURES=\"${CMAKE_SOURCE_DIR}/tests/fixtures\""
+)
+add_dependencies(test_cli_corpus retopo)
+set_tests_properties(test_cli_corpus PROPERTIES TIMEOUT 600)

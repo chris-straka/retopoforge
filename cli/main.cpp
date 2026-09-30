@@ -463,7 +463,8 @@ static bool loadObj(const std::string& filename,
     std::vector<AutoRemesher::Vector3>* vertices,
     std::vector<std::vector<size_t>>* triangles,
     size_t* preWeldVertices = nullptr,
-    size_t* preWeldTriangles = nullptr)
+    size_t* preWeldTriangles = nullptr,
+    AutoRemesher::WeldStats* weldStats = nullptr)
 {
     std::vector<float> positions;
     std::vector<std::vector<size_t>> loadedTriangles;
@@ -485,7 +486,7 @@ static bool loadObj(const std::string& filename,
         *preWeldTriangles = loadedTriangles.size();
     // Weld-on-load: AI exporters emit non-indexed soup, which would split
     // into one island per triangle. Already-welded input is untouched.
-    AutoRemesher::weldPositionsAndTriangles(&positions, &loadedTriangles);
+    AutoRemesher::weldPositionsAndTriangles(&positions, &loadedTriangles, weldStats);
 
     vertices->resize(positions.size() / 3);
     for (size_t i = 0, j = 0; i < vertices->size(); ++i) {
@@ -506,7 +507,8 @@ static bool loadGlb(const std::string& filename,
     std::vector<AutoRemesher::Vector3>* vertices,
     std::vector<std::vector<size_t>>* triangles,
     size_t* preWeldVertices = nullptr,
-    size_t* preWeldTriangles = nullptr)
+    size_t* preWeldTriangles = nullptr,
+    AutoRemesher::WeldStats* weldStats = nullptr)
 {
     std::vector<float> positions;
     std::vector<std::vector<size_t>> loadedTriangles;
@@ -525,7 +527,7 @@ static bool loadGlb(const std::string& filename,
     if (nullptr != preWeldTriangles)
         *preWeldTriangles = loadedTriangles.size();
     // Weld-on-load: same as OBJ; GLB exporters also emit non-indexed soup.
-    AutoRemesher::weldPositionsAndTriangles(&positions, &loadedTriangles);
+    AutoRemesher::weldPositionsAndTriangles(&positions, &loadedTriangles, weldStats);
 
     vertices->resize(positions.size() / 3);
     for (size_t i = 0, j = 0; i < vertices->size(); ++i) {
@@ -543,11 +545,24 @@ static bool loadMesh(const std::string& filename,
     std::vector<AutoRemesher::Vector3>* vertices,
     std::vector<std::vector<size_t>>* triangles,
     size_t* preWeldVertices = nullptr,
-    size_t* preWeldTriangles = nullptr)
+    size_t* preWeldTriangles = nullptr,
+    AutoRemesher::WeldStats* weldStats = nullptr)
 {
     if (GlbIo::hasGlbExtension(filename))
-        return loadGlb(filename, vertices, triangles, preWeldVertices, preWeldTriangles);
-    return loadObj(filename, vertices, triangles, preWeldVertices, preWeldTriangles);
+        return loadGlb(filename, vertices, triangles, preWeldVertices, preWeldTriangles, weldStats);
+    return loadObj(filename, vertices, triangles, preWeldVertices, preWeldTriangles, weldStats);
+}
+
+// A dropped degenerate is visible in the "Welded input" counts, but a
+// dropped NaN/inf triangle is invisible in the file (it looks exactly like
+// its neighbors), so it gets its own warning. Ungated on --quiet: it is a
+// warning, and --quiet prints warnings.
+static void warnDroppedNonFinite(size_t nonFiniteDropped)
+{
+    if (nonFiniteDropped > 0) {
+        std::cerr << "Warning: dropped " << nonFiniteDropped
+                  << " input triangles with non-finite corners (NaN or infinity)" << '\n';
+    }
 }
 
 static bool saveObj(const std::string& filename,
@@ -637,9 +652,75 @@ struct RungResult {
     size_t quadCount = 0;
     size_t nonQuadCount = 0;
     size_t vertexCount = 0;
+    size_t islandCount = 0;
+    size_t failedIslands = 0;
     double elapsedSeconds = 0.0;
     std::string error;
 };
+
+// Count input islands with no output vertex near them. The engine merges
+// per-island outputs without attribution, so a failed or skipped island is
+// visible only as missing output geometry. A remeshed island stays in
+// place, so any output vertex inside the island's slightly expanded
+// bounding box proves the island produced output. Conservative by design:
+// a failed island nested inside another island's box can hide, but a
+// successful island always leaves vertices behind on its own surface.
+static size_t countIslandsWithoutOutput(
+    const std::vector<std::vector<std::vector<size_t>>>& islands,
+    const std::vector<AutoRemesher::Vector3>& inputVertices,
+    const std::vector<AutoRemesher::Vector3>& outputVertices)
+{
+    size_t failed = 0;
+    for (const auto& island : islands) {
+        bool first = true;
+        double minX = 0.0, minY = 0.0, minZ = 0.0;
+        double maxX = 0.0, maxY = 0.0, maxZ = 0.0;
+        for (const auto& face : island) {
+            for (const size_t index : face) {
+                const auto& v = inputVertices[index];
+                if (first) {
+                    minX = maxX = v.x();
+                    minY = maxY = v.y();
+                    minZ = maxZ = v.z();
+                    first = false;
+                } else {
+                    if (v.x() < minX)
+                        minX = v.x();
+                    if (v.x() > maxX)
+                        maxX = v.x();
+                    if (v.y() < minY)
+                        minY = v.y();
+                    if (v.y() > maxY)
+                        maxY = v.y();
+                    if (v.z() < minZ)
+                        minZ = v.z();
+                    if (v.z() > maxZ)
+                        maxZ = v.z();
+                }
+            }
+        }
+        if (first) {
+            ++failed;
+            continue;
+        }
+        const double dx = maxX - minX;
+        const double dy = maxY - minY;
+        const double dz = maxZ - minZ;
+        const double pad = std::sqrt(dx * dx + dy * dy + dz * dz) * 0.01 + 1e-6;
+        bool found = false;
+        for (const auto& v : outputVertices) {
+            if (v.x() >= minX - pad && v.x() <= maxX + pad
+                && v.y() >= minY - pad && v.y() <= maxY + pad
+                && v.z() >= minZ - pad && v.z() <= maxZ + pad) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            ++failed;
+    }
+    return failed;
+}
 
 // Same remesher setup as single-file mode, parameterized by target count.
 // Used by --lods and batch runs; single-file mode keeps its inline copy so
@@ -702,6 +783,13 @@ static RungResult remeshLoadedMesh(const Params& params,
             ++result.nonQuadCount;
     }
     result.vertexCount = remeshedVertices.size();
+
+    // Island accounting, same as single-file mode: the engine ran this
+    // splitter, so the total matches its phase report.
+    std::vector<std::vector<std::vector<size_t>>> inputIslands;
+    AutoRemesher::MeshSeparator::splitToIslands(triangles, inputIslands);
+    result.islandCount = inputIslands.size();
+    result.failedIslands = countIslandsWithoutOutput(inputIslands, vertices, remeshedVertices);
 
     const std::vector<AutoRemesher::Vector2>* uvs = params.emitUvs
         ? &remesher.remeshedVertexUvs()
@@ -821,7 +909,10 @@ static int runMultiMode(const Params& params, bool batch)
 
         std::vector<AutoRemesher::Vector3> vertices;
         std::vector<std::vector<size_t>> triangles;
-        if (!loadMesh(inputPath, &vertices, &triangles)) {
+        size_t preWeldVertices = 0;
+        size_t preWeldTriangles = 0;
+        AutoRemesher::WeldStats weldStats;
+        if (!loadMesh(inputPath, &vertices, &triangles, &preWeldVertices, &preWeldTriangles, &weldStats)) {
             std::cerr << "Error: failed to load " << inputPath << '\n';
             std::cout << fileLabel << "FAILED to load " << inputPath << '\n';
             noteFailed(failName);
@@ -830,7 +921,13 @@ static int runMultiMode(const Params& params, bool batch)
         if (!params.quiet) {
             std::cerr << "Loaded " << vertices.size() << " vertices, "
                       << triangles.size() << " triangles" << '\n';
+            if (preWeldVertices != vertices.size() || preWeldTriangles != triangles.size()) {
+                std::cerr << "Welded input: " << preWeldVertices << " -> " << vertices.size()
+                          << " vertices, " << preWeldTriangles << " -> " << triangles.size()
+                          << " triangles" << '\n';
+            }
         }
+        warnDroppedNonFinite(weldStats.nonFiniteDropped);
 
         for (size_t rung = 0; rung < targets.size(); ++rung) {
             std::string outputPath;
@@ -858,6 +955,16 @@ static int runMultiMode(const Params& params, bool batch)
                 std::cout << label << "FAILED " << result.error << '\n';
                 noteFailed(failName);
                 continue;
+            }
+            // Same loud per-island accounting as single-file mode; in batch
+            // runs the file is named so the warning is attributable.
+            // Ungated on --quiet: it is a warning, and --quiet prints those.
+            if (result.failedIslands > 0) {
+                std::cerr << "Warning: ";
+                if (batch)
+                    std::cerr << "FILE " << std::filesystem::path(inputPath).filename().string() << ": ";
+                std::cerr << result.failedIslands << " of " << result.islandCount
+                          << " islands produced no output and were dropped from the mesh" << '\n';
             }
             printRungLine(label, outputPath, targets[rung], result);
             if (report.is_open()) {
@@ -894,70 +1001,6 @@ static int runMultiMode(const Params& params, bool batch)
     return failedFiles.empty() ? 0 : 1;
 }
 
-// Count input islands with no output vertex near them. The engine merges
-// per-island outputs without attribution, so a failed or skipped island is
-// visible only as missing output geometry. A remeshed island stays in
-// place, so any output vertex inside the island's slightly expanded
-// bounding box proves the island produced output. Conservative by design:
-// a failed island nested inside another island's box can hide, but a
-// successful island always leaves vertices behind on its own surface.
-static size_t countIslandsWithoutOutput(
-    const std::vector<std::vector<std::vector<size_t>>>& islands,
-    const std::vector<AutoRemesher::Vector3>& inputVertices,
-    const std::vector<AutoRemesher::Vector3>& outputVertices)
-{
-    size_t failed = 0;
-    for (const auto& island : islands) {
-        bool first = true;
-        double minX = 0.0, minY = 0.0, minZ = 0.0;
-        double maxX = 0.0, maxY = 0.0, maxZ = 0.0;
-        for (const auto& face : island) {
-            for (const size_t index : face) {
-                const auto& v = inputVertices[index];
-                if (first) {
-                    minX = maxX = v.x();
-                    minY = maxY = v.y();
-                    minZ = maxZ = v.z();
-                    first = false;
-                } else {
-                    if (v.x() < minX)
-                        minX = v.x();
-                    if (v.x() > maxX)
-                        maxX = v.x();
-                    if (v.y() < minY)
-                        minY = v.y();
-                    if (v.y() > maxY)
-                        maxY = v.y();
-                    if (v.z() < minZ)
-                        minZ = v.z();
-                    if (v.z() > maxZ)
-                        maxZ = v.z();
-                }
-            }
-        }
-        if (first) {
-            ++failed;
-            continue;
-        }
-        const double dx = maxX - minX;
-        const double dy = maxY - minY;
-        const double dz = maxZ - minZ;
-        const double pad = std::sqrt(dx * dx + dy * dy + dz * dz) * 0.01 + 1e-6;
-        bool found = false;
-        for (const auto& v : outputVertices) {
-            if (v.x() >= minX - pad && v.x() <= maxX + pad
-                && v.y() >= minY - pad && v.y() <= maxY + pad
-                && v.z() >= minZ - pad && v.z() <= maxZ + pad) {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            ++failed;
-    }
-    return failed;
-}
-
 int main(int argc, char** argv)
 {
     Params params;
@@ -975,7 +1018,8 @@ int main(int argc, char** argv)
     std::vector<std::vector<size_t>> triangles;
     size_t preWeldVertices = 0;
     size_t preWeldTriangles = 0;
-    if (!loadMesh(params.inputPath, &vertices, &triangles, &preWeldVertices, &preWeldTriangles)) {
+    AutoRemesher::WeldStats weldStats;
+    if (!loadMesh(params.inputPath, &vertices, &triangles, &preWeldVertices, &preWeldTriangles, &weldStats)) {
         std::cerr << "Error: failed to load " << params.inputPath << '\n';
         return 1;
     }
@@ -988,6 +1032,7 @@ int main(int argc, char** argv)
                       << " triangles" << '\n';
         }
     }
+    warnDroppedNonFinite(weldStats.nonFiniteDropped);
 
     std::vector<std::vector<AutoRemesher::Vector3>> guides;
     if (!params.guidesPath.empty()) {
