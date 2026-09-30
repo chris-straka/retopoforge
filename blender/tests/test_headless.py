@@ -48,6 +48,8 @@ def main():
         check(hasattr(bpy.ops.retopoforge, "bake_textures"), "bake operator registered")
         check(hasattr(bpy.ops.retopoforge, "export_guides"),
               "guides export operator registered")
+        check(hasattr(bpy.ops.retopoforge, "export_features"),
+              "features export operator registered")
         check(hasattr(bpy.ops.retopoforge, "export_density"),
               "density export operator registered")
         check(hasattr(bpy.ops.retopoforge, "reload_scripts"), "reload operator registered")
@@ -58,6 +60,8 @@ def main():
               "lod targets default")
         check(bpy.context.scene.retopoforge_params.guides_enabled is False,
               "guides default off")
+        check(bpy.context.scene.retopoforge_params.features_enabled is False,
+              "features default off")
         check(bpy.context.scene.retopoforge_params.density_enabled is False,
               "density default off")
         check(abs(bpy.context.scene.retopoforge_params.density_min - 0.25) < 1e-9,
@@ -305,6 +309,110 @@ def main():
                      lambda: bpy.ops.retopoforge.export_guides(
                          filepath=empty_path))
         check(not os.path.exists(empty_path), "no guides file on cancel")
+
+        # --- Sharp-feature export: a sharp-marked edge ring on a fresh
+        # cube is traced into polylines by the export operator; a remesh
+        # with sharp features on passes --features through (the CLI
+        # rejects malformed features files, so FINISHED proves both the
+        # flag and the format).
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        sharp_obj = bpy.context.active_object
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.subdivide(number_cuts=2)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        sharp_mesh = sharp_obj.data
+        top_z = max(v.co.z for v in sharp_mesh.vertices)
+        for e in sharp_mesh.edges:
+            e.use_edge_sharp = all(sharp_mesh.vertices[i].co.z > top_z - 1e-6
+                                   for i in e.vertices)
+        n_sharp = sum(1 for e in sharp_mesh.edges if e.use_edge_sharp)
+        check(n_sharp >= 4, f"sharp ring marking ({n_sharp} edges)")
+        features_path = "/tmp/retopoforge_test_features.txt"
+        if os.path.exists(features_path):
+            os.remove(features_path)
+        result = bpy.ops.retopoforge.export_features(filepath=features_path)
+        check("FINISHED" in result,
+              f"export_features finished (got {result})")
+        check(os.path.isfile(features_path),
+              f"features file written ({features_path})")
+        # Deterministic chain tracing: a second export of the same flags
+        # is byte-identical.
+        features_again = "/tmp/retopoforge_test_features_again.txt"
+        result = bpy.ops.retopoforge.export_features(filepath=features_again)
+        check("FINISHED" in result, "second export_features finished")
+        with open(features_path, "rb") as f, open(features_again, "rb") as g:
+            check(f.read() == g.read(), "sharp export is deterministic")
+        os.remove(features_again)
+        polylines = [[]]
+        bad_lines = []
+        with open(features_path, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.split("#", 1)[0].strip()
+                if not stripped:
+                    if polylines[-1]:
+                        polylines.append([])
+                    continue
+                parts = stripped.split()
+                try:
+                    point = [float(p) for p in parts]
+                except ValueError:
+                    point = []
+                if len(point) != 3:
+                    bad_lines.append(line.rstrip())
+                else:
+                    polylines[-1].append(point)
+        polylines = [p for p in polylines if p]
+        check(not bad_lines,
+              f"every features line parses as 'x y z' ({bad_lines[:2]})")
+        check(len(polylines) >= 1,
+              f"features hold polylines ({len(polylines)})")
+        check(all(len(p) >= 2 for p in polylines),
+              "every features polyline has 2+ points")
+        n_points = sum(len(p) for p in polylines)
+        check(n_points >= n_sharp, "features points cover the marking")
+        vert_coords = {(v.co.x, v.co.y, v.co.z)
+                       for v in sharp_mesh.vertices}
+        check(all(tuple(p) in vert_coords
+                  for poly in polylines for p in poly),
+              "features points sit on mesh verts")
+        print(f"features: {len(polylines)} polylines, {n_points} points")
+
+        params.target_quads = 200
+        params.features_enabled = True
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"features remesh finished (got {result})")
+        check(len(sharp_obj.data.polygons) > 0,
+              "features result has polygons")
+        blob = json.loads(bpy.context.scene.retopoforge_recall or "{}")
+        feat_entry = blob.get(sharp_obj.name)
+        check(isinstance(feat_entry, dict), "recall blob has features entry")
+        check(feat_entry.get("features_enabled") is True,
+              "recall blob features_enabled")
+        params.features_enabled = False
+        sharp_obj.select_set(True)
+        bpy.context.view_layer.objects.active = sharp_obj
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"features do-over finished (got {result})")
+        check(params.features_enabled is True,
+              "recall restored features_enabled")
+        params.features_enabled = False
+        os.remove(features_path)
+
+        # Exporting with nothing marked cancels cleanly (the do-over
+        # above replaced the mesh, so this object now has no sharp flags).
+        bpy.ops.object.select_all(action="DESELECT")
+        sharp_obj.select_set(True)
+        bpy.context.view_layer.objects.active = sharp_obj
+        empty_feat = "/tmp/retopoforge_test_features_empty.txt"
+        if os.path.exists(empty_feat):
+            os.remove(empty_feat)
+        check_cancel("features export without marking",
+                     lambda: bpy.ops.retopoforge.export_features(
+                         filepath=empty_feat))
+        check(not os.path.exists(empty_feat), "no features file on cancel")
 
         # --- Density export: painted halves map onto min..max, one
         # unassigned vertex stays neutral, and the remesh passes

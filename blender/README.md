@@ -25,7 +25,8 @@ cannot carry UVs or vertex colors — the panel says so.
   source mesh and transform are never touched. One CLI call emits the
   whole chain (`--lods`).
 - **Settings recall** remembers the exact panel values used per object
-  (including LOD targets, symmetry, guides, and density settings). The
+  (including LOD targets, symmetry, guides, sharp features, and density
+  settings). The
   next remesh of the same object restores them first, so a do-over is
   one click; the blob lives on the scene and survives save/reload.
 
@@ -46,6 +47,25 @@ with the identity-transform export by construction.
   still finish).
 - A remesh replaces the mesh, so the selection is gone afterwards:
   re-select edges before a guided do-over.
+
+## Sharp features
+
+Keep hard-surface edges crisp with **Edge > Mark Sharp**: in Edit Mode,
+mark the edges that must survive (panel lines, chamfer borders, CAD
+edges), then enable **Sharp Features** and remesh — each target's marked
+edges are traced into polylines and passed as the CLI's `--features`
+file (same format as `--guides`). Points are the marked edges' local
+coordinates, so features line up with the identity-transform export by
+construction.
+
+- **Export Sharp Features** writes the active object's marked edges to
+  a `--features` file (one `x y z` point per line, blank lines separate
+  polylines, `#` starts a comment) for inspection or CLI-side reuse.
+- Sharp features on but nothing marked is a skip, not an error: that
+  target remeshes unconstrained (multi-object runs with partially
+  marked selections still finish).
+- A remesh replaces the mesh, so the marks are gone afterwards:
+  re-mark edges before a featured do-over.
 
 ## Density masks
 
