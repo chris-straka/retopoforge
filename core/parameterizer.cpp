@@ -275,8 +275,8 @@ std::vector<double> Parameterizer::computeFaceScalingField(const std::vector<Vec
     if (averageCurvature <= 0.0)
         return faceScaling;
 
-    const double minRatio = 0.3;
-    const double maxRatio = 3.0;
+    constexpr double minRatio = 0.3;
+    constexpr double maxRatio = 3.0;
     tbb::parallel_for(tbb::blocked_range<size_t>(0, triangles.size()),
         [&](const tbb::blocked_range<size_t>& range) {
             for (size_t i = range.begin(); i != range.end(); ++i) {
@@ -367,7 +367,7 @@ bool Parameterizer::parameterize()
     // no attribute-backed interchange mesh is constructed.
     SurfaceMesh topology(*m_vertices, *m_triangles);
     if (topology.faceCount() != m_triangles->size()) {
-        std::cerr << "Topology rejected a non-triangle face" << std::endl;
+        std::cerr << "Topology rejected a non-triangle face\n";
         return false;
     }
 
@@ -378,11 +378,11 @@ bool Parameterizer::parameterize()
         field = *m_triangleFieldVectors;
     } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
                    &field)) {
-        std::cerr << "Frame field solve failed" << std::endl;
+        std::cerr << "Frame field solve failed\n";
         return false;
     }
     if (field.size() != topology.faceCount()) {
-        std::cerr << "Frame field has the wrong face count" << std::endl;
+        std::cerr << "Frame field has the wrong face count\n";
         return false;
     }
 
@@ -417,7 +417,7 @@ bool Parameterizer::parameterize()
             &field, m_scaling, m_sharpEdgeDegrees, &cover,
             &faceScalingField, &faceScalingU, &faceScalingV,
             coverProgress ? &coverProgress : nullptr)) {
-        std::cerr << "Quad cover solve failed" << std::endl;
+        std::cerr << "Quad cover solve failed\n";
         return false;
     }
     report(0.99f, "Collecting singularities");
@@ -436,7 +436,7 @@ bool Parameterizer::parameterize()
                   << simplifier.singularityCountBefore() << " -> "
                   << simplifier.singularityCountAfter() << " ("
                   << simplifier.cancelledPairCount() << " pair(s) cancelled)"
-                  << std::endl;
+                  << '\n';
     }
     report(1.0f, "");
     return true;
