@@ -153,8 +153,11 @@ new warnings.
 
 - [ ] README refresh (module layout, build, tests, Blender addon)
 - [ ] Architecture doc (engine / CLI / app / addon split, module graph)
-- [ ] macOS bundle CI: sign + verify path via `ci/macos_bundle.sh`
-- [ ] Bigger bench models for a real perf signal
+- [x] macOS bundle CI: unsigned bundle build + self-containment verify
+      in `development.yml`; Developer-ID signing stubbed (needs owner
+      `APPLE_DEVELOPER_IDENTITY` secret)
+- [x] Bigger bench models for a real perf signal (Stanford XYZ Dragon,
+      250k faces; 2nd mesh skipped — no verifiable license)
 - [x] Linux CI revive (ubuntu-24.04 + distro clang, ctest + bench
       gated); Windows stays parked. NOTE: unproven until release CI
       runs it — fix forward if red.
