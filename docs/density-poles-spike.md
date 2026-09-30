@@ -9,10 +9,16 @@ Fixture: `tests/fixtures/sphere-pole.obj`, `--target-quads 2000`, density
 mask 4.0 on the y>0.5 cap, 1.0 elsewhere (one multiplier per welded input
 vertex — 482 lines).
 
-| run      | inside quads | inside mean area | outside mean area | linear refine |
-|----------|-------------:|-----------------:|------------------:|:-------------:|
-| no mask  |          390 |         0.007807 |          0.007875 |         1.00x |
-| 4x mask  |          760 |         0.004033 |          0.015201 |         1.94x |
+| run      | inside quads | inside mean area | outside mean area |
+|----------|-------------:|-----------------:|------------------:|
+| no mask  |          390 |         0.007807 |          0.007875 |
+| 4x mask  |          760 |         0.004033 |          0.015201 |
+
+Honest linear refinement (inside-vs-inside areas):
+sqrt(0.007807/0.004033) = **1.39x for a 4x ask**. (Comparing against the
+coarsened outside inflates this to 1.94x; don't.) Budget math caps a 25%
+area at ~1.5x linear anyway, so the sphere nearly saturates its cap —
+sizing works here and poles are not the binding constraint.
 
 Repro the mask: `python3 -c` over the fixture's `v` lines, `4.0` when
 y > 0.5 else `1.0`. Quad areas from the OBJ outputs directly (fan
@@ -44,6 +50,22 @@ Code path: `Parameterizer::parameterize` applies density only to
 corner-rotation sum — a pure cross-field-topology property. Sizing
 never enters pole placement.
 
+## Armadillo (complex field): sizing vetoed
+
+Same protocol on `bench/models/armadillo.obj` @5000, 4x mask over the
+top y-quartile (~30% of quad budget, ~1.45x linear cap):
+
+- with simplification: inside 5.7506 -> 5.6227 = **1.01x** (nothing)
+- simplification disabled (scratch build, reverted): **0.97x**
+
+Simplifier cancels 38 pairs both runs; keeping all 206 poles does not
+unlock refinement, so density-gated simplification is exonerated too.
+Inside-mask irregular verts grow only +13% (3:44->54, 5:28->30).
+
+Refined verdict: on complex fields the MILS integer rounding eats the
+~0.7x local sizing factor — the lattice cannot realize sub-2x gradients
+without new dipoles, and none are inserted anywhere in the pipeline.
+
 ## Options (scoped, not attempted)
 
 1. **Dipole insertion at sizing discontinuities** (the real fix, big):
@@ -61,5 +83,7 @@ never enters pole placement.
 
 ## Next step
 
-Option 2 first (bounded, measurable on the character corpus), then
-re-measure; option 1 only if option 2 under-delivers.
+Options 2 exonerated by experiment; option 1 (dipole insertion) is now
+the only structural candidate. New option 3 to scope next: sizing-aware
+MILS rounding (bias integer rounding toward finer in dense regions) —
+smaller than full dipole insertion, may recover part of the ask.
