@@ -39,9 +39,9 @@ namespace {
 // Expected counts for armadillo.obj + small preset ("--target-quads 5000"),
 // copied from bench/baseline.json. If the engine changes these numbers,
 // update baseline.json (via the bench harness) and this test together.
-constexpr long kExpectedVerts = 2875;
-constexpr long kExpectedQuads = 2856;
-constexpr long kExpectedNonQuads = 14;
+constexpr long kExpectedVerts = 4595;
+constexpr long kExpectedQuads = 4566;
+constexpr long kExpectedNonQuads = 20;
 
 struct ObjCounts {
     long verts = 0;

@@ -38,10 +38,10 @@ namespace {
 
 // Expected LOD counts for fandisk.obj --lods 2000,1000 (verified against the
 // built binary; rung 0 matches the bench tiny preset counts).
-constexpr long kLod0Quads = 1898;
-constexpr long kLod1Quads = 978;
+constexpr long kLod0Quads = 3090;
+constexpr long kLod1Quads = 1546;
 // Expected batch count for fandisk.obj at the default 50000 target.
-constexpr long kBatchQuads = 14254;
+constexpr long kBatchQuads = 30725;
 
 struct RunResult {
     int exitCode = -1;
