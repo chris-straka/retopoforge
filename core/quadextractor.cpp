@@ -1329,7 +1329,11 @@ void QuadExtractor::fixHoles()
         if (m_progressHandler)
             std::cerr << "Fixing hole at length:" << loop.size() << "...\n";
         fixHoleWithQuads(loop, true);
-        if (loop.size() >= 4)
+        // fixHoleWithQuads returns with 3 or 4 hole verts left only after
+        // pushing that final cap, so a second pass there re-emits the
+        // identical quad (doubled face, use-count-3 edges). Continue only
+        // on a genuine uncapped remainder.
+        if (loop.size() > 4)
             fixHoleWithQuads(loop, false);
     }
 }
