@@ -9,6 +9,7 @@
 # Needs a built `retopo` CLI (build/cli/retopo in the repo, or on PATH).
 # Exits 0 on pass or SKIP (binary missing), 1 on failure.
 
+import json
 import os
 import sys
 
@@ -31,8 +32,13 @@ def main():
     bpy.ops.preferences.addon_enable(module="retopoforge")
     try:
         check(hasattr(bpy.ops.retopoforge, "remesh"), "operator registered")
+        check(hasattr(bpy.ops.retopoforge, "generate_lods"), "lods operator registered")
         check(hasattr(bpy.ops.retopoforge, "reload_scripts"), "reload operator registered")
         check(hasattr(bpy.types, "RETOPOFORGE_PT_panel"), "panel registered")
+        check(hasattr(bpy.context.scene, "retopoforge_recall"),
+              "recall blob property registered")
+        check(bpy.context.scene.retopoforge_params.lod_targets == "10000,5000,2000",
+              "lod targets default")
 
         binary = retopoforge.find_retopo_binary(
             bpy.context.preferences.addons["retopoforge"].preferences.retopo_binary)
@@ -77,6 +83,108 @@ def main():
         report = bpy.context.scene.retopoforge_last_report
         check("quads" in report.lower(), "report recorded")
         print("report:", report.strip().replace("\n", " | "))
+
+        # --- per-object settings recall: fresh object (no blob entry yet),
+        # so the distinctive values below survive to the CLI call and get
+        # saved; a second run with changed scene params must restore them.
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        recall_obj = bpy.context.active_object
+        for _ in range(2):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.subdivide(number_cuts=3)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        params = bpy.context.scene.retopoforge_params
+        params.target_quads = 321
+        params.model_type = "HARDSURFACE"
+        params.sharp_edge = 45.0
+        params.adaptivity = 0.25
+        params.apply_modifiers = False
+        params.lod_targets = "400,200,80"
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"recall remesh finished (got {result})")
+        blob = json.loads(bpy.context.scene.retopoforge_recall or "{}")
+        entry = blob.get(recall_obj.name)
+        check(isinstance(entry, dict), "recall blob has object entry")
+        check(entry.get("target_quads") == 321, "recall blob target_quads")
+        check(entry.get("model_type") == "HARDSURFACE", "recall blob model_type")
+        check(abs(entry.get("sharp_edge", -1) - 45.0) < 1e-6,
+              "recall blob sharp_edge")
+        check(abs(entry.get("adaptivity", -1) - 0.25) < 1e-6,
+              "recall blob adaptivity")
+        check(entry.get("apply_modifiers") is False,
+              "recall blob apply_modifiers")
+        check(entry.get("lod_targets") == "400,200,80",
+              "recall blob lod_targets")
+        print("recall entry:", json.dumps(entry, sort_keys=True))
+
+        params.target_quads = 50
+        params.model_type = "ORGANIC"
+        params.sharp_edge = 120.0
+        params.adaptivity = 0.9
+        params.apply_modifiers = True
+        params.lod_targets = "1,2,3"
+        # The remesh above left nothing selected (the importer selects its
+        # temps, which are then removed), so re-select like a user would.
+        recall_obj.select_set(True)
+        bpy.context.view_layer.objects.active = recall_obj
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"do-over remesh finished (got {result})")
+        check(params.target_quads == 321, "recall restored target_quads")
+        check(params.model_type == "HARDSURFACE", "recall restored model_type")
+        check(abs(params.sharp_edge - 45.0) < 1e-6, "recall restored sharp_edge")
+        check(abs(params.adaptivity - 0.25) < 1e-6, "recall restored adaptivity")
+        check(params.apply_modifiers is False,
+              "recall restored apply_modifiers")
+        check(params.lod_targets == "400,200,80",
+              "recall restored lod_targets")
+
+        # --- Generate LODs: fresh object so rung counts are unaffected by
+        # the remeshes above; only it may be selected (the operator runs on
+        # every selected mesh object).
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        lod_obj = bpy.context.active_object
+        for _ in range(2):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.subdivide(number_cuts=3)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        lod_obj.location = (4.0, 5.0, 6.0)
+        lod_obj.rotation_euler = (0.1, 0.3, 0.2)
+        lod_obj.scale = (2.0, 1.0, 1.5)
+        bpy.context.view_layer.update()
+        lod_base = lod_obj.name
+        lod_matrix = lod_obj.matrix_world.copy()
+        lod_mesh = lod_obj.data
+        lod_colls = set(lod_obj.users_collection)
+        print(f"lod source: {len(lod_mesh.polygons)} polys")
+
+        params.lod_targets = "400,150,60"
+        result = bpy.ops.retopoforge.generate_lods()
+        check("FINISHED" in result, f"generate_lods finished (got {result})")
+        rungs = [bpy.data.objects.get(f"{lod_base}_lod{i}") for i in range(3)]
+        check(all(r is not None for r in rungs),
+              f"3 rung objects ({[r.name if r else None for r in rungs]})")
+        counts = [len(r.data.polygons) for r in rungs]
+        print(f"rung counts: {counts}")
+        check(all(c > 0 for c in counts), "every rung has polygons")
+        check(counts[0] > counts[1] > counts[2],
+              f"rung counts decrease ({counts})")
+        check(lod_obj.data is lod_mesh, "lod source mesh untouched")
+        for r in rungs:
+            diff = sum(abs(a - b) for crow, brow in
+                       zip(lod_matrix, r.matrix_world) for a, b in zip(crow, brow))
+            check(diff < 1e-6, f"{r.name} transform matches source")
+            check(set(r.users_collection) == lod_colls,
+                  f"{r.name} is a collection sibling")
+            check(not r.hide_viewport, f"{r.name} visible")
+        check(lod_obj.select_get() and
+              bpy.context.view_layer.objects.active == lod_obj,
+              "source re-selected after lods")
+        lod_report = bpy.context.scene.retopoforge_last_report
+        check(all(f"{lod_base}_lod{i}" in lod_report for i in range(3)),
+              "report lists all rungs")
+        print("lod report:", lod_report.strip().replace("\n", " | "))
 
         leftovers = [o for o in bpy.data.objects if o.name.startswith("in_")]
         check(not leftovers, "no temp objects left behind")
