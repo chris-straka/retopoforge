@@ -31,6 +31,7 @@ def main():
     bpy.ops.preferences.addon_enable(module="retopoforge")
     try:
         check(hasattr(bpy.ops.retopoforge, "remesh"), "operator registered")
+        check(hasattr(bpy.ops.retopoforge, "reload_scripts"), "reload operator registered")
         check(hasattr(bpy.types, "RETOPOFORGE_PT_panel"), "panel registered")
 
         binary = retopoforge.find_retopo_binary(

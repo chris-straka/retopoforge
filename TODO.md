@@ -21,12 +21,23 @@ new warnings.
 
 ## Game-asset pipeline (owner's core loop)
 
+- [ ] AI-soup sliver output (BLOCKER for the owner's use): dense AI soup
+      remeshes into microscopic slivers (median face area ~1e-8 at
+      q5000; total surface ~2% of sane) at all adaptivity settings and
+      input orientations. Coverage improves with target but stays far
+      below sane. Repro: `bench/models/ai-soup-repro.obj` (local-only,
+      gitignored — never commit). Suspect sizing-field breakdown on
+      noisy soup; the count-accuracy fix below may cure both — re-test
+      slivers right after it lands.
 - [ ] Target-count accuracy: `--target-quads` currently undershoots badly
-      (10k asked, ~4.3k produced on the owner's corpus). Characterize the
-      mapping first (guidance vs bug), then fix the engine or document
-      the real contract. Mobile budgets are exact — this is the top
-      engine issue, and Exoside's count is approximate too, so exact
-      counts would be a genuine edge, not catch-up.
+      (10k asked, ~4.3k produced on the owner's corpus). Research done:
+      root cause is the unnormalized adaptivity field in
+      `Parameterizer::computeFaceScalingField` (no budget
+      renormalization; flat regions pin at 3x = 1/9 density). Fix =
+      renormalize to preserve integral(area/s^2), then regen
+      `bench/baseline.json` (counts rise everywhere). Mobile budgets are
+      exact — and Exoside's count is approximate too, so exact counts
+      would be a genuine edge, not catch-up.
 - [ ] Weld-on-load in the CLI: AI exporters emit non-indexed triangle
       soup; unwelded input exploded into thousands of islands in testing
       (meshopt remap in the loader, drop degenerate tris)
@@ -35,8 +46,9 @@ new warnings.
 - [ ] Loud island-failure accounting: failed islands vanish from the
       output with exit 0 (report failed-island count; decide fallback
       output)
-- [ ] Batch mode: remesh a whole asset folder in one CLI invocation
-      (one LOD chain per file; per-file report)
+- [x] Batch mode: remesh a whole asset folder in one CLI invocation
+      (`--input` dir + `--output` dir, per-file report, failed-files
+      list, exit 1 on partial failure)
 - [ ] Robustness pass over the owner's AI corpus (holes proven OK;
       still to probe: non-manifold soup, floating parts, multi-component
       meshes, 1M-tri scale perf). Record results as local-only notes,
@@ -44,9 +56,9 @@ new warnings.
 
 ## LOD chains (desktop + mobile from one chain)
 
-- [ ] Multi-resolution output: one run emits the full chain
-      (CLI `--lods` and/or Blender one-click "Generate LODs"). Until
-      then the workaround is N manual runs at N targets.
+- [x] Multi-resolution output: CLI `--lods` emits the full chain
+      (`<stem>_lod<N>.obj` + per-rung report lines)
+- [ ] Blender one-click "Generate LODs" driving CLI `--lods`
 - [ ] Document the rung strategy: which chain rungs serve desktop vs
       mobile, triangle budgets per rung for hero/prop/environment
       assets, and how Godot's import-time auto-LOD interacts with

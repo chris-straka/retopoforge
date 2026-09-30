@@ -36,9 +36,21 @@ Qt installed, add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to the configure line.
 Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--target-quads` (default 50000), `--edge-scaling` (1.0–4.0),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
-`--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
+`--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`, `--lods <q0,q1,...>`,
 `--help`/`-h`, `--version`/`-v`. The input model comes from
-`bench/fetch_models.sh` (see Benchmarks). `retopo` must stay Qt-free —
+`bench/fetch_models.sh` (see Benchmarks).
+
+Multi-output: `--lods 10000,5000,2000` emits a full LOD chain in one run
+(`<stem>_lod0.obj`, `<stem>_lod1.obj`, ... next to `--output`, overriding
+`--target-quads`); pointing `--input` at a directory remeshes every `.obj`
+in it (non-recursive) with `--output` as the directory:
+
+```bash
+./build/cli/retopo --input bench/models/armadillo.obj --output /tmp/hero.obj --lods 10000,5000,2000
+./build/cli/retopo --input assets/ --output assets-retopo/
+```
+
+`retopo` must stay Qt-free —
 this must print `Qt-free: OK`:
 
 ```bash

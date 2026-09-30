@@ -416,6 +416,18 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         return {"CANCELLED"}
 
 
+class RETOPOFORGE_OT_reload(bpy.types.Operator):
+    """Reload all scripts (picks up extension updates), then confirm"""
+
+    bl_idname = "retopoforge.reload_scripts"
+    bl_label = "Reload Scripts"
+
+    def execute(self, context):
+        bpy.ops.script.reload()
+        self.report({"INFO"}, "Scripts reloaded")
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_PT_panel(bpy.types.Panel):
     bl_label = "RetopoForge"
     bl_idname = "RETOPOFORGE_PT_panel"
@@ -454,8 +466,8 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         layout.label(text="Remeshing replaces topology;", icon="INFO")
         layout.label(text="UVs and vertex colors do not survive.")
         # Dev convenience: picks up extension updates without restarting
-        # Blender (same operator as F3 > Reload Scripts).
-        layout.operator("script.reload", text="Reload Scripts",
+        # Blender, with an INFO report as visible confirmation.
+        layout.operator("retopoforge.reload_scripts", text="Reload Scripts",
                         icon="FILE_REFRESH")
 
 
@@ -463,6 +475,7 @@ _CLASSES = (
     RetopoForgePreferences,
     RETOPOFORGE_PG_params,
     RETOPOFORGE_OT_remesh,
+    RETOPOFORGE_OT_reload,
     RETOPOFORGE_PT_panel,
 )
 

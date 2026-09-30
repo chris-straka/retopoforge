@@ -29,3 +29,12 @@ target_compile_definitions(test_cli_roundtrip PRIVATE
 )
 add_dependencies(test_cli_roundtrip retopo)
 set_tests_properties(test_cli_roundtrip PROPERTIES TIMEOUT 600)
+
+# CLI multi-mode: --lods chains + folder batch mode on bench/models/fandisk.obj.
+retopo_add_test(test_cli_multimode test_cli_multimode.cpp)
+target_compile_definitions(test_cli_multimode PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_FANDISK=\"${CMAKE_SOURCE_DIR}/bench/models/fandisk.obj\""
+)
+add_dependencies(test_cli_multimode retopo)
+set_tests_properties(test_cli_multimode PROPERTIES TIMEOUT 600)
