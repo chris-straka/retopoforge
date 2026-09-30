@@ -137,7 +137,8 @@ new warnings.
 - [x] Expand `tests/`: solver golden tests, CLI round-trip tests;
       wire `ctest` into CI (CLI round-trip + SurfaceMesh tests done,
       CI wired; solver goldens still open — see below)
-- [ ] Solver golden tests (engine behavior pins beyond counts)
+- [x] Solver golden tests (CLS 9 groups + MILS 5 groups, 1e-6
+      tolerance, theory-derived expectations)
 - [x] Binary rename `autoremesher` → `retopoforge` (binaries, bundle, docs)
 - [x] Upstream watch: Sept-2026 Kwizatz PRs evaluated — all already
       present (fork contains upstream/master tip 3cb2012c): #56 dense
@@ -150,7 +151,9 @@ new warnings.
 - [ ] Architecture doc (engine / CLI / app / addon split, module graph)
 - [ ] macOS bundle CI: sign + verify path via `ci/macos_bundle.sh`
 - [ ] Bigger bench models for a real perf signal
-- [ ] Linux CI revive (parked); Windows stays parked (mac-only scope)
+- [x] Linux CI revive (ubuntu-24.04 + distro clang, ctest + bench
+      gated); Windows stays parked. NOTE: unproven until release CI
+      runs it — fix forward if red.
 
 ## Exoside parity (last)
 
