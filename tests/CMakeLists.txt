@@ -143,6 +143,13 @@ target_compile_definitions(test_cli_uv_atlas PRIVATE
 add_dependencies(test_cli_uv_atlas retopo)
 set_tests_properties(test_cli_uv_atlas PROPERTIES TIMEOUT 600)
 
+# Differential oracle dump for the Rust solvers calibration experiment.
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/solver_diff.txt for rust/solvers/tests/differential.rs.
+add_executable(solver_diff_dump solver_diff_dump.cpp)
+set_target_properties(solver_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(solver_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
 retopo_add_test(test_island_stats test_island_stats.cpp)
