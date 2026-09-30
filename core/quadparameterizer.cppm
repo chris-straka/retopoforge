@@ -21,6 +21,7 @@
  */
 module;
 #include <cstddef>
+#include <span>
 #include <vector>
 
 export module retopo.core.quad_parameterizer;
@@ -41,11 +42,11 @@ public:
     };
     static bool parameterize(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles,
-        const std::vector<Vector3>* guidance, double scaling,
+        std::span<const Vector3> guidance, double scaling,
         double hardEdgeDegrees, Result* result,
-        const std::vector<double>* faceScaling = nullptr,
-        const std::vector<double>* faceScalingU = nullptr,
-        const std::vector<double>* faceScalingV = nullptr,
+        std::span<const double> faceScaling = {},
+        std::span<const double> faceScalingU = {},
+        std::span<const double> faceScalingV = {},
         // Reports 0..1 across the quad cover solve, which is the single longest
         // step of the whole pipeline and would otherwise be one silent block.
         const ProgressHandler* progressHandler = nullptr,

@@ -150,8 +150,15 @@ new warnings.
 
 ## C++ follow-ups
 
-- [ ] API-shape modernization, solo (cross-file, not lane-safe):
-      `string_view` params, `std::span`, `std::expected` returns
+- [x] API-shape modernization, solo (cross-file, not lane-safe):
+      `string_view` for inspection-only paths (glb extension checks,
+      `lodOutputPath`); `std::span` for read-only vector params
+      (quad-cover scaling/guidance, density normalize/resample input).
+      Deliberately not converted: filename params at fopen/ifstream
+      boundaries (NUL termination), output/resized vectors (span can't
+      resize), thirdparty-mirroring pointer members,
+      `std::expected` (bool+warn/err loader pattern ripples callers
+      and tests for no behavior gain).
 - [x] Expand `tests/`: solver golden tests, CLI round-trip tests;
       wire `ctest` into CI (CLI round-trip + SurfaceMesh tests done,
       CI wired; solver goldens still open — see below)

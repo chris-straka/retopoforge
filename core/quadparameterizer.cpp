@@ -26,6 +26,7 @@ module;
 #include <cstdlib>
 #include <iostream>
 #include <queue>
+#include <span>
 #include <utility>
 #include <vector>
 #include <tbb/blocked_range.h>
@@ -135,14 +136,14 @@ namespace {
         const std::vector<signed char>& cornerConstraints;
         const std::vector<double>& scalingU;
         const std::vector<double>& scalingV;
-        const std::vector<double>* faceScaling;
+        std::span<const double> faceScaling;
         double scale;
     };
 
-    void initializeFieldAndNormals(const SurfaceMesh& mesh, const std::vector<Vector3>* guidance,
+    void initializeFieldAndNormals(const SurfaceMesh& mesh, std::span<const Vector3> guidance,
         std::vector<Vector3>* normals, std::vector<Vector3>* field)
     {
-        const bool hasGuidance = guidance && guidance->size() == mesh.faceCount();
+        const bool hasGuidance = guidance.size() == mesh.faceCount();
         normals->assign(mesh.faceCount(), Vector3());
         field->resize(mesh.faceCount());
         tbb::parallel_for(tbb::blocked_range<size_t>(0, mesh.faceCount()), [&](const tbb::blocked_range<size_t>& range) {
@@ -151,7 +152,7 @@ namespace {
                 Vector3 tangentAxis(1, 0, 0);
                 if (std::fabs(Vector3::dotProduct(tangentAxis, (*normals)[faceIndex])) > .8)
                     tangentAxis = Vector3(0, 1, 0);
-                Vector3 fieldDirection = hasGuidance ? (*guidance)[faceIndex] : tangentAxis;
+                Vector3 fieldDirection = hasGuidance ? guidance[faceIndex] : tangentAxis;
                 if (!hasGuidance)
                     fieldDirection = fieldDirection - (*normals)[faceIndex] * Vector3::dotProduct(fieldDirection, (*normals)[faceIndex]);
                 (*field)[faceIndex] = unit(fieldDirection, mesh.edgeVector(3 * faceIndex));
@@ -314,16 +315,16 @@ namespace {
 
     void applyCurlCorrection(const SurfaceMesh& mesh, const std::vector<Vector3>& normals,
         const std::vector<int>& rotation, const std::vector<signed char>& cornerConstraints,
-        const std::vector<double>* faceScaling, double scale, double regularization,
+        std::span<const double> faceScaling, double scale, double regularization,
         std::vector<double>* scalingU, std::vector<double>* scalingV,
         std::vector<Vector3>* field)
     {
         const size_t faceCount = mesh.faceCount();
-        const bool hasFaceScaling = faceScaling && faceScaling->size() == faceCount;
+        const bool hasFaceScaling = faceScaling.size() == faceCount;
         std::vector<double> su(faceCount), sv(faceCount);
         std::vector<Vector3> perpendicular(faceCount);
         for (size_t f = 0; f < faceCount; ++f) {
-            const double faceScale = hasFaceScaling ? std::max(1e-12, (*faceScaling)[f]) : 1.0;
+            const double faceScale = hasFaceScaling ? std::max(1e-12, faceScaling[f]) : 1.0;
             su[f] = scale * faceScale * std::max(1e-12, (*scalingU)[f]);
             sv[f] = scale * faceScale * std::max(1e-12, (*scalingV)[f]);
             perpendicular[f] = unit(Vector3::crossProduct(normals[f], (*field)[f]),
@@ -405,7 +406,7 @@ namespace {
         }
         double areaBefore = 0.0, areaAfter = 0.0;
         for (size_t f = 0; f < faceCount; ++f) {
-            const double faceScale = hasFaceScaling ? std::max(1e-12, (*faceScaling)[f]) : 1.0;
+            const double faceScale = hasFaceScaling ? std::max(1e-12, faceScaling[f]) : 1.0;
             const double area = Vector3::crossProduct(mesh.edgeVector(3 * f),
                 -mesh.edgeVector(3 * f + 2))
                                     .length();
@@ -506,7 +507,7 @@ namespace {
         const std::vector<signed char>& cornerConstraints = ctx.cornerConstraints;
         const std::vector<double>& activeScalingU = ctx.scalingU;
         const std::vector<double>& activeScalingV = ctx.scalingV;
-        const std::vector<double>* faceScaling = ctx.faceScaling;
+        const std::span<const double> faceScaling = ctx.faceScaling;
         const double scale = ctx.scale;
         const size_t corners = mesh.cornerCount();
         const size_t uvVariables = 2 * corners;
@@ -521,8 +522,8 @@ namespace {
             s.setVariablePeriod(uvVariables + t, 2);
         for (size_t f = 0; f < mesh.faceCount(); ++f) {
             const Vector3 u = field[f], v = unit(Vector3::crossProduct(normals[f], u), mesh.edgeVector(3 * f));
-            const double faceScale = faceScaling && faceScaling->size() == mesh.faceCount()
-                ? std::max(1e-12, (*faceScaling)[f])
+            const double faceScale = faceScaling.size() == mesh.faceCount()
+                ? std::max(1e-12, faceScaling[f])
                 : 1.0;
             const double directionalU = std::max(1e-12, activeScalingU[f]);
             const double directionalV = std::max(1e-12, activeScalingV[f]);
@@ -692,11 +693,11 @@ namespace {
 
 bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
-    const std::vector<Vector3>* guidance, double scaling,
+    std::span<const Vector3> guidance, double scaling,
     double hardEdgeDegrees, Result* result,
-    const std::vector<double>* faceScaling,
-    const std::vector<double>* faceScalingU,
-    const std::vector<double>* faceScalingV,
+    std::span<const double> faceScaling,
+    std::span<const double> faceScalingU,
+    std::span<const double> faceScalingV,
     const ProgressHandler* progressHandler,
     const std::vector<std::vector<Vector3>>* sharps)
 {
@@ -720,15 +721,15 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     const std::vector<Vector3> fieldBeforeBrush = result->field;
 
     std::vector<double> activeScalingU(mesh.faceCount(), 1.0), activeScalingV(mesh.faceCount(), 1.0);
-    const bool trackDirectionalScale = faceScalingU && faceScalingV
-        && faceScalingU->size() == mesh.faceCount() && faceScalingV->size() == mesh.faceCount();
+    const bool trackDirectionalScale = faceScalingU.size() == mesh.faceCount()
+        && faceScalingV.size() == mesh.faceCount();
     if (trackDirectionalScale) {
-        activeScalingU = *faceScalingU;
-        activeScalingV = *faceScalingV;
+        activeScalingU.assign(faceScalingU.begin(), faceScalingU.end());
+        activeScalingV.assign(faceScalingV.begin(), faceScalingV.end());
     }
 
     report(0.04f, "Smoothing cross field");
-    if (!(guidance && guidance->size() == mesh.faceCount()))
+    if (guidance.size() != mesh.faceCount())
         smoothCrossField(mesh, normals, hardEdgeDegrees, &result->field);
     brushFieldAlongSpanningTree(mesh, normals, &result->field);
 

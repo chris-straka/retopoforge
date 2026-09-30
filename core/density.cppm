@@ -21,6 +21,7 @@
  */
 module;
 #include <cstddef>
+#include <span>
 #include <vector>
 
 export module retopo.core.density;
@@ -40,7 +41,7 @@ public:
     // become 1.0). An empty or all-1.0 field normalizes to empty, which is the
     // OFF state: callers skip all density work when the result is empty, so
     // the pipeline stays bit-identical to a run without any field.
-    static std::vector<double> normalizeField(const std::vector<double>& field);
+    static std::vector<double> normalizeField(std::span<const double> field);
 
     // Target edge-length scale for a density multiplier: quads-per-area scale
     // as 1/h^2, so d times the quads need edges 1/sqrt(d) as long.

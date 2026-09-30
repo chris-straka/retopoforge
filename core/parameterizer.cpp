@@ -509,8 +509,8 @@ bool Parameterizer::parameterize()
     }
     QuadParameterizer::Result cover;
     if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
-            &field, m_scaling, m_sharpEdgeDegrees, &cover,
-            &faceScalingField, &faceScalingU, &faceScalingV,
+            field, m_scaling, m_sharpEdgeDegrees, &cover,
+            faceScalingField, faceScalingU, faceScalingV,
             coverProgress ? &coverProgress : nullptr,
             snappedSharps.empty() ? nullptr : &snappedSharps)) {
         std::cerr << "Quad cover solve failed\n";

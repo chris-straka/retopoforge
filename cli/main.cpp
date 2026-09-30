@@ -653,7 +653,7 @@ static bool saveMesh(const std::string& filename,
     return saveObj(filename, vertices, quads);
 }
 
-static std::string lodOutputPath(const std::string& baseOutput, size_t lodIndex)
+static std::string lodOutputPath(std::string_view baseOutput, size_t lodIndex)
 {
     const std::filesystem::path base(baseOutput);
     std::string ext = base.extension().string();

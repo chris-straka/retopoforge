@@ -37,27 +37,27 @@
 
 namespace GlbIo {
 
-static std::string lowerExtension(const std::string& path)
+static std::string lowerExtension(std::string_view path)
 {
     const size_t dot = path.find_last_of('.');
-    if (dot == std::string::npos)
+    if (dot == std::string_view::npos)
         return std::string();
     // A trailing dot or a dot in a directory component is not an extension.
     const size_t slash = path.find_last_of("/\\");
-    if (slash != std::string::npos && dot < slash)
+    if (slash != std::string_view::npos && dot < slash)
         return std::string();
-    std::string ext = path.substr(dot);
+    std::string ext(path.substr(dot));
     for (char& c : ext)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return ext;
 }
 
-bool hasGlbExtension(const std::string& path)
+bool hasGlbExtension(std::string_view path)
 {
     return lowerExtension(path) == ".glb";
 }
 
-bool isSupportedInputExtension(const std::string& path)
+bool isSupportedInputExtension(std::string_view path)
 {
     const std::string ext = lowerExtension(path);
     return ext == ".obj" || ext == ".glb";

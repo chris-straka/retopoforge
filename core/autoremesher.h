@@ -31,6 +31,7 @@ import retopo.core.vector3;
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -362,7 +363,7 @@ private:
         const ProgressHandler* progressHandler,
         std::vector<Vector3>* decimatedVerticesOut,
         std::vector<std::vector<size_t>>* decimatedTrianglesOut,
-        const std::vector<double>* densityIn,
+        std::span<const double> densityIn,
         std::vector<double>* densityOut);
     static double calculateMeshArea(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles);

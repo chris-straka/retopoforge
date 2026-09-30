@@ -42,15 +42,16 @@
 #include <AutoRemesher/AutoRemesher>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace GlbIo {
 
 // Case-insensitive ".glb" extension check (".GLB" from AI exporters counts).
-bool hasGlbExtension(const std::string& path);
+bool hasGlbExtension(std::string_view path);
 
 // Case-insensitive ".obj"/".glb" check for batch-mode input scanning.
-bool isSupportedInputExtension(const std::string& path);
+bool isSupportedInputExtension(std::string_view path);
 
 // Parse every mesh primitive in a .glb file into flat positions + triangles,
 // mirroring AutoRemesher::loadObjPositionsAndTriangles (same shape: positions

@@ -329,15 +329,15 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
     const ProgressHandler* progressHandler,
     std::vector<Vector3>* decimatedVerticesOut,
     std::vector<std::vector<size_t>>* decimatedTrianglesOut,
-    const std::vector<double>* densityIn,
+    std::span<const double> densityIn,
     std::vector<double>* densityOut)
 {
     // Local density control, default off: every block below is guarded on
     // densityActive, so a run without a mask executes the exact same
     // statements (and floating-point ops) as before.
     std::vector<double> islandDensity;
-    if (nullptr != densityIn && densityIn->size() == vertices.size() && !vertices.empty())
-        islandDensity = Density::normalizeField(*densityIn);
+    if (!densityIn.empty() && densityIn.size() == vertices.size())
+        islandDensity = Density::normalizeField(densityIn);
     bool densityActive = !islandDensity.empty();
     std::vector<Vector3> positionsBeforeDecimate;
     if (densityActive)
@@ -804,7 +804,7 @@ bool AutoRemesher::remesh()
                     resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, i, m_decimationStats,
                         m_adaptiveFieldTime, &isotropicProgress,
                         &(*m_decimatedIslandVertices)[i], &(*m_decimatedIslandTriangles)[i],
-                        &ctx.density, &ctx.resampledDensity);
+                        ctx.density, &ctx.resampledDensity);
                     auto t1 = std::chrono::high_resolution_clock::now();
                     *m_resampleTime += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 

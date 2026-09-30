@@ -141,15 +141,16 @@ int main()
     // normalizeField: clamping, non-finite handling, OFF states.
     {
         CHECK(Density::normalizeField({}).empty());
-        CHECK(Density::normalizeField({ 1.0, 1.0, 1.0 }).empty());
-        const std::vector<double> clamped = Density::normalizeField({ 100.0, 0.001, 2.0, 1.0 });
+        CHECK(Density::normalizeField(std::vector<double>({ 1.0, 1.0, 1.0 })).empty());
+        const std::vector<double> clamped = Density::normalizeField(
+            std::vector<double>({ 100.0, 0.001, 2.0, 1.0 }));
         CHECK(clamped.size() == 4);
         CHECK(clamped[0] == 4.0 && clamped[1] == 0.25 && clamped[2] == 2.0 && clamped[3] == 1.0);
         const std::vector<double> finite = Density::normalizeField(
-            { std::numeric_limits<double>::quiet_NaN(), 2.0 });
+            std::vector<double>({ std::numeric_limits<double>::quiet_NaN(), 2.0 }));
         CHECK(finite.size() == 2 && finite[0] == 1.0 && finite[1] == 2.0);
         CHECK(Density::normalizeField(
-            { std::numeric_limits<double>::infinity(), 1.0 })
+            std::vector<double>({ std::numeric_limits<double>::infinity(), 1.0 }))
                 .empty());
     }
 

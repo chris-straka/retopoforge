@@ -22,6 +22,7 @@ module;
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <span>
 #include <unordered_map>
 #include <vector>
 module retopo.core.density;
@@ -138,7 +139,7 @@ namespace {
     }
 }
 
-std::vector<double> Density::normalizeField(const std::vector<double>& field)
+std::vector<double> Density::normalizeField(std::span<const double> field)
 {
     if (field.empty())
         return {};
