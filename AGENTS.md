@@ -20,6 +20,9 @@ hand when relevant, and only with `bench/run.py --check` green.
 - Never launch GUI binaries without explicit user approval. Offscreen
   smoke tests count as launches: batch them, and prefer exit-code-checked
   `--help` / headless runs over open-ended GUI sessions.
+- Watch `upstream` for engine fixes worth hand-porting: periodically
+  `git fetch upstream` and review new `upstream/master` commits. Never merge
+  (diverged tree — port individual fixes by hand, bench green).
 
 ## Build
 

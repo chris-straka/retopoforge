@@ -3,8 +3,9 @@
 retopoforge is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher)
 (MIT, by Jeremy HU) restructured around a **Qt-free headless engine**: a C++
 core library, a `retopo` CLI, a benchmark/regression harness, and (planned) a
-Blender addon. Upstream is kept as the `upstream` git remote for merging future
-fixes.
+Blender addon. Upstream is kept as the `upstream` git remote as a read-only
+reference; this fork has structurally diverged, so upstream engine fixes are
+ported by hand when relevant, never git-merged.
 
 ## Build (one CMake build for everything)
 
