@@ -243,6 +243,26 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Comma-separated quad counts for Generate LODs (one rung per value)",
         default="10000,5000,2000",
     )
+    bake_size: IntProperty(
+        name="Bake Size",
+        description="Width/height of baked textures in pixels",
+        default=1024, min=64, max=4096,
+    )
+    bake_extrusion: FloatProperty(
+        name="Bake Extrusion",
+        description="Ray extrusion distance for selected-to-active bakes",
+        default=0.05, min=0.0, max=10.0,
+    )
+    bake_margin: IntProperty(
+        name="Bake Margin",
+        description="Baked UV island margin in pixels",
+        default=16, min=0, max=64,
+    )
+    bake_normal: BoolProperty(
+        name="Bake Normal",
+        description="Also bake a tangent-space normal map alongside diffuse",
+        default=True,
+    )
 
     def cli_args(self, binary, input_path, output_path):
         return [
@@ -684,6 +704,148 @@ class RETOPOFORGE_OT_generate_lods(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _ensure_bake_target(obj, image):
+    """Give obj a material with an active Image Texture node holding image
+    (the node Cycles bakes into). Reuses the first material slot, creating
+    a node-based material only when the object has none."""
+    mat = obj.data.materials[0] if len(obj.data.materials) else None
+    if mat is None:
+        mat = bpy.data.materials.new(name=f"{obj.name}_bake")
+        mat.use_nodes = True
+        obj.data.materials.append(mat)
+    if not mat.use_nodes:
+        mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    tex = None
+    for node in nodes:
+        if node.type == "TEX_IMAGE" and node.image is image:
+            tex = node
+            break
+    if tex is None:
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.image = image
+    for node in nodes:
+        node.select = False
+    tex.select = True
+    nodes.active = tex
+    return tex
+
+
+def _ensure_high_material(obj):
+    """Diffuse bakes read the high-poly albedo: an object with no material
+    bakes undefined black, so give it a default Principled material. An
+    object that already has materials is left strictly alone."""
+    if len(obj.data.materials):
+        return
+    mat = bpy.data.materials.new(name=f"{obj.name}_high")
+    mat.use_nodes = True
+    obj.data.materials.append(mat)
+
+
+def _smart_uv_low(context, low):
+    _ensure_object_mode()
+    context.view_layer.update()
+    for o in context.selected_objects:
+        o.select_set(False)
+    low.select_set(True)
+    context.view_layer.objects.active = low
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=66.0, island_margin=0.02)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
+    """Bake diffuse (+ normal) from the HIGH-poly active object to the
+    selected LOW-poly target (Smart-UV, Cycles CPU, selected-to-active)"""
+
+    bl_idname = "retopoforge.bake_textures"
+    bl_label = "Bake High to Low"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        params = context.scene.retopoforge_params
+        high = context.view_layer.objects.active
+        if high is None or high.type != "MESH":
+            self.report({"ERROR"},
+                        "Make the HIGH-poly source the active object")
+            return {"CANCELLED"}
+        lows = [o for o in context.selected_objects
+                if o.type == "MESH" and o != high]
+        if not lows:
+            self.report({"ERROR"},
+                        "Select the LOW-poly target (active object is the HIGH source)")
+            return {"CANCELLED"}
+        low = lows[0]
+        if len(lows) > 1:
+            self.report({"INFO"},
+                        f"Multiple LOW candidates; baking to '{low.name}'")
+
+        _smart_uv_low(context, low)
+        _ensure_high_material(high)
+
+        outdir = os.path.dirname(bpy.data.filepath) or "/tmp"
+        size = int(params.bake_size)
+        diffuse = bpy.data.images.new(f"{low.name}_diffuse", size, size,
+                                      alpha=True)
+        diffuse.file_format = "PNG"
+        diffuse_path = os.path.join(outdir, f"{low.name}_diffuse.png")
+        diffuse.filepath_raw = diffuse_path
+        tex_node = _ensure_bake_target(low, diffuse)
+        normal = None
+        normal_path = ""
+        if params.bake_normal:
+            normal = bpy.data.images.new(f"{low.name}_normal", size, size,
+                                         alpha=True)
+            normal.file_format = "PNG"
+            normal_path = os.path.join(outdir, f"{low.name}_normal.png")
+            normal.filepath_raw = normal_path
+
+        scene = context.scene
+        scene.render.engine = "CYCLES"
+        scene.cycles.device = "CPU"
+        scene.cycles.samples = 1
+        bake = scene.render.bake
+        bake.use_selected_to_active = True
+        bake.use_cage = False
+        bake.cage_extrusion = float(params.bake_extrusion)
+        bake.margin = int(params.bake_margin)
+        bake.use_clear = True
+
+        # Blender's selected-to-active bakes onto the ACTIVE object, so low
+        # takes over as active for the bake itself (restored afterwards);
+        # the user-facing contract stays active=HIGH at invoke time.
+        for o in context.selected_objects:
+            o.select_set(False)
+        high.select_set(True)
+        low.select_set(True)
+        context.view_layer.objects.active = low
+        context.view_layer.update()
+        try:
+            bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"},
+                                use_clear=True)
+            diffuse.save()
+            line = f"{low.name}: diffuse -> {diffuse_path}"
+            if normal is not None:
+                tex_node.image = normal
+                bpy.ops.object.bake(type="NORMAL", use_clear=True)
+                normal.save()
+                line += f"\n{low.name}: normal -> {normal_path}"
+        except RuntimeError as exc:
+            self.report({"ERROR"}, f"Bake failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            for o in context.selected_objects:
+                o.select_set(False)
+            high.select_set(True)
+            low.select_set(True)
+            context.view_layer.objects.active = high
+
+        scene.retopoforge_last_report += line + "\n"
+        self.report({"INFO"}, line.replace("\n", " | "))
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_OT_reload(bpy.types.Operator):
     """Reload all scripts (picks up extension updates), then confirm"""
 
@@ -729,6 +891,15 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         col.prop(params, "lod_targets")
         layout.operator("retopoforge.generate_lods", text="Generate LODs",
                         icon="MOD_DECIM")
+        bake = layout.box()
+        bake.label(text="Bake Assist: Active = HIGH, Selected = LOW")
+        bcol = bake.column(align=True)
+        bcol.prop(params, "bake_size")
+        bcol.prop(params, "bake_extrusion")
+        bcol.prop(params, "bake_margin")
+        bcol.prop(params, "bake_normal")
+        bake.operator("retopoforge.bake_textures", text="Bake High to Low",
+                      icon="RENDER_RESULT")
         report = context.scene.retopoforge_last_report
         if report:
             box = layout.box()
@@ -747,6 +918,7 @@ _CLASSES = (
     RETOPOFORGE_PG_params,
     RETOPOFORGE_OT_remesh,
     RETOPOFORGE_OT_generate_lods,
+    RETOPOFORGE_OT_bake_textures,
     RETOPOFORGE_OT_reload,
     RETOPOFORGE_PT_panel,
 )

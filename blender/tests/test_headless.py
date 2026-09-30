@@ -33,6 +33,7 @@ def main():
     try:
         check(hasattr(bpy.ops.retopoforge, "remesh"), "operator registered")
         check(hasattr(bpy.ops.retopoforge, "generate_lods"), "lods operator registered")
+        check(hasattr(bpy.ops.retopoforge, "bake_textures"), "bake operator registered")
         check(hasattr(bpy.ops.retopoforge, "reload_scripts"), "reload operator registered")
         check(hasattr(bpy.types, "RETOPOFORGE_PT_panel"), "panel registered")
         check(hasattr(bpy.context.scene, "retopoforge_recall"),
@@ -185,6 +186,71 @@ def main():
         check(all(f"{lod_base}_lod{i}" in lod_report for i in range(3)),
               "report lists all rungs")
         print("lod report:", lod_report.strip().replace("\n", " | "))
+
+        # --- Bake assist: two-tone subdivided-cube high, remeshed low via
+        # the existing remesh op; the diffuse bake must finish and land
+        # non-uniform pixels in a PNG next to the (unsaved -> /tmp) blend.
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        high = bpy.context.active_object
+        for _ in range(2):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.subdivide(number_cuts=2)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        mat_red = bpy.data.materials.new("BakeHighRed")
+        mat_red.use_nodes = True
+        (mat_red.node_tree.nodes["Principled BSDF"].inputs["Base Color"]
+         .default_value) = (1.0, 0.0, 0.0, 1.0)
+        mat_green = bpy.data.materials.new("BakeHighGreen")
+        mat_green.use_nodes = True
+        (mat_green.node_tree.nodes["Principled BSDF"].inputs["Base Color"]
+         .default_value) = (0.0, 1.0, 0.0, 1.0)
+        high.data.materials.append(mat_red)
+        high.data.materials.append(mat_green)
+        for poly in high.data.polygons:
+            poly.material_index = 0 if poly.center.x < 0.0 else 1
+        print(f"bake high: {len(high.data.polygons)} polys, "
+              f"{len(high.data.materials)} mats")
+
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        low_src = bpy.context.active_object
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.subdivide(number_cuts=1)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        params.target_quads = 100
+        params.keep_original = False
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"bake-low remesh finished (got {result})")
+        low = bpy.data.objects[low_src.name]
+        print(f"bake low: {len(low.data.polygons)} polys")
+
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high  # ACTIVE is HIGH
+        params.bake_size = 256
+        params.bake_normal = True
+        result = bpy.ops.retopoforge.bake_textures()
+        check("FINISHED" in result, f"bake finished (got {result})")
+        check(len(low.data.uv_layers) > 0, "low got Smart-UV layers")
+        diff_path = os.path.join("/tmp", f"{low.name}_diffuse.png")
+        norm_path = os.path.join("/tmp", f"{low.name}_normal.png")
+        check(os.path.isfile(diff_path), f"diffuse png saved ({diff_path})")
+        check(os.path.isfile(norm_path), f"normal png saved ({norm_path})")
+        check(diff_path in bpy.context.scene.retopoforge_last_report,
+              "report names the diffuse path")
+        check(bpy.context.view_layer.objects.active == high,
+              "active=HIGH restored after bake")
+        probe = bpy.data.images.load(diff_path)
+        try:
+            px = list(probe.pixels)
+            check(len(px) > 0, "diffuse image has pixels")
+            spread = max(px) - min(px)
+            check(spread > 0.05, f"diffuse pixels non-uniform (spread {spread:.3f})")
+        finally:
+            bpy.data.images.remove(probe)
+        os.remove(diff_path)
+        os.remove(norm_path)
 
         leftovers = [o for o in bpy.data.objects if o.name.startswith("in_")]
         check(not leftovers, "no temp objects left behind")
