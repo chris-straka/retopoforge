@@ -1,0 +1,176 @@
+{
+  "platform": "linux-x86_64",
+  "note": "Same gates as baseline.json; counts differ (libstdc++ solves, no Accelerate). Regenerate per platform, never mix.",
+  "results": [
+    {
+      "model": "armadillo.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.6,
+      "input_verts": 49990,
+      "input_faces": 99976,
+      "verts": 647,
+      "quads": 629,
+      "non_quads": 12,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "armadillo.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 2.6,
+      "input_verts": 49990,
+      "input_faces": 99976,
+      "verts": 4629,
+      "quads": 4613,
+      "non_quads": 12,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "beast.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.6,
+      "input_verts": 32311,
+      "input_faces": 32364,
+      "verts": 830,
+      "quads": 790,
+      "non_quads": 35,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "beast.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 4.1,
+      "input_verts": 32311,
+      "input_faces": 32364,
+      "verts": 5570,
+      "quads": 5493,
+      "non_quads": 56,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.6,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 1155,
+      "quads": 1141,
+      "non_quads": 8,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 2.4,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 5517,
+      "quads": 5483,
+      "non_quads": 28,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.5,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 1664,
+      "quads": 1641,
+      "non_quads": 14,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 1.5,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 5543,
+      "quads": 5532,
+      "non_quads": 6,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "xyzrgb_dragon.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 1.2,
+      "input_verts": 125066,
+      "input_faces": 249882,
+      "verts": 707,
+      "quads": 669,
+      "non_quads": 25,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "xyzrgb_dragon.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 3.7,
+      "input_verts": 125066,
+      "input_faces": 249882,
+      "verts": 3972,
+      "quads": 3890,
+      "non_quads": 62,
+      "errors": [],
+      "error_count": 0
+    }
+  ]
+}

@@ -9,6 +9,13 @@ Usage:
     bench/run.py                     # run all, print table, save results JSON
     bench/run.py --check bench/baseline.json
                                      # run all, fail on regression vs baseline
+    bench/run.py --check bench/baseline-linux.json
+                                     # same, against the Linux counts
+
+Baselines are per-platform: sparse solves differ between Accelerate
+(macOS) and libstdc++ (Linux), so counts disagree beyond the gates.
+macOS CI checks baseline.json, Linux CI checks baseline-linux.json;
+regenerate each on its own platform, never mix.
 
 A run regresses when: it exits non-zero, its output mesh fails validation,
 its quad count drops >5% below baseline, or its non-quad share rises >2pp.

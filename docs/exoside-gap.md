@@ -36,12 +36,11 @@ in 1.0" in the user doc and are not mentioned in any 1.1–1.4 What's New
 entry, so they are presumably still absent (UNVERIFIED for 1.4).
 
 We have: the same core loop (tri/quad-soup OBJ in, quad-dominant OBJ
-out) behind three front ends: headless `retopo` CLI (`cli/main.cpp`),
-Qt desktop app with source/isotropic/parameterization/remeshed previews
-plus singularity display (per `CHANGELOGS.md` 1.1.0 entries), and the
-Blender extension v0.1.0 driving the CLI over a temp-OBJ round-trip
-(`blender/retopoforge/__init__.py`, `blender_manifest.toml`). Engine
-lineage is the AutoRemesher stack (frame field + QuadCover-style
+out) behind two front ends: headless `retopo` CLI (`cli/main.cpp`) and
+the Blender extension driving the CLI over a temp-OBJ round-trip
+(`blender/retopoforge/__init__.py`, `blender_manifest.toml`). (The
+upstream Qt desktop shell was removed 2026-09-30; Blender is the UI.)
+Engine lineage is the AutoRemesher stack (frame field + QuadCover-style
 parameterization; `CHANGELOGS.md` notes "Replace MIQ with QuadCover").
 
 Gap: their headline differentiators we lack entirely are the guide
@@ -98,9 +97,8 @@ export button that preserves quads as quads (1.3)
 ([What's New PDF](https://exoside.com/quadremesherdata/QuadRemesher_WhatsNew.pdf)).
 
 We have: OBJ in, OBJ out, everywhere — CLI (`cli/main.cpp:63-64`),
-Qt app open/save dialogs filter `Wavefront (*.obj)`
-(`app/mainwindow.cpp:582-583`, `:610-617`), Blender extension
-round-trips temp OBJs (`blender/retopoforge/__init__.py:167-180`).
+Blender extension round-trips temp OBJs
+(`blender/retopoforge/__init__.py:167-180`).
 Known gaps already in our TODO: no weld-on-load (AI triangle soup
 exploded into 3684 islands on a test mesh), noisy progress on soup
 input, silent island drops with exit 0.
@@ -131,10 +129,10 @@ We have: Blender 4.2+/5.x extension v0.1.0 (subprocess + temp OBJ,
 identity-transform export, evaluated-mesh toggle, multi-object loop,
 modal operator with progress + ESC cancel, stats report, explicit
 UV/vertex-color loss notice —
-`blender/retopoforge/__init__.py:190-427`), the Qt desktop app, and
-the headless CLI. macOS-only build scope per `README.md`.
+`blender/retopoforge/__init__.py:190-427`) and the headless CLI.
+macOS-only build scope per `README.md`.
 
-Gap: breadth (we have 1 DCC + standalone app; they have 8+ hosts).
+Gap: breadth (we have 1 DCC + CLI; they have 8+ hosts).
 But depth-per-host matters more for our owner: our Blender addon
 already does things theirs does not advertise — multi-object batch
 (their doc requires selecting "one and only-one mesh",
@@ -223,10 +221,9 @@ We have: Blender panel mirroring all 7 params with binary-found
 status, multi-object loop, modal non-freezing operator with ESC
 cancel, per-object stats, replace-in-undo-step or spawn-copy modes,
 honest data-loss notice
-(`blender/retopoforge/__init__.py:392-427`); Qt app with staged
-previews; CLI with `--help`/`--version`, progress %, and report
-file. Install is build-from-source + zip-from-disk; no activation
-at all.
+(`blender/retopoforge/__init__.py:392-427`); CLI with `--help`/`--version`,
+progress %, and report file. Install is Homebrew formula +
+build-from-source + extension-zip-from-disk; no activation at all.
 
 Gap: near parity on Blender UX, with different trade-offs (we batch
 + replace; they guide + keep materials). Genuine UX gaps: no
@@ -299,5 +296,5 @@ shippable game assets per unit of effort.
     Houdini-style integration.
 
 Anti-gaps (do not "fix"): free/OSS licensing, headless CLI + CI
-harness, multi-object batch, replace-in-place undo, staged Qt
-previews, two model-type presets. These are leads to keep.
+harness, multi-object batch, replace-in-place undo, two model-type
+presets. These are leads to keep.

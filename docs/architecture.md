@@ -1,28 +1,28 @@
 # retopoforge architecture
 
 Date: 2026-09-30. Sources: `CMakeLists.txt`, `cli/CMakeLists.txt`,
-`app/CMakeLists.txt`, `tests/CMakeLists.txt`, `cli/main.cpp`,
-`core/*.cppm`, `app/*.cppm`, `blender/retopoforge/__init__.py`,
+`tests/CMakeLists.txt`, `cli/main.cpp`, `core/*.cppm`,
+`blender/retopoforge/__init__.py`,
 `blender/retopoforge/blender_manifest.toml`, `bench/run.py`,
 `bench/profile.py`.
 
-## The four pieces
+## The three pieces
 
-| Piece | Directory | Target | Qt? | License |
-|---|---|---|---|---|
-| Engine | `core/` | `retopo_core` static library | no | MIT |
-| CLI | `cli/` | `retopo` binary | no | MIT |
-| Desktop app | `app/` | `retopoforge` Qt6 app (macOS bundle) | yes (Qt6) | MIT |
-| Blender extension | `blender/retopoforge/` | extension v0.1.0, Blender 4.2+ | n/a (Python) | GPL-3.0-or-later |
+| Piece | Directory | Target | License |
+|---|---|---|---|
+| Engine | `core/` | `retopo_core` static library | MIT |
+| CLI | `cli/` | `retopo` binary | MIT |
+| Blender extension | `blender/retopoforge/` | extension v0.2.0, Blender 4.2+ | GPL-3.0-or-later |
+
+(There is no desktop app: the upstream Qt shell was removed and Blender
+is the UI.)
 
 Dependency rules:
 
 - The engine depends on nothing else in the repo — only vendored
   `thirdparty/` code (Eigen, isotropicremesher, meshoptimizer), the
   system TBB install, and system libraries (Accelerate, zlib).
-- The CLI and the desktop app link `retopo_core`. Neither the engine
-  nor the CLI may touch Qt (`otool -L build/cli/retopo | grep -i qt`
-  must print nothing).
+- The CLI links `retopo_core`.
 - The Blender extension links against nothing: it drives the `retopo`
   binary as a subprocess over OBJ files. That subprocess boundary is
   also the license boundary — the GPL extension never links or imports
@@ -113,50 +113,6 @@ the `<AutoRemesher/...>` forwarders in `core/include/`):
 - `core/objreader.h` / `core/objreader.cpp` — the OBJ loader
   (`loadObjPositionsAndTriangles`, with ear-clip triangulation of
   polygonal faces).
-
-## The `retopo.app.*` module graph (10 modules)
-
-Same one-module-per-component pattern for the converted plain (non-Qt)
-app components in `app/*.cppm`:
-
-- Leaves: `retopo.app.model_shader_vertex`
-  (`modelshadervertex.cppm`), `retopo.app.monochrome_opengl_vertex`
-  (`monochromeopenglvertex.cppm`), `retopo.app.opengl_buffer_util`
-  (`openglbufferutil.cppm`), `retopo.app.model_shader_program`
-  (`modelshaderprogram.cppm`), `retopo.app.monochrome_opengl_program`
-  (`monochromeopenglprogram.cppm`), `retopo.app.theme` (`theme.cppm`),
-  `retopo.app.util` (`util.cppm`).
-- `retopo.app.model_shader_mesh` (`modelshadermesh.cppm`) — imports
-  `model_shader_vertex` and `retopo.core.vector3`.
-- `retopo.app.monochrome_opengl_object`
-  (`monochromeopenglobject.cppm`) — imports
-  `monochrome_opengl_vertex`.
-- `retopo.app.model_shader_mesh_binder`
-  (`modelshadermeshbinder.cppm`) — imports `model_shader_mesh`,
-  `model_shader_program`, `monochrome_opengl_object`, and
-  `monochrome_opengl_program`.
-
-## Why `Q_OBJECT` widgets stay in headers
-
-moc generates member-function definitions plus Qt includes that cannot
-coexist inside module purview — a conversion pilot proved this, so the
-rule in `app/CMakeLists.txt` is: `Q_OBJECT` widgets stay in headers,
-only plain components become modules. The 14 widget/generator headers
-(`mainwindow.h`, `graphicswidget.h`, `modelshaderwidget.h`,
-`preferences.h`, the `*numberwidget.h` pair, log browser, spinners,
-and the mesh generators) are therefore still Automoc-processed
-headers, while everything listed above is a module.
-
-One build-system consequence lives in the top-level `CMakeLists.txt`:
-Automoc's unity file (`mocs_compilation.cpp`) includes moc outputs for
-app headers that themselves import `retopo.core` / `retopo.app`
-modules, but CMake compiles autogen sources with the unscanned rule
-(no dyndep BMI flags). So the build hands that unity file explicit
-`-fmodule-file=<module>=<path>.pcm` flags plus `OBJECT_DEPENDS` edges
-on the finished `libretopo_core.a` and the app modules' own object
-files. The edges deliberately never name a `.pcm` path (dyndep
-produces PCMS with no static ninja rule, which breaks fresh-build
-planning); when new app modules land, both lists must be extended.
 
 ## The Blender temp-OBJ subprocess round-trip
 

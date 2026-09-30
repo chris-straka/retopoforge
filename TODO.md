@@ -130,20 +130,13 @@ new warnings.
       auto-restore per object with an INFO note, so do-overs are one
       click, not retyping)
 
-## App phase 2: Qt shell headers to modules
+## App phase 2: deleted (2026-09-30)
 
-- [x] Converted the 11 plain `app/*.h` to `retopo.app.*` modules,
-      bench-identical, zero warnings (mocs unity workaround extended
-      with the app PCM dir + module-object ordering edges)
-- [ ] Q_OBJECT widgets (14 headers) stay as headers — toolchain limit,
-      not effort: moc emits member definitions plus Qt includes that
-      cannot coexist inside module purview (pilot: one module warns,
-      two modules hard-error). Revisit only if moc gains module support.
-- [ ] Macro-only `version.h` stays (macros don't export from modules)
-- [x] QtAwesome replacement: dead code — zero live call sites, so
-      deleted outright (no SVG set needed): removed
-      `thirdparty/QtAwesome`, `SpinnableAwesomeButton`, and the
-      `Theme::initAwesome*` helpers.
+The Qt desktop shell was removed outright — Blender is the UI, the CLI
+is the headless interface. (`app/`, the `retopo.app.*` modules, the
+Q_OBJECT/moc notes, and `version.h` are gone; git history keeps them.)
+This section stays as the record: 11 plain headers were modularized
+and QtAwesome deleted as dead code before the removal.
 
 ## C++ follow-ups
 

@@ -3,4 +3,4 @@
 # Uses .clang-format from the project root.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-find "$PROJECT_DIR/core" "$PROJECT_DIR/app" "$PROJECT_DIR/cli" \( -iname "*.h" -o -iname "*.cpp" \) | xargs clang-format -style=file -i
+find "$PROJECT_DIR/core" "$PROJECT_DIR/cli" \( -iname "*.h" -o -iname "*.cpp" \) | xargs clang-format -style=file -i

@@ -1,17 +1,28 @@
 # retopoforge
 
 retopoforge is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher)
-(MIT, by Jeremy HU) restructured around a **Qt-free headless engine**: a C++
-core library, a `retopo` CLI, a Qt6 desktop app, a Blender extension, and a
-benchmark/regression harness. Upstream is kept as the `upstream` git remote
-as a read-only reference; this fork has structurally diverged, so upstream
-engine fixes are ported by hand when relevant, never git-merged.
+(MIT, by Jeremy HU) restructured around a **headless engine**: a C++ core
+library, a `retopo` CLI, a Blender extension, and a benchmark/regression
+harness. There is no desktop app — Blender is the UI. Upstream is kept as
+the `upstream` git remote as a read-only reference; this fork has
+structurally diverged, so upstream engine fixes are ported by hand when
+relevant, never git-merged.
 
-## Build (one CMake build for everything)
+## Install (Homebrew)
 
 ```bash
-# macOS prerequisites (Linux/Windows parked for now, macOS-only)
-brew install cmake tbb qtbase llvm ninja
+brew install --build-from-source ./Formula/retopoforge.rb
+```
+
+This builds the `retopo` CLI from source (cmake, ninja, llvm, tbb are
+pulled in automatically) and links it onto your PATH as `retopo`.
+
+## Build from source (one CMake build for everything)
+
+```bash
+# macOS prerequisites (macOS-only product; Linux exists in CI for
+# compile + test validation, Windows parked)
+brew install cmake tbb llvm ninja
 
 # macOS builds use Homebrew LLVM (AppleClang lacks C++ named modules);
 # Ninja is required (the only macOS generator supporting C++ modules)
@@ -20,9 +31,7 @@ cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
 cmake --build build
 ```
 
-This builds the `retopo` CLI (`build/cli/retopo`) and the Qt6 desktop app
-(`build/app/retopoforge.app` on macOS). For a headless-only build without
-Qt installed, add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to the configure line.
+This builds the `retopo` CLI (`build/cli/retopo`) and the test suite.
 
 ## CLI usage
 
@@ -70,13 +79,6 @@ directory:
 ```bash
 ./build/cli/retopo --input bench/models/armadillo.obj --output /tmp/hero.obj --lods 10000,5000,2000
 ./build/cli/retopo --input assets/ --output assets-retopo/
-```
-
-`retopo` must stay Qt-free —
-this must print `Qt-free: OK`:
-
-```bash
-otool -L build/cli/retopo | grep -i qt || echo "Qt-free: OK"
 ```
 
 ## Tests
@@ -164,7 +166,7 @@ files. See [docs/architecture.md](docs/architecture.md) and
 
 ## Layout
 
-- `core/` — Qt-free engine, built as the `retopo_core` static library:
+- `core/` — headless engine, built as the `retopo_core` static library:
   18 C++23 named modules `retopo.core.*` (interface in `core/*.cppm`,
   implementation in `core/*.cpp`, including the `symmetry`
   mirror-constraint, `guides` guide-curve, and `density` local-density
@@ -172,9 +174,8 @@ files. See [docs/architecture.md](docs/architecture.md) and
   converted: `core/autoremesher.h/.cpp` (pipeline orchestrator) and
   `core/objreader.h/.cpp` (OBJ loader), reached via the
   `<AutoRemesher/...>` forwarders in `core/include/`.
-- `cli/` — Qt-free `retopo` CLI (`cli/main.cpp`).
-- `app/` — Qt6 desktop app: `Q_OBJECT` widgets in headers plus the
-  converted plain components as 10 `retopo.app.*` modules (`app/*.cppm`).
+- `cli/` — `retopo` CLI (`cli/main.cpp` + `cli/glb.*`).
+- `Formula/` — Homebrew formula for the CLI.
 - `blender/` — Blender extension (`blender/retopoforge/`) driving the
   CLI over a temp-OBJ round-trip, with a headless test in
   `blender/tests/`.
@@ -187,15 +188,14 @@ files. See [docs/architecture.md](docs/architecture.md) and
   (TBB comes from the system install).
 
 See [docs/architecture.md](docs/architecture.md) for the module graph
-and the engine/CLI/app/addon split.
+and the engine/CLI/addon split.
 
 ## Direction
 
 1. Headless engine + CLI + benchmarks (this fork's foundation, done)
-2. Blender addon driving the CLI (done, extension v0.1.0)
-3. Qt6 desktop app on the unified CMake build (done, was qmake/Qt5 upstream)
-4. C++23 modules + idiom modernization, gated by the benchmark suite
-5. Incremental engine improvements toward Exoside parity (see
+2. Blender addon driving the CLI (done, extension v0.2.0)
+3. C++23 modules + idiom modernization, gated by the benchmark suite
+4. Incremental engine improvements toward Exoside parity (see
    [docs/exoside-gap.md](docs/exoside-gap.md))
 
 ## Attribution
@@ -203,8 +203,9 @@ and the engine/CLI/app/addon split.
 Retopoforge is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher)
 by Jeremy HU (Dust3D Project) and contributors, used under the MIT
 license — see [LICENSE](LICENSE). The core remeshing engine is principally
-Jeremy's work; this fork restructures it around a Qt-free headless library
-and adds the `retopo` CLI and benchmark harness.
+Jeremy's work; this fork restructures it around a headless library
+and adds the `retopo` CLI, the Blender extension, and the benchmark
+harness. (The upstream Qt desktop shell was removed; Blender is the UI.)
 
 - Upstream repository: <https://github.com/huxingyi/autoremesher> (tracked as
   the `upstream` git remote)

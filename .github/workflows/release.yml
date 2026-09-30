@@ -15,9 +15,7 @@ concurrency:
 jobs:
   linux-build-test:
     # Linux CI is compile + test validation only (the shipped product is
-    # macOS-only): no Qt install, no AppImage packaging. Qt 6.5.3's
-    # binaries need libicu56, which Ubuntu 24.04 does not ship, so a Qt
-    # app build cannot run on this runner at all.
+    # macOS-only): engine + CLI, no packaging.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -29,13 +27,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libtbb-dev
-      - name: Build engine and CLI (no Qt app)
+      - name: Build engine and CLI
         env:
           CC: clang
           CXX: clang++
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRETOPOFORGE_BUILD_QT_APP=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j`nproc`
+      - name: Fetch benchmark models
+        run: ./bench/fetch_models.sh
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Check benchmarks
+        run: ./bench/run.py --check bench/baseline-linux.json
+
+  macos-upload:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LLVM and Ninja
+        run: |
+          brew install llvm ninja
+      - name: Install TBB
+        run: |
+          brew install tbb
+      - name: Build engine and CLI
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
       - name: Fetch benchmark models
         run: ./bench/fetch_models.sh
       - name: Run tests
@@ -47,328 +68,23 @@ jobs:
           set -e
           ./build/cli/retopo \
             --input bench/models/armadillo.obj \
-            --output /tmp/retopo-linux-smoke.obj \
+            --output retopo-cli-smoke.obj \
             --target-quads 2000
-          test -f /tmp/retopo-linux-smoke.obj
-
-  win32-msvc-upload:
-    # Parked: macOS-only for now. Re-enable with a oneTBB source
-    # solution (e.g. FetchContent) when Windows support returns.
-    if: false
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Visual Studio shell
-        uses: egor-tensin/vs-shell@v2
-        with:
-          arch: x64
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          aqtversion: '==3.3.*'
-          version: '6.5.3'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          archives: 'qtbase qttools qtsvg qtimageformats'
-      - name: Build TBB
-        run: |
-          cd $env:GITHUB_WORKSPACE\thirdparty\tbb
-          cmake -B build2 -DTBB_BUILD_SHARED=ON -DTBB_BUILD_STATIC=OFF -DTBB_BUILD_TBBMALLOC=OFF -DTBB_BUILD_TBBMALLOC_PROXY=OFF -DTBB_BUILD_TESTS=OFF
-          cmake --build build2 --config Release
-      - name: Build application
-        run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_PREFIX_PATH="$env:Qt6_Dir" `
-            -DTBB_DIR="$env:GITHUB_WORKSPACE/thirdparty/tbb/build2"
-          cmake --build build --config Release --parallel
-      - name: Deploy Qt dependencies
-        run: |
-          windeployqt build/app/Release/retopoforge.exe --no-translations --release
-        shell: bash
-      - name: Copy TBB DLL
-        shell: bash
-        run: |
-          cp thirdparty/tbb/build2/Release/tbb.dll build/app/Release/
-      - name: Copy offscreen platform plugin
-        shell: bash
-        run: |
-          cp "$Qt6_Dir/plugins/platforms/qoffscreen.dll" build/app/Release/platforms/
-      - name: Set environment variable
-        run: |
-          set PATH="%PATH%;C:\Program Files\7-Zip"
-      - name: Package executable
-        shell: bash
-        run: |
-          ZIP="$GITHUB_WORKSPACE/retopoforge-${{ github.ref_name }}-win32-x86_64.zip"
-          cd build/app/Release
-          # Main executable
-          7z a "$ZIP" retopoforge.exe
-          # Plugin directories — pass the directory name (not dir\*) so structure is preserved
-          for dir in platforms imageformats styles translations; do
-            if [ -d "$dir" ]; then
-              7z a "$ZIP" "$dir"
-            fi
-          done
-          # All root-level DLLs (Qt + TBB + ANGLE)
-          for f in *.dll; do
-            if [ -f "$f" ]; then
-              7z a "$ZIP" "$f"
-            fi
-          done
-          cd "$GITHUB_WORKSPACE"
-          # VC++ runtime DLLs (required on systems without the redistributable installed)
-          CRT_DIR=$(ls -d "${VCToolsRedistDir}x64"/Microsoft.VC*.CRT 2>/dev/null | head -1)
-          if [ -n "$CRT_DIR" ]; then
-            7z a "$ZIP" "${CRT_DIR}/msvcp140.dll"
-            7z a "$ZIP" "${CRT_DIR}/vcruntime140.dll"
-            # msvcp140_1.dll and vcruntime140_1.dll may not exist in all toolset versions
-            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a "$ZIP" "${CRT_DIR}/msvcp140_1.dll" || true
-            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a "$ZIP" "${CRT_DIR}/vcruntime140_1.dll" || true
-          fi
-          7z l "$ZIP"
-      - name: Checkout test models
-        uses: actions/checkout@v4
-        with:
-          repository: alecjacobson/common-3d-test-models
-          path: test-models
-      - name: Extract release zip to test directory
-        shell: bash
-        run: |
-          ZIP_FILE="retopoforge-${{ github.ref_name }}-win32-x86_64.zip"
-          TEST_DIR="$GITHUB_WORKSPACE/test_release"
-          mkdir -p "$TEST_DIR"
-          7z x "$GITHUB_WORKSPACE/$ZIP_FILE" -o"$TEST_DIR" -y
-          echo "Extracted release zip to $TEST_DIR:"
-          ls -la "$TEST_DIR"
-      - name: Run CLI test with armadillo.obj (from release zip)
-        timeout-minutes: 30
+          test -f retopo-cli-smoke.obj
+      - name: Assemble Blender extension zip
         run: |
           set -e
-          export QT_OPENGL=software
-          export QT_QPA_PLATFORM=offscreen
-
-          outputFile="retopoforge-${{ github.ref_name }}-windows-2022-remeshed.obj"
-          reportFile="retopoforge-${{ github.ref_name }}-windows-2022-remeshed_report.txt"
-          logFile="$GITHUB_WORKSPACE/cli-test-output.txt"
-          TEST_EXE="$GITHUB_WORKSPACE/test_release/retopoforge.exe"
-
-          if [ ! -f "$TEST_EXE" ]; then
-            echo "ERROR: Release exe not found at $TEST_EXE"
-            ls -la "$GITHUB_WORKSPACE/test_release/"
-            exit 1
-          fi
-          echo "Testing against release zip version: $TEST_EXE"
-
-          echo "Running CLI test..."
-          "$TEST_EXE" \
-            --input test-models/data/armadillo.obj \
-            --output "$outputFile" \
-            --report "$reportFile" \
-            --target-quads 50000 \
-            --edge-scaling 1.0 \
-            --sharp-edge 90.0 \
-            --smooth-normal 0.0 \
-            --adaptivity 1.0 \
-            > "$logFile" 2>&1
-
-          echo "--- CLI Test Output ---"
-          cat "$logFile"
-          echo "---"
-
-          if [ ! -f "$GITHUB_WORKSPACE/$outputFile" ]; then
-            echo "ERROR: Output file $outputFile was not created"
-            ls -la "$GITHUB_WORKSPACE/"
-            exit 1
-          fi
-          echo "OK. CLI test passed: $outputFile created"
-        shell: bash
-      - name: Upload CLI test result
+          rm -rf blender/retopoforge/__pycache__
+          cd blender && zip -r -X ../retopoforge-blender-extension.zip retopoforge
+      # The CLI artifact needs brew tbb + llvm installed to run (it links
+      # them dynamically); for a managed install use the Homebrew formula.
+      - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
-          name: retopoforge-${{ github.ref_name }}-windows-2022-remeshed.obj
-          path: retopoforge-${{ github.ref_name }}-windows-2022-remeshed.obj
-      - name: Upload CLI test report
+          name: retopoforge-${{ github.ref_name }}-macos-cli
+          path: build/cli/retopo
+      - name: Upload Blender extension
         uses: actions/upload-artifact@v4
         with:
-          name: retopoforge-${{ github.ref_name }}-windows-2022-remeshed_report.txt
-          path: retopoforge-${{ github.ref_name }}-windows-2022-remeshed_report.txt
-      - name: Test headless retopo CLI
-        shell: bash
-        run: |
-          set -e
-          export PATH="$PATH:$GITHUB_WORKSPACE/thirdparty/tbb/build2/Release"
-          ./build/cli/Release/retopo.exe \
-            --input test-models/data/armadillo.obj \
-            --output retopo-cli-test.obj \
-            --target-quads 2000
-          test -f retopo-cli-test.obj
-      - name: Run application and capture screenshot (from release zip)
-        timeout-minutes: 3
-        run: |
-          $testDir = "$env:GITHUB_WORKSPACE\test_release"
-          if (-not (Test-Path "$testDir\retopoforge.exe")) {
-            Write-Error "ERROR: Release exe not found at $testDir\retopoforge.exe"
-            exit 1
-          }
-          Write-Host "Testing against release zip version: $testDir\retopoforge.exe"
-
-          $env:QT_OPENGL = 'software'
-          $env:QT_QPA_PLATFORM = 'offscreen'
-          Start-Process -FilePath "$testDir\retopoforge.exe"
-          Start-Sleep -Seconds 12
-          Add-Type -AssemblyName System.Windows.Forms
-          $bitmap = [System.Drawing.Bitmap]::new([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width, [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height)
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size)
-          $bitmap.Save("$env:GITHUB_WORKSPACE\retopoforge-${{ github.ref_name }}-windows-2022.png")
-          Stop-Process -Name retopoforge -Force -ErrorAction SilentlyContinue
-        shell: powershell
-      - name: Upload Windows screenshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-windows-2022.png
-          path: retopoforge-${{ github.ref_name }}-windows-2022.png
-      - name: Upload Windows zip artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}
-          path: retopoforge-${{ github.ref_name }}-win32-x86_64.zip
-
-  macos-upload:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Qt
-        run: |
-          brew install qtbase
-      - name: Install LLVM and Ninja
-        run: |
-          brew install llvm ninja
-      - name: Install TBB
-        run: |
-          brew install tbb
-      - name: Install create-dmg
-        run: |
-          brew install create-dmg
-      - name: Build application
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-      - name: Fetch benchmark models
-        run: ./bench/fetch_models.sh
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
-      - name: Generate DMG
-        run: |
-          export PATH="$(brew --prefix qtbase)/bin:$PATH"
-          # deploy Qt frameworks, bundle TBB dylibs, ad-hoc sign, verify
-          ./ci/macos_bundle.sh "${GITHUB_WORKSPACE}/build/app/retopoforge.app"
-          # prepare a staging folder containing the app bundle
-          STAGING_DIR=$(mktemp -d)
-          cp -R "${GITHUB_WORKSPACE}/build/app/retopoforge.app" "${STAGING_DIR}/"
-          # package into drag-to-Applications DMG
-          create-dmg \
-            --volname "retopoforge" \
-            --format UDZO \
-            --app-drop-link 520 145 \
-            --window-size 660 300 \
-            --icon "retopoforge.app" 140 145 \
-            --icon "Applications" 520 145 \
-            "${GITHUB_WORKSPACE}/retopoforge-${{ github.ref_name }}.dmg" \
-            "${STAGING_DIR}"
-          rm -rf "${STAGING_DIR}"
-      - name: Mount DMG for testing
-        run: |
-          DMG_PATH="${GITHUB_WORKSPACE}/retopoforge-${{ github.ref_name }}.dmg"
-          if [ ! -f "$DMG_PATH" ]; then
-            echo "ERROR: DMG not found at $DMG_PATH"
-            ls -la "${GITHUB_WORKSPACE}/"
-            exit 1
-          fi
-          echo "Mounting DMG: $DMG_PATH"
-          hdiutil attach "$DMG_PATH" -mountpoint /Volumes/retopoforge -nobrowse -verbose
-          echo "DMG mounted at /Volumes/retopoforge"
-          ls -la /Volumes/retopoforge/
-      - name: Checkout test models
-        uses: actions/checkout@v4
-        with:
-          repository: alecjacobson/common-3d-test-models
-          path: test-models
-      - name: Run CLI test with armadillo.obj (from DMG)
-        run: |
-          set -e
-          DMG_APP="/Volumes/retopoforge/retopoforge.app"
-          echo "Running CLI test from DMG: $DMG_APP"
-
-          if [ ! -d "$DMG_APP" ]; then
-            echo "ERROR: App bundle not found in DMG at $DMG_APP"
-            ls -la /Volumes/retopoforge/
-            hdiutil detach /Volumes/retopoforge -force || true
-            exit 1
-          fi
-
-          "$DMG_APP/Contents/MacOS/retopoforge" \
-            --input test-models/data/armadillo.obj \
-            --output retopoforge-${{ github.ref_name }}-macos-latest-remeshed.obj \
-            --report retopoforge-${{ github.ref_name }}-macos-latest-remeshed_report.txt \
-            --target-quads 50000 \
-            --edge-scaling 1.0 \
-            --sharp-edge 90.0 \
-            --smooth-normal 0.0 \
-            --adaptivity 1.0
-
-          if [ ! -f retopoforge-${{ github.ref_name }}-macos-latest-remeshed.obj ]; then
-            echo "ERROR: Output file was not created"
-            hdiutil detach /Volumes/retopoforge -force || true
-            exit 1
-          fi
-          echo "✓ CLI test passed: remeshed .obj created"
-          ls -lh retopoforge-${{ github.ref_name }}-macos-latest-remeshed.obj
-      - name: Upload CLI test result
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-macos-latest-remeshed.obj
-          path: retopoforge-${{ github.ref_name }}-macos-latest-remeshed.obj
-      - name: Upload CLI test report
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-macos-latest-remeshed_report.txt
-          path: retopoforge-${{ github.ref_name }}-macos-latest-remeshed_report.txt
-      - name: Test headless retopo CLI
-        run: |
-          set -e
-          ./build/cli/retopo \
-            --input test-models/data/armadillo.obj \
-            --output retopo-cli-test.obj \
-            --target-quads 2000
-          test -f retopo-cli-test.obj
-      - name: Run application and capture screenshot (from DMG)
-        run: |
-          DMG_APP="/Volumes/retopoforge/retopoforge.app"
-          if [ ! -d "$DMG_APP" ]; then
-            echo "ERROR: App bundle not found in DMG at $DMG_APP"
-            exit 1
-          fi
-          echo "Running GUI test from DMG: $DMG_APP"
-
-          open "$DMG_APP"
-          sleep 12
-          screencapture retopoforge-${{ github.ref_name }}-macos-latest.png || true
-          killall retopoforge || true
-      - name: Detach DMG
-        if: always()
-        run: |
-          hdiutil detach /Volumes/retopoforge -force || echo "Note: DMG detach completed (or was not mounted)"
-      - name: Upload macOS screenshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-macos-latest.png
-          path: retopoforge-${{ github.ref_name }}-macos-latest.png
-      - name: Upload macOS DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}.dmg
-          path: retopoforge-${{ github.ref_name }}.dmg
+          name: retopoforge-blender-extension.zip
+          path: retopoforge-blender-extension.zip
