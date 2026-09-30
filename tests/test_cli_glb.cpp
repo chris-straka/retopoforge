@@ -165,6 +165,11 @@ int main()
         std::printf("FAIL %s:%d: fixture not found: %s\n", __FILE__, __LINE__, tetra.c_str());
         return 1;
     }
+    if (!std::filesystem::exists(RETOPO_MODEL_FANDISK)) {
+        std::printf("FAIL %s:%d: model not found: %s (run bench/fetch_models.sh)\n",
+            __FILE__, __LINE__, RETOPO_MODEL_FANDISK);
+        return 1;
+    }
 
     std::error_code ec;
     // PID-suffixed: parallel lanes run the same suite from sibling checkouts,
@@ -190,10 +195,14 @@ int main()
 
     // (b) obj -> glb: output re-parses with accessor counts matching the
     // source mesh (writer validity, independent of engine counts).
+    // Uses fandisk, not the tetra output above: re-remeshing the tiny
+    // tetra mesh collapses to empty on some platforms (Linux), which
+    // correctly fails loudly but tests nothing about the writer.
     {
-        const std::string outGlb = (tmpdir / "tetra.glb").string();
+        const std::string fandisk = RETOPO_MODEL_FANDISK;
+        const std::string outGlb = (tmpdir / "fandisk.glb").string();
         const RunResult run = runCapture(binary,
-            "--input \"" + tetraObj + "\" --output \"" + outGlb + "\" --target-quads 4",
+            "--input \"" + fandisk + "\" --output \"" + outGlb + "\" --target-quads 200",
             tmpdir / "b_stdout.txt");
         CHECK(run.exitCode == 0);
         const GlbShape glb = readGlbShape(outGlb);
@@ -206,7 +215,7 @@ int main()
         // Same input to .obj: writer accessor counts must match that mesh.
         const std::string twinObj = (tmpdir / "twin.obj").string();
         const RunResult twin = runCapture(binary,
-            "--input \"" + tetraObj + "\" --output \"" + twinObj + "\" --target-quads 4",
+            "--input \"" + fandisk + "\" --output \"" + twinObj + "\" --target-quads 200",
             tmpdir / "b2_stdout.txt");
         CHECK(twin.exitCode == 0);
         const ObjShape twinShape = readObjShape(twinObj);
