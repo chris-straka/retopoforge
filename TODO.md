@@ -197,18 +197,18 @@ and QtAwesome deleted as dead code before the removal.
 
 ## Engine backlog (from lane follow-ups, wave 5+)
 
-- [ ] C++23 completion: convert the last two headers (`autoremesher`,
+- [x] C++23 completion: convert the last two headers (`autoremesher`,
       `objreader`) to named modules; delete the `<AutoRemesher/...>`
       forwarders. No moc excuse remains.
-- [ ] Global UV atlas: `--uvs on` normalizes 0..1 per island, so
+- [x] Global UV atlas: `--uvs on` normalizes 0..1 per island, so
       multi-island UVs overlap. Pack islands into one atlas (or emit
       per-island UDIM offsets).
 - [x] Blender sharp-marks export: sharp-marked edges → `--features`
       file with recall, shared chain tracer with guides (byte-identical)
-- [ ] Engine island drop counter: replace the CLI's bbox island
+- [x] Engine island drop counter: replace the CLI's bbox island
       attribution heuristic with a real per-island output/empty count
       from the engine.
-- [ ] Quiet through the engine: `--quiet` still leaks engine-owned
+- [x] Quiet through the engine: `--quiet` still leaks engine-owned
       stderr (progress + phase report). Plumb the flag down.
 - [ ] Corner singularities under crossing sharps: full closed cages
       over-constrain and distort. Fix the corner-mark radius/strength
