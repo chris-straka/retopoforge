@@ -297,6 +297,32 @@ std::vector<double> Parameterizer::computeFaceScalingField(const std::vector<Vec
             }
         });
 
+    // Renormalize after clamping: rescale all m so SUM A_f/m_f^2 equals the
+    // uniform-field value (total area), preserving the quad budget implied
+    // by m_scaling while moving quads from flat regions to detailed ones.
+    double totalArea = 0.0;
+    double weightedArea = 0.0;
+    for (size_t i = 0; i < triangles.size(); ++i) {
+        const auto& triangle = triangles[i];
+        double faceArea = 0.0;
+        if (triangle.size() >= 3) {
+            const Vector3 e0 = vertices[triangle[1]] - vertices[triangle[0]];
+            const Vector3 e1 = vertices[triangle[2]] - vertices[triangle[0]];
+            faceArea = 0.5 * Vector3::crossProduct(e0, e1).length();
+        }
+        totalArea += faceArea;
+        const double m = faceScaling[i];
+        if (m > 0.0)
+            weightedArea += faceArea / (m * m);
+    }
+    if (totalArea > 0.0 && weightedArea > 0.0) {
+        const double rescale = std::sqrt(weightedArea / totalArea);
+        if (rescale > 0.0 && std::isfinite(rescale)) {
+            for (double& m : faceScaling)
+                m *= rescale;
+        }
+    }
+
     return faceScaling;
 }
 

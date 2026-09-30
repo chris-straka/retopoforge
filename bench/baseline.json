@@ -8,12 +8,12 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.169,
+      "wall_seconds": 0.215,
       "input_verts": 49990,
       "input_faces": 99976,
-      "verts": 242,
-      "quads": 231,
-      "non_quads": 6,
+      "verts": 544,
+      "quads": 524,
+      "non_quads": 12,
       "errors": [],
       "error_count": 0
     },
@@ -25,12 +25,12 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.622,
+      "wall_seconds": 0.761,
       "input_verts": 49990,
       "input_faces": 99976,
-      "verts": 2875,
-      "quads": 2856,
-      "non_quads": 14,
+      "verts": 4595,
+      "quads": 4566,
+      "non_quads": 20,
       "errors": [],
       "error_count": 0
     },
@@ -42,12 +42,12 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.149,
+      "wall_seconds": 0.253,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 206,
-      "quads": 191,
-      "non_quads": 10,
+      "verts": 827,
+      "quads": 811,
+      "non_quads": 18,
       "errors": [],
       "error_count": 0
     },
@@ -59,29 +59,29 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.637,
+      "wall_seconds": 1.304,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 1135,
+      "verts": 5519,
+      "quads": 5454,
+      "non_quads": 52,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.207,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 1115,
       "quads": 1104,
-      "non_quads": 26,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "nefertiti.obj",
-      "preset": "tiny",
-      "args": [
-        "--target-quads",
-        "1000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 0.162,
-      "input_verts": 49971,
-      "input_faces": 99938,
-      "verts": 562,
-      "quads": 555,
-      "non_quads": 6,
+      "non_quads": 8,
       "errors": [],
       "error_count": 0
     },
@@ -93,11 +93,11 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.644,
+      "wall_seconds": 0.846,
       "input_verts": 49971,
       "input_faces": 99938,
-      "verts": 2914,
-      "quads": 2890,
+      "verts": 5155,
+      "quads": 5135,
       "non_quads": 18,
       "errors": [],
       "error_count": 0
@@ -110,12 +110,12 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.169,
+      "wall_seconds": 0.219,
       "input_verts": 6475,
       "input_faces": 12946,
-      "verts": 995,
-      "quads": 978,
-      "non_quads": 10,
+      "verts": 1557,
+      "quads": 1546,
+      "non_quads": 6,
       "errors": [],
       "error_count": 0
     },
@@ -127,12 +127,12 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.375,
+      "wall_seconds": 0.461,
       "input_verts": 6475,
       "input_faces": 12946,
-      "verts": 2959,
-      "quads": 2951,
-      "non_quads": 4,
+      "verts": 5543,
+      "quads": 5532,
+      "non_quads": 6,
       "errors": [],
       "error_count": 0
     }
