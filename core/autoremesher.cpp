@@ -152,6 +152,132 @@ namespace {
             vertexLock[static_cast<size_t>(edges[i].first & 0xffffffffu)] |= meshopt_SimplifyVertex_Priority;
         }
     }
+
+    // Global UV atlas: shelf-packs the per-island UV ranges (each already
+    // normalized to 0..1 by QuadExtractor::computeRemeshedVertexUvs, so
+    // islands would otherwise stack on each other) into one shared 0..1
+    // atlas. `spans` holds each merged island's (start, count) slice of
+    // `uvs`, in merge order.
+    //
+    // Packing inside 0..1 was chosen over per-island UDIM offsets because
+    // the shipped --uvs contract requires every UV inside 0..1
+    // (test_cli_uvs asserts it, and GLB TEXCOORD_0 consumers expect
+    // normalized coordinates); UDIM tiles (u >= 1) would break both.
+    //
+    // Deterministic shelf packing: islands sort by box height (ties by width,
+    // then merge order), fill rows left to right inside a strip
+    // ceil(sqrt(N)) boxes wide, then one uniform scale fits the shelves into
+    // 0..1 with a fixed 2-texel-at-1k gutter between boxes. A single island
+    // returns untouched, so one-island output keeps today's exact UVs.
+    // Geometry is never touched (only the UV array is rewritten), and the
+    // --uvs off path never calls this.
+    constexpr double atlasGutter = 2.0 / 1024.0;
+
+    void packIslandUvsIntoAtlas(std::vector<Vector2>* uvs,
+        const std::vector<std::pair<size_t, size_t>>& spans)
+    {
+        if (nullptr == uvs || uvs->empty())
+            return;
+        std::vector<size_t> islands;
+        for (size_t i = 0; i < spans.size(); ++i)
+            if (spans[i].second > 0)
+                islands.push_back(i);
+        if (islands.size() <= 1)
+            return;
+
+        struct Box {
+            double minU = 0.0, minV = 0.0, width = 0.0, height = 0.0;
+        };
+        std::vector<Box> boxes(spans.size());
+        double maxWidth = 0.0;
+        for (const size_t island : islands) {
+            const size_t begin = spans[island].first;
+            const size_t end = std::min(begin + spans[island].second, uvs->size());
+            if (begin >= end)
+                continue;
+            double minU = (*uvs)[begin].x(), maxU = minU;
+            double minV = (*uvs)[begin].y(), maxV = minV;
+            for (size_t i = begin + 1; i < end; ++i) {
+                minU = std::min(minU, (*uvs)[i].x());
+                maxU = std::max(maxU, (*uvs)[i].x());
+                minV = std::min(minV, (*uvs)[i].y());
+                maxV = std::max(maxV, (*uvs)[i].y());
+            }
+            boxes[island] = { minU, minV, maxU - minU, maxV - minV };
+            maxWidth = std::max(maxWidth, boxes[island].width);
+        }
+
+        std::stable_sort(islands.begin(), islands.end(), [&](size_t a, size_t b) {
+            if (boxes[a].height != boxes[b].height)
+                return boxes[a].height > boxes[b].height;
+            if (boxes[a].width != boxes[b].width)
+                return boxes[a].width > boxes[b].width;
+            return a < b;
+        });
+
+        // A strip ceil(sqrt(N)) boxes wide keeps the shelves roughly square
+        // for the common equal-box case (every island spans the full unit
+        // square before packing).
+        const double columns = std::ceil(std::sqrt(static_cast<double>(islands.size())));
+        const double stripWidth = maxWidth > 0.0 ? columns * maxWidth : 1.0;
+        struct Shelf {
+            std::vector<size_t> members;
+            double width = 0.0, height = 0.0;
+        };
+        std::vector<Shelf> shelves(1);
+        for (const size_t island : islands) {
+            if (!shelves.back().members.empty()
+                && shelves.back().width + boxes[island].width > stripWidth)
+                shelves.emplace_back();
+            Shelf& shelf = shelves.back();
+            shelf.members.push_back(island);
+            shelf.width += boxes[island].width;
+            shelf.height = std::max(shelf.height, boxes[island].height);
+        }
+
+        // The gutter is fixed in atlas units; only shrink it when the box
+        // count alone would overflow the unit square (hundreds of islands).
+        size_t widestShelf = 0;
+        double totalHeight = 0.0;
+        for (const auto& shelf : shelves) {
+            widestShelf = std::max(widestShelf, shelf.members.size());
+            totalHeight += shelf.height;
+        }
+        double gutter = atlasGutter;
+        const size_t gaps = std::max(widestShelf - 1, shelves.size() - 1);
+        if (gaps > 0 && gutter * static_cast<double>(gaps) > 0.5)
+            gutter = 0.5 / static_cast<double>(gaps);
+
+        double scale = 1.0;
+        for (const auto& shelf : shelves) {
+            if (shelf.width <= 0.0)
+                continue;
+            scale = std::min(scale,
+                (1.0 - gutter * static_cast<double>(shelf.members.size() - 1)) / shelf.width);
+        }
+        if (totalHeight > 0.0)
+            scale = std::min(scale,
+                (1.0 - gutter * static_cast<double>(shelves.size() - 1)) / totalHeight);
+        scale = std::max(1e-9, std::min(1.0, scale));
+
+        double y = 0.0;
+        for (const auto& shelf : shelves) {
+            double x = 0.0;
+            for (const size_t island : shelf.members) {
+                const Box& box = boxes[island];
+                const size_t begin = spans[island].first;
+                const size_t end = std::min(begin + spans[island].second, uvs->size());
+                for (size_t i = begin; i < end; ++i) {
+                    const double u = ((*uvs)[i].x() - box.minU) * scale + x;
+                    const double v = ((*uvs)[i].y() - box.minV) * scale + y;
+                    (*uvs)[i] = Vector2(std::min(1.0, std::max(0.0, u)),
+                        std::min(1.0, std::max(0.0, v)));
+                }
+                x += box.width * scale + gutter;
+            }
+            y += shelf.height * scale + gutter;
+        }
+    }
 }
 
 const double AutoRemesher::m_defaultSharpEdgeDegrees = 90;
@@ -1060,6 +1186,7 @@ bool AutoRemesher::remesh()
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
     }
     m_remeshedVertexUvs.clear();
+    std::vector<std::pair<size_t, size_t>> islandUvSpans;
     for (auto& thread : parameterizationThreads) {
         if (nullptr == thread.remesher)
             continue;
@@ -1082,6 +1209,7 @@ bool AutoRemesher::remesh()
         if (m_computeRemeshedUvs) {
             // The extractor guarantees one UV per vertex; pad defensively so
             // the merged accessor can never disagree with the vertex count.
+            islandUvSpans.emplace_back(vertexStartIndex, vertices.size());
             m_remeshedVertexUvs.reserve(m_remeshedVertices.size());
             for (size_t i = 0; i < vertices.size(); ++i) {
                 m_remeshedVertexUvs.push_back(i < thread.capturedVertexUvs.size()
@@ -1090,10 +1218,12 @@ bool AutoRemesher::remesh()
             }
         }
     }
-    if (m_computeRemeshedUvs)
+    if (m_computeRemeshedUvs) {
         m_remeshedVertexUvs.resize(m_remeshedVertices.size(), Vector2(0.5, 0.5));
-    else
+        packIslandUvsIntoAtlas(&m_remeshedVertexUvs, islandUvSpans);
+    } else {
         m_remeshedVertexUvs.clear();
+    }
 
     // Mirror partners can live on different islands (two disconnected halves),
     // so the vertex constraint runs once on the merged output, not per island.
