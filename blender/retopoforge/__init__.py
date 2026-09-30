@@ -434,6 +434,10 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
                 box.label(text=line)
         layout.label(text="Remeshing replaces topology;", icon="INFO")
         layout.label(text="UVs and vertex colors do not survive.")
+        # Dev convenience: picks up extension updates without restarting
+        # Blender (same operator as F3 > Reload Scripts).
+        layout.operator("script.reload", text="Reload Scripts",
+                        icon="FILE_REFRESH")
 
 
 _CLASSES = (
