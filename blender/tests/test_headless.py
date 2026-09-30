@@ -57,7 +57,8 @@ def main():
         mesh_before = obj.data
         print(f"before: {polys_before} polys")
 
-        result = bpy.ops.retopoforge.remesh(target_quads=200)
+        bpy.context.scene.retopoforge_params.target_quads = 200
+        result = bpy.ops.retopoforge.remesh()
         check("FINISHED" in result, f"operator finished (got {result})")
 
         check(obj.data is not mesh_before, "mesh data replaced")

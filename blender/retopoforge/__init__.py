@@ -22,6 +22,7 @@ from bpy.props import (
     EnumProperty,
     FloatProperty,
     IntProperty,
+    PointerProperty,
     StringProperty,
 )
 from mathutils import Matrix
@@ -68,12 +69,14 @@ def parse_summary(stdout_text):
     return int(quads), int(non_quads), int(verts), float(seconds)
 
 
-class RETOPOFORGE_MT_params:
-    """Shared remesh parameters (mixed into the operator)."""
+class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
+    """Shared remesh parameters, stored on the scene so the sidebar panel
+    edits persistent values (operator properties drawn in panels are
+    transient and not reliably editable)."""
 
     target_quads: IntProperty(
         name="Target Quads",
-        description="Target quad count",
+        description="Approximate output quad count (engine guidance, expect some undershoot)",
         default=5000, min=4, max=1000000,
     )
     model_type: EnumProperty(
@@ -87,27 +90,27 @@ class RETOPOFORGE_MT_params:
     )
     sharp_edge: FloatProperty(
         name="Sharp Edge",
-        description="Sharp edge dihedral angle threshold in degrees",
+        description="Dihedral angle above which edges survive as sharp features",
         default=90.0, min=30.0, max=180.0,
     )
     smooth_normal: FloatProperty(
         name="Smooth Normal",
-        description="Smooth normal angle threshold in degrees",
+        description="Normal angle threshold for smoothing",
         default=0.0, min=0.0, max=180.0,
     )
     edge_scaling: FloatProperty(
         name="Edge Scaling",
-        description="Edge scaling factor",
+        description="Edge length multiplier (higher = coarser mesh)",
         default=1.0, min=1.0, max=4.0,
     )
     adaptivity: FloatProperty(
         name="Adaptivity",
-        description="Curvature-adaptive quad density",
+        description="Curvature-adaptive density: 0 = uniform quads, 1 = dense on curves, sparse on flats",
         default=1.0, min=0.0, max=1.0,
     )
     anisotropy: FloatProperty(
         name="Anisotropy",
-        description="Curvature-adaptive quad elongation",
+        description="Curvature-adaptive elongation: 0 = square quads, 1 = stretched along curvature",
         default=1.0, min=0.0, max=1.0,
     )
     apply_modifiers: BoolProperty(
@@ -190,7 +193,7 @@ def _import_result(filepath):
             if o not in before and o.type == "MESH"]
 
 
-class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
+class RETOPOFORGE_OT_remesh(bpy.types.Operator):
     """Remesh the selected mesh objects with the retopoforge engine"""
 
     bl_idname = "retopoforge.remesh"
@@ -210,7 +213,7 @@ class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
         obj.matrix_world = Matrix()
         context.view_layer.update()
         input_path = os.path.join(self._tmpdir, f"in_{index}.obj")
-        _export_selection(context, input_path, self.apply_modifiers)
+        _export_selection(context, input_path, self._params.apply_modifiers)
         obj.matrix_world = saved_matrix
         return input_path
 
@@ -220,7 +223,7 @@ class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
             raise RuntimeError("CLI output imported no mesh objects")
         new_mesh = imported[0].data
         new_mesh.name = job["obj"].name + "_remeshed"
-        if self.keep_original:
+        if self._params.keep_original:
             copy = job["obj"].copy()
             copy.data = new_mesh
             copy.name = job["obj"].name + "_retopo"
@@ -263,6 +266,7 @@ class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
     # -- synchronous path (headless use, tests) -------------------------
 
     def execute(self, context):
+        self._params = context.scene.retopoforge_params
         prefs = context.preferences.addons[ADDON_ID].preferences
         binary = find_retopo_binary(prefs.retopo_binary)
         if not binary:
@@ -281,7 +285,7 @@ class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
                     input_path = self._export_job(context, obj, index)
                     output_path = os.path.join(self._tmpdir, f"out_{index}.obj")
                     proc = subprocess.run(
-                        self.cli_args(binary, input_path, output_path),
+                        self._params.cli_args(binary, input_path, output_path),
                         capture_output=True, text=True,
                     )
                     if proc.returncode != 0:
@@ -306,6 +310,7 @@ class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
     # -- modal path (interactive use, UI stays alive) --------------------
 
     def invoke(self, context, event):
+        self._params = context.scene.retopoforge_params
         prefs = context.preferences.addons[ADDON_ID].preferences
         self._binary = find_retopo_binary(prefs.retopo_binary)
         if not self._binary:
@@ -336,7 +341,7 @@ class RETOPOFORGE_OT_remesh(RETOPOFORGE_MT_params, bpy.types.Operator):
         input_path = self._export_job(context, obj, index)
         self._output_path = os.path.join(self._tmpdir, f"out_{index}.obj")
         self._proc = subprocess.Popen(
-            self.cli_args(self._binary, input_path, self._output_path),
+            self._params.cli_args(self._binary, input_path, self._output_path),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         context.window_manager.progress_update(index)
@@ -409,18 +414,19 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         else:
             status.label(text="retopo: missing", icon="ERROR")
             status.label(text="Set the path in Preferences")
-        op = layout.operator("retopoforge.remesh", text="Remesh Selected",
-                             icon="MOD_REMESH")
+        layout.operator("retopoforge.remesh", text="Remesh Selected",
+                        icon="MOD_REMESH")
+        params = context.scene.retopoforge_params
         col = layout.column(align=True)
-        col.prop(op, "target_quads")
-        col.prop(op, "model_type")
-        col.prop(op, "sharp_edge")
-        col.prop(op, "smooth_normal")
-        col.prop(op, "edge_scaling")
-        col.prop(op, "adaptivity")
-        col.prop(op, "anisotropy")
-        col.prop(op, "apply_modifiers")
-        col.prop(op, "keep_original")
+        col.prop(params, "target_quads")
+        col.prop(params, "model_type")
+        col.prop(params, "sharp_edge")
+        col.prop(params, "smooth_normal")
+        col.prop(params, "edge_scaling")
+        col.prop(params, "adaptivity")
+        col.prop(params, "anisotropy")
+        col.prop(params, "apply_modifiers")
+        col.prop(params, "keep_original")
         report = context.scene.retopoforge_last_report
         if report:
             box = layout.box()
@@ -432,6 +438,7 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
 
 _CLASSES = (
     RetopoForgePreferences,
+    RETOPOFORGE_PG_params,
     RETOPOFORGE_OT_remesh,
     RETOPOFORGE_PT_panel,
 )
@@ -440,6 +447,8 @@ _CLASSES = (
 def register():
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
+    bpy.types.Scene.retopoforge_params = PointerProperty(
+        type=RETOPOFORGE_PG_params)
     bpy.types.Scene.retopoforge_last_report = StringProperty(
         name="Last Report",
         description="Stats from the most recent retopoforge remesh",
@@ -449,6 +458,7 @@ def register():
 
 def unregister():
     del bpy.types.Scene.retopoforge_last_report
+    del bpy.types.Scene.retopoforge_params
     for cls in reversed(_CLASSES):
         bpy.utils.unregister_class(cls)
 
