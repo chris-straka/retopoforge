@@ -100,7 +100,7 @@ _RECALL_FLOAT_KEYS = ("sharp_edge", "smooth_normal", "edge_scaling",
                       "adaptivity", "anisotropy",
                       "density_min", "density_max")
 _RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original", "symmetry_enabled",
-                     "guides_enabled", "density_enabled")
+                     "guides_enabled", "features_enabled", "density_enabled")
 _RECALL_STR_KEYS = ("lod_targets", "density_vertex_group")
 _RECALL_MODEL_TYPES = ("ORGANIC", "HARDSURFACE")
 _RECALL_SYMMETRY_PLANES = ("AUTO", "X", "Y", "Z")
@@ -293,6 +293,11 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Constrain quad flow to the edge selection on each target (passed as --guides)",
         default=False,
     )
+    features_enabled: BoolProperty(
+        name="Sharp Features",
+        description="Keep sharp-marked edges crisp on each target (passed as --features)",
+        default=False,
+    )
     density_enabled: BoolProperty(
         name="Density Mask",
         description="Drive local density from a vertex group (passed as --density)",
@@ -399,6 +404,19 @@ def trace_edge_chains(mesh):
     ends every chain passing through it. Iteration is index-sorted, so
     the output is deterministic for a given selection."""
     selected = sorted(e.index for e in mesh.edges if e.select)
+    return _trace_chains(mesh, selected)
+
+
+def trace_sharp_chains(mesh):
+    """Order the mesh's sharp-marked edges into polylines for --features.
+
+    Same deterministic chain tracing as trace_edge_chains, but over the
+    Edge > Mark Sharp flags instead of the edit-mode selection."""
+    selected = sorted(e.index for e in mesh.edges if e.use_edge_sharp)
+    return _trace_chains(mesh, selected)
+
+
+def _trace_chains(mesh, selected):
     if not selected:
         return []
     neighbours = {}
@@ -462,6 +480,23 @@ def write_guide_chains(obj, chains, filepath):
     return len(chains)
 
 
+def write_feature_chains(obj, chains, filepath):
+    """Write vertex-index chains as a --features file (local coords, one
+    'x y z' per line, blank line between polylines). Returns the number
+    of polylines written."""
+    mesh = obj.data
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"# RetopoForge sharp features from '{obj.name}' "
+                f"({len(chains)} polylines)\n")
+        for index, chain in enumerate(chains):
+            if index:
+                f.write("\n")
+            for vert in chain:
+                co = mesh.vertices[vert].co
+                f.write(f"{co.x!r} {co.y!r} {co.z!r}\n")
+    return len(chains)
+
+
 def density_multipliers(obj, group_name, lo, hi):
     """Per-vertex density multipliers in mesh-vertex order: group weight
     0..1 maps linearly onto min..max (swapped when min > max). Vertices
@@ -508,17 +543,18 @@ def count_obj_vertices(filepath):
 
 
 def constraint_args_for_target(params, obj, input_path, tmpdir, tag):
-    """Build the [--guides file, --density file] args for one remesh
-    target, writing the temp files into tmpdir. Returns (args, notes):
-    notes are skip reasons the caller reports as INFO. Guides enabled
-    but nothing selected is a skip, not an error, so multi-object runs
-    with partial selections still finish; likewise a named-but-missing
-    vertex group skips, because the remesh mesh-swap drops vertex
-    groups (weights live on the old topology) and a do-over would
-    otherwise always cancel on its own recalled settings. Raises
-    RuntimeError only for real setup mistakes: no group set, or the
-    mask count not matching the exported OBJ (a topology-changing
-    modifier with Apply Modifiers on)."""
+    """Build the [--guides file, --features file, --density file] args
+    for one remesh target, writing the temp files into tmpdir. Returns
+    (args, notes): notes are skip reasons the caller reports as INFO.
+    Guides enabled but nothing selected is a skip, not an error, so
+    multi-object runs with partial selections still finish; likewise
+    sharp features enabled but nothing marked skips, and a
+    named-but-missing vertex group skips, because the remesh mesh-swap
+    drops vertex groups (weights live on the old topology) and a
+    do-over would otherwise always cancel on its own recalled
+    settings. Raises RuntimeError only for real setup mistakes: no
+    group set, or the mask count not matching the exported OBJ (a
+    topology-changing modifier with Apply Modifiers on)."""
     args = []
     notes = []
     if params.guides_enabled:
@@ -530,6 +566,15 @@ def constraint_args_for_target(params, obj, input_path, tmpdir, tag):
             guides_path = os.path.join(tmpdir, f"guides_{tag}.txt")
             write_guide_chains(obj, chains, guides_path)
             args += ["--guides", guides_path]
+    if params.features_enabled:
+        chains = trace_sharp_chains(obj.data)
+        if not chains:
+            notes.append(f"{obj.name}: sharp features on but no marked "
+                         f"edges, remeshing unconstrained")
+        else:
+            features_path = os.path.join(tmpdir, f"features_{tag}.txt")
+            write_feature_chains(obj, chains, features_path)
+            args += ["--features", features_path]
     if params.density_enabled:
         group_name = (params.density_vertex_group or "").strip()
         if not group_name:
@@ -1143,6 +1188,49 @@ class RETOPOFORGE_OT_export_guides(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class RETOPOFORGE_OT_export_features(bpy.types.Operator):
+    """Export the active object's sharp-marked edges as a --features file"""
+
+    bl_idname = "retopoforge.export_features"
+    bl_label = "Export Sharp Features"
+    bl_options = {"REGISTER"}
+
+    filepath: StringProperty(
+        name="Features File",
+        description="Where to write the --features polyline file",
+        default="",
+        subtype="FILE_PATH",
+    )
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.view_layer.objects.active
+        if obj is None or obj.type != "MESH":
+            self.report({"ERROR"}, "Make a mesh object the active object")
+            return {"CANCELLED"}
+        chains = trace_sharp_chains(obj.data)
+        if not chains:
+            self.report({"ERROR"},
+                        f"No sharp-marked edges on '{obj.name}' "
+                        f"(mark crisp edges with Edge > Mark Sharp first)")
+            return {"CANCELLED"}
+        if not self.filepath:
+            self.report({"ERROR"}, "No output file given")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(self.filepath)
+        count = write_feature_chains(obj, chains, path)
+        points = sum(len(c) for c in chains)
+        self.report({"INFO"},
+                    f"Exported {count} sharp-feature polylines "
+                    f"({points} points) to {path}")
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_OT_export_density(bpy.types.Operator):
     """Export the active object's density vertex group as a --density file"""
 
@@ -1243,6 +1331,11 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         guides.prop(params, "guides_enabled")
         guides.operator("retopoforge.export_guides",
                         text="Export Guide Strokes", icon="GREASEPENCIL")
+        sharp = layout.box()
+        sharp.label(text="Sharp Features: marked edges, per target")
+        sharp.prop(params, "features_enabled")
+        sharp.operator("retopoforge.export_features",
+                       text="Export Sharp Features", icon="EDGESEL")
         density = layout.box()
         density.label(text="Density: vertex group weights")
         density.prop(params, "density_enabled")
@@ -1291,6 +1384,7 @@ _CLASSES = (
     RETOPOFORGE_OT_generate_lods,
     RETOPOFORGE_OT_bake_textures,
     RETOPOFORGE_OT_export_guides,
+    RETOPOFORGE_OT_export_features,
     RETOPOFORGE_OT_export_density,
     RETOPOFORGE_OT_reload,
     RETOPOFORGE_PT_panel,
