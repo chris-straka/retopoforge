@@ -27,7 +27,7 @@ hand when relevant, and only with `bench/run.py --check` green.
 ## Build
 
 - Everything: `cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build`
-  produces `build/cli/retopo` and the Qt6 app (`build/app/autoremesher[.app]`).
+  produces `build/cli/retopo` and the Qt6 app (`build/app/retopoforge.app`).
   Needs TBB + Qt6 + LLVM + Ninja; macOS: `brew install cmake tbb qtbase llvm ninja`.
   (Ninja is mandatory: the only macOS generator with C++ modules support.
   AppleClang cannot build this tree at all once `.cppm` files exist.)
@@ -70,7 +70,8 @@ hand when relevant, and only with `bench/run.py --check` green.
 - `cli/` = Qt-free CLI. `bench/` = harness (models/results gitignored,
   `baseline.json` committed).
 - `app/` = Qt GUI shell (sources, `shaders/`, `resources/`, `resources.qrc`).
-- `thirdparty/` = vendored deps (Eigen, TBB, meshoptimizer,
-  isotropicremesher). OBJ loading and the spinner are native
+- `thirdparty/` = vendored deps (Eigen, meshoptimizer,
+  isotropicremesher); TBB is a system/brew install, not vendored.
+  OBJ loading and the spinner are native
   (`core/objreader.*`, `app/spinnerwidget.*`). QtAwesome was removed
   (dead code, zero call sites).
