@@ -135,6 +135,74 @@
       "non_quads": 4,
       "errors": [],
       "error_count": 0
+    },
+    {
+      "model": "andras_image.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.056,
+      "input_verts": 3966,
+      "input_faces": 7816,
+      "verts": 1402,
+      "quads": 1353,
+      "non_quads": 6,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "andras_image.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.151,
+      "input_verts": 3966,
+      "input_faces": 7816,
+      "verts": 4251,
+      "quads": 4185,
+      "non_quads": 12,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "andras_sideandy.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.055,
+      "input_verts": 4206,
+      "input_faces": 8288,
+      "verts": 1296,
+      "quads": 1235,
+      "non_quads": 16,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "andras_sideandy.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.124,
+      "input_verts": 4206,
+      "input_faces": 8288,
+      "verts": 3558,
+      "quads": 3502,
+      "non_quads": 8,
+      "errors": [],
+      "error_count": 0
     }
   ]
 }

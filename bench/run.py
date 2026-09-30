@@ -26,7 +26,10 @@ MODELS_DIR = os.path.join(ROOT, "bench", "models")
 RESULTS_DIR = os.path.join(ROOT, "bench", "results")
 DEFAULT_BINARY = os.path.join(ROOT, "build", "cli", "retopo")
 
-MODELS = ["armadillo.obj", "beast.obj", "nefertiti.obj", "fandisk.obj"]
+# andras_*.obj are the owner's game-character meshes (Godot project HLL):
+# local-only gitignored files, converted from GLB. Missing files are skipped.
+MODELS = ["armadillo.obj", "beast.obj", "nefertiti.obj", "fandisk.obj",
+          "andras_image.obj", "andras_sideandy.obj"]
 PRESETS = {
     "tiny": ["--target-quads", "1000"],
     "small": ["--target-quads", "5000"],

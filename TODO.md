@@ -1,5 +1,11 @@
 # retopoforge TODO / Roadmap
 
+Owner context: solo-dev Godot game (project HLL, `~/Games/hll`). The main
+workflow is AI image-to-3D meshes (messy, dense, often non-indexed soup)
+remeshed into clean quad game characters (e.g. Andras). Optimize for
+organic quality and robustness on nasty inputs over hard-surface features.
+`bench/models/andras_*.obj` (local, gitignored, converted from GLB) cover it.
+
 Ordered by priority: Blender-first workflow, Exoside-beating last.
 Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
 must report no regressions with identical counts, and new code adds zero
@@ -56,6 +62,18 @@ new warnings.
       input validation (#58), parameterizer success flag (#57), dense
       face map (#56); unique_ptr (#60) and Qt6/MinGW (#59) already covered
       by our tree
+
+## Game-asset workflow (owner's main use case)
+
+- [ ] Weld-on-load in the CLI: AI exporters emit non-indexed triangle soup;
+      unwelded input exploded into 3684 islands on andras_image (meshopt
+      remap in the loader, drop degenerate tris)
+- [ ] `--quiet` CLI flag: progress spam hit 1.7 MB of stdout on the soup
+      input; throttle or silence per-island stage reports
+- [ ] Loud island-failure accounting: failed islands vanish from the output
+      with exit 0 (report failed-island count; decide fallback output)
+- [ ] (future) Emit remeshed UVs from the internal parameterization so game
+      assets can be textured without a second auto-UV pass
 
 ## Quality / release
 
