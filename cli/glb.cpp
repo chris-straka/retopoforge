@@ -24,7 +24,8 @@
 
 #include "glb.h"
 
-#include <AutoRemesher/AutoRemesher>
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"

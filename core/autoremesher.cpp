@@ -19,24 +19,25 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/AutoRemesher>
-import retopo.core.density;
-import retopo.core.isotropic_remesher;
-import retopo.core.mesh_separator;
-import retopo.core.parameterizer;
-import retopo.core.quad_extractor;
-import retopo.core.symmetry;
+module;
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <span>
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 // Qt defines `emit` as a macro, which collides with TBB profiling.h's `void emit()`.
 // macOS `<mach/mach.h>` also defines `emit`. Undefine before including TBB headers.
 #if defined(__APPLE__) || defined(emit)
@@ -73,6 +74,17 @@ import retopo.core.symmetry;
 #include <meshoptimizer.h>
 #include <unordered_map>
 #include <unordered_set>
+module retopo.core.auto_remesher;
+
+import retopo.core.density;
+import retopo.core.isotropic_remesher;
+import retopo.core.mesh_separator;
+import retopo.core.parameterizer;
+import retopo.core.progress;
+import retopo.core.quad_extractor;
+import retopo.core.symmetry;
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

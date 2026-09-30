@@ -1,7 +1,7 @@
 // Unit + engine tests for local density control (core/density.*).
 // Plain assert-style main, no third-party framework.
 // NOTE: CHECK instead of <cassert> assert(), which is a no-op under NDEBUG.
-#include <AutoRemesher/AutoRemesher>
+import retopo.core.auto_remesher;
 import retopo.core.density;
 import retopo.core.vector3;
 

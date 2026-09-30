@@ -19,8 +19,9 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/ObjReader>
+module;
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -28,6 +29,9 @@
 #include <limits>
 #include <meshoptimizer.h>
 #include <sstream>
+#include <string>
+#include <vector>
+module retopo.core.obj_reader;
 
 namespace AutoRemesher {
 namespace {

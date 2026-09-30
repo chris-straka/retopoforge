@@ -39,7 +39,8 @@
 // one mesh with POSITION + indices, so ~100 lines of spec'd code beats
 // vendoring a writer-capable dependency.
 
-#include <AutoRemesher/AutoRemesher>
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 #include <string>
 #include <string_view>
