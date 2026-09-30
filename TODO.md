@@ -89,6 +89,16 @@ bit-identical counts), and new code adds zero new warnings.
       the source (keeps original seams, skips re-bake)
 - [ ] Vertex-color / attribute transfer for non-textured AI outputs
 
+## Rigging (separate repos, see docs/rigging-strategy.md)
+
+Character rigging lives outside this repo: `~/SWE/rigforge` (Rigify
+fork, heroes/control rigs) and `~/SWE/unirig-mac` (ML rigger Mac
+port, creature volume/auto-placement). Toolbox siblings, no contest.
+
+- [ ] Pipeline end-to-end: remeshed mesh → rigged character
+      (orchestrates the rig repos; only after their comparison +
+      bake tooling settle — until then this repo stays the mesh stage)
+
 ## Character quality (engine work that serves the game)
 
 - [x] Face animation flow (owner's top quality complaint): engine +
