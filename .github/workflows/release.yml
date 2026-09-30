@@ -432,6 +432,9 @@ jobs:
       - name: Install Qt
         run: |
           brew install qtbase
+      - name: Install LLVM
+        run: |
+          brew install llvm
       - name: Install TBB
         run: |
           brew install tbb
@@ -440,7 +443,8 @@ jobs:
           brew install create-dmg
       - name: Build application
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
+            -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j$(sysctl -n hw.logicalcpu)
       - name: Generate DMG
         run: |

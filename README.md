@@ -9,10 +9,12 @@ fixes.
 ## Build (one CMake build for everything)
 
 ```bash
-# macOS prerequisites (Linux: cmake + TBB + Qt6 from your package manager)
-brew install cmake tbb qtbase
+# macOS prerequisites (Linux: cmake + TBB + Qt6 + LLVM from your package manager)
+brew install cmake tbb qtbase llvm
 
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+# macOS builds use Homebrew LLVM (AppleClang lacks C++ named modules)
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
+  -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 

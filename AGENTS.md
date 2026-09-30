@@ -19,9 +19,11 @@ tracks the original repo for merging future fixes.
 
 ## Build
 
-- Everything: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`
+- Everything: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`
   produces `build/cli/retopo` and the Qt6 app (`build/app/autoremesher[.app]`).
-  Needs TBB + Qt6; macOS: `brew install cmake tbb qtbase`.
+  Needs TBB + Qt6 + LLVM; macOS: `brew install cmake tbb qtbase llvm`.
+  (AppleClang lacks named-modules support, so all macOS builds use LLVM;
+  required once the first .cppm file lands.)
 - Headless only (no Qt): add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to configure.
 - Qt app smoke test (ask first): `QT_QPA_PLATFORM=offscreen` + `--help`
   (must exit 0), plus a headless `--input` remesh compared against the
