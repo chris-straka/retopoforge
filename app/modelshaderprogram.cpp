@@ -21,9 +21,9 @@
  */
 
 module;
+#include <QFile>
 #include <QOpenGLShaderProgram>
 #include <QString>
-#include <QFile>
 #include <map>
 
 module retopo.app.model_shader_program;

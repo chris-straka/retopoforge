@@ -1,11 +1,11 @@
 
 module;
-#include <QOpenGLShader>
-#include <QOpenGLShaderProgram>
-#include <map>
 #include <QDebug>
 #include <QFile>
+#include <QOpenGLShader>
+#include <QOpenGLShaderProgram>
 #include <QTextStream>
+#include <map>
 
 module retopo.app.monochrome_opengl_program;
 

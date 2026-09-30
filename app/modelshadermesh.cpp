@@ -22,14 +22,14 @@
 
 module;
 #include <QColor>
+#include <QFile>
 #include <QImage>
 #include <QObject>
-#include <cstdint>
-#include <vector>
-#include <QFile>
 #include <QTextStream>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <vector>
 
 module retopo.app.model_shader_mesh;
 

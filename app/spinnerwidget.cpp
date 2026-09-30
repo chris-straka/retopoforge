@@ -20,8 +20,8 @@
  *  SOFTWARE.
  */
 #include "spinnerwidget.h"
-#include <QPainter>
 #include <QPaintEvent>
+#include <QPainter>
 #include <QtMath>
 
 namespace {

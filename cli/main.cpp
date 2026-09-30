@@ -26,9 +26,9 @@
 // (MainWindow::runHeadless + QuadMeshGenerator::generate), without any Qt
 // dependency: no QApplication, no event loop, works over ssh and in CI.
 
+#include "glb.h"
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/ObjReader>
-#include "glb.h"
 import retopo.core.mesh_separator;
 import retopo.core.vector2;
 import retopo.core.vector3;
@@ -898,7 +898,7 @@ static int runMultiMode(const Params& params, bool batch)
     }
 
     const std::vector<int> targets = params.lodTargets.empty()
-        ? std::vector<int>{ params.targetQuads }
+        ? std::vector<int> { params.targetQuads }
         : params.lodTargets;
     const bool lodMode = !params.lodTargets.empty();
 

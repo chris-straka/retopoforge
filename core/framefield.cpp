@@ -25,10 +25,10 @@ module;
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <utility>
-#include <vector>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
+#include <utility>
+#include <vector>
 module retopo.core.frame_field;
 
 import retopo.core.constrained_least_squares;

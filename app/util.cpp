@@ -21,9 +21,9 @@
  */
 
 module;
-#include <QString>
 #include "version.h"
 #include <QObject>
+#include <QString>
 
 module retopo.app.util;
 

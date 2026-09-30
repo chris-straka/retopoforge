@@ -28,11 +28,11 @@ module;
 #include <map>
 #include <memory>
 #include <set>
-#include <utility>
-#include <vector>
 #include <tbb/blocked_range.h>
 #include <tbb/combinable.h>
 #include <tbb/parallel_for.h>
+#include <utility>
+#include <vector>
 module retopo.core.parameterizer;
 
 import retopo.core.constrained_least_squares;

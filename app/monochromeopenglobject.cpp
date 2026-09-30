@@ -2,11 +2,11 @@
 module;
 #include <QMutex>
 #include <QOpenGLBuffer>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QOpenGLVertexArrayObject>
 #include <cstdint>
 #include <memory>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
 
 module retopo.app.monochrome_opengl_object;
 

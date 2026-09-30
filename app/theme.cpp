@@ -32,15 +32,15 @@
 
 module;
 #include <QAbstractSpinBox>
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
-#include <QPushButton>
-#include <QString>
-#include <map>
-#include <QApplication>
 #include <QDebug>
 #include <QFontMetrics>
 #include <QGuiApplication>
+#include <QPushButton>
+#include <QString>
+#include <map>
 
 module retopo.app.theme;
 

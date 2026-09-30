@@ -21,18 +21,18 @@
  */
 
 module;
+#include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QMutex>
+#include <QMutexLocker>
 #include <QOpenGLBuffer>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QOpenGLTexture>
 #include <QOpenGLVertexArrayObject>
 #include <QString>
-#include <QDebug>
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QMutexLocker>
 #include <QSurfaceFormat>
 #include <QTextStream>
 #include <map>

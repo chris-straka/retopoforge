@@ -27,10 +27,10 @@ module;
 #include <iostream>
 #include <queue>
 #include <span>
-#include <utility>
-#include <vector>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
+#include <utility>
+#include <vector>
 module retopo.core.quad_parameterizer;
 
 import retopo.core.constrained_least_squares;
