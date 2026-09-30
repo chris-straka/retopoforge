@@ -190,7 +190,7 @@ and QtAwesome deleted as dead code before the removal.
 - [x] Perf at scale: profiled (`docs/perf.md`, dragon 50k: ~23s,
       ~1.5 GiB); TBB scaling checked — no thread knob exists, batch
       mode is the parallelism story
-- [ ] Measured comparison vs free baselines (owner-scratched the
+- [x] Measured comparison vs free baselines (owner-scratched the
       paid QR comparison): native Voxel remesh in-repo + standalone
       QuadriFlow binary — same inputs, quad counts, timings,
       thin-feature behavior. NOTE: Blender 5.x removed the Quadriflow
@@ -200,7 +200,7 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Thin-feature detail allocation (fingers, face): owner-verified
       15k hero still starves thin regions; needs the density-aware
       pole placement research below, validated on finger-like fixtures
-- [ ] Pole pinch cleanup: stray non-manifold verts at sphere poles
+- [x] Pole pinch cleanup: stray non-manifold verts at sphere poles
       (2 verts found in character hair via Select Non-Manifold);
       find and fix the degenerate-cap source
 - [ ] UX polish in the addon (needs the owner's eyes on real meshes)
@@ -228,7 +228,7 @@ and QtAwesome deleted as dead code before the removal.
       refinement saturates (~2.3x for 4x asks) because poles are
       sizing-unaware. Placing poles for the density field would unlock
       the full 4x.
-- [ ] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
+- [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only
       fallback.
