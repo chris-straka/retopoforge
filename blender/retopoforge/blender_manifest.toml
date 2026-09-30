@@ -1,0 +1,12 @@
+schema_version = "1.0.0"
+
+id = "retopoforge"
+version = "0.1.0"
+name = "RetopoForge"
+tagline = "Quad remeshing driven by the retopoforge CLI"
+maintainer = "Chris Straka"
+type = "add-on"
+website = "https://github.com/chris-straka/retopoforge"
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Mesh"]

@@ -14,19 +14,21 @@ new warnings.
 
 ## Blender addon (the workflow goal)
 
-- [ ] Extension-format package (`blender_manifest.toml`) for Blender 4.2+/5.x
-- [ ] Operator: remesh selected objects via the `retopo` CLI subprocess,
+- [x] Extension-format package (`blender_manifest.toml`) for Blender 4.2+/5.x
+- [x] Operator: remesh selected objects via the `retopo` CLI subprocess,
       temp-OBJ round-trip invisible to the user
-- [ ] Panel: organic/hardsurface presets, target quads, sharp/smooth angles,
+- [x] Panel: organic/hardsurface presets, target quads, sharp/smooth angles,
       adaptivity, anisotropy, model type
-- [ ] Evaluated-mesh export (modifiers applied, toggleable) in world space;
-      restore object transforms on import
-- [ ] Replace-active-mesh in a single undo step vs spawn-new-object modes
-- [ ] Modal operator with progress indication (no UI freeze on long remeshes)
-- [ ] Stats report display in the panel
-- [ ] Multi-object loop over the selection; temp files in Blender's temp dir
-- [ ] Headless verification (`blender --background --python`)
-- [ ] Honest UV / vertex-color data-loss notice in the UI
+- [x] Evaluated-mesh export (modifiers applied, toggleable) in local space
+      under identity transform (double-safe); restore transforms on import
+- [x] Replace-active-mesh in a single undo step vs spawn-new-object modes
+- [x] Modal operator with progress indication (no UI freeze on long remeshes)
+- [x] Stats report display in the panel
+- [x] Multi-object loop over the selection; temp files removed afterwards
+- [x] Headless verification (`blender/tests/test_headless.py`, all passing)
+- [x] Honest UV / vertex-color data-loss notice in the UI
+- [ ] Zip install path verified (`package_install_files`); user-facing
+      release packaging (signed zip? extensions.blender.org listing?)
 - [ ] (future) Blender sharp-edge marks as feature constraints — needs a
       CLI `--features` input flag first (engine change)
 
