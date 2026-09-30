@@ -26,6 +26,7 @@ import retopo.core.vector2;
 import retopo.core.vector3;
 #include <QObject>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -53,32 +54,19 @@ public:
     {
     }
 
-    ~PreviewMeshGenerator()
-    {
-        delete m_decimatedMesh;
-        delete m_isotropicMesh;
-        delete m_paramMesh;
-    }
-
     ModelShaderMesh* takeDecimatedMesh()
     {
-        ModelShaderMesh* mesh = m_decimatedMesh;
-        m_decimatedMesh = nullptr;
-        return mesh;
+        return m_decimatedMesh.release();
     }
 
     ModelShaderMesh* takeIsotropicMesh()
     {
-        ModelShaderMesh* mesh = m_isotropicMesh;
-        m_isotropicMesh = nullptr;
-        return mesh;
+        return m_isotropicMesh.release();
     }
 
     ModelShaderMesh* takeParamMesh()
     {
-        ModelShaderMesh* mesh = m_paramMesh;
-        m_paramMesh = nullptr;
-        return mesh;
+        return m_paramMesh.release();
     }
 
     void generate();
@@ -98,9 +86,9 @@ private:
     std::vector<AutoRemesher::Vector3> m_isotropicSingularVertices;
     std::vector<std::pair<AutoRemesher::Vector3, AutoRemesher::Vector3>> m_isotropicExtractedConnections;
     std::vector<uint8_t> m_isotropicExtractedConnectionMoved;
-    ModelShaderMesh* m_decimatedMesh = nullptr;
-    ModelShaderMesh* m_isotropicMesh = nullptr;
-    ModelShaderMesh* m_paramMesh = nullptr;
+    std::unique_ptr<ModelShaderMesh> m_decimatedMesh;
+    std::unique_ptr<ModelShaderMesh> m_isotropicMesh;
+    std::unique_ptr<ModelShaderMesh> m_paramMesh;
 };
 
 #endif

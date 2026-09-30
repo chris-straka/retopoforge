@@ -70,9 +70,9 @@ void Theme::initAwsomeBaseSizes()
     QFontMetrics fontMetrics(QApplication::font());
     Theme::toolIconFontSize = fontMetrics.height();
 
-    Theme::toolIconSize = (int)(Theme::toolIconFontSize * 1.5);
-    Theme::miniIconFontSize = (int)(Theme::toolIconFontSize * 0.7);
-    Theme::miniIconSize = (int)(Theme::miniIconFontSize * 1.67);
+    Theme::toolIconSize = static_cast<int>(Theme::toolIconFontSize * 1.5);
+    Theme::miniIconFontSize = static_cast<int>(Theme::toolIconFontSize * 0.7);
+    Theme::miniIconSize = static_cast<int>(Theme::miniIconFontSize * 1.67);
     Theme::partPreviewImageSize = (Theme::miniIconSize * 3);
     Theme::sidebarPreferredWidth = Theme::partPreviewImageSize * 4; //3.7;
     Theme::posePreviewImageSize = Theme::sidebarPreferredWidth * 0.4;

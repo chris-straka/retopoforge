@@ -39,14 +39,14 @@ IntNumberWidget::IntNumberWidget(QWidget* parent, bool singleLine)
     m_label->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
     m_label->setAlignment(Qt::AlignLeft);
 
-    connect(m_slider, &QAbstractSlider::valueChanged, [=](int value) {
+    connect(m_slider, &QAbstractSlider::valueChanged, [this](int value) {
         if (m_syncing)
             return;
         syncSpinBoxFromSlider();
         emit valueChanged(value);
     });
 
-    connect(m_spinBox, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), [=](int value) {
+    connect(m_spinBox, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), [this](int value) {
         if (m_syncing)
             return;
         m_syncing = true;

@@ -81,14 +81,14 @@ namespace {
         return best;
     }
 
-    enum EdgeConstraint { ConstraintNone = 0,
+    enum class EdgeConstraint { ConstraintNone = 0,
         ConstraintU = 1,
         ConstraintV = 2 };
-    int edgeConstraint(const SurfaceMesh& mesh, size_t c, const std::vector<Vector3>& field,
+    EdgeConstraint edgeConstraint(const SurfaceMesh& mesh, size_t c, const std::vector<Vector3>& field,
         const std::vector<Vector3>& normals, double hardEdgeDegrees)
     {
         if (mesh.oppositeCorner(c) != SurfaceMesh::npos && std::fabs(mesh.normalAngle(c)) * 180.0 / M_PI < hardEdgeDegrees)
-            return ConstraintNone;
+            return EdgeConstraint::ConstraintNone;
         const size_t f = mesh.cornerFace(c);
         const Vector3 edge = unit(mesh.edgeVector(c), Vector3(1, 0, 0));
         const Vector3 b = unit(field[f], edge);
@@ -96,8 +96,8 @@ namespace {
         const bool alongB = std::acos(std::max(-1.0, std::min(1.0, std::fabs(Vector3::dotProduct(edge, b))))) < 10.0 * M_PI / 180.0;
         const bool alongBr = std::acos(std::max(-1.0, std::min(1.0, std::fabs(Vector3::dotProduct(edge, br))))) < 10.0 * M_PI / 180.0;
         if (alongB == alongBr)
-            return ConstraintNone;
-        return alongB ? ConstraintV : ConstraintU;
+            return EdgeConstraint::ConstraintNone;
+        return alongB ? EdgeConstraint::ConstraintV : EdgeConstraint::ConstraintU;
     }
 
     struct CoverContext {
@@ -242,7 +242,7 @@ namespace {
         const std::vector<Vector3>& field, const std::vector<Vector3>& normals, double hardEdgeDegrees)
     {
         const size_t corners = mesh.cornerCount();
-        std::vector<signed char> cornerConstraints(corners, ConstraintNone);
+        std::vector<signed char> cornerConstraints(corners, static_cast<signed char>(EdgeConstraint::ConstraintNone));
         tbb::parallel_for(tbb::blocked_range<size_t>(0, corners), [&](const tbb::blocked_range<size_t>& range) {
             for (size_t c = range.begin(); c != range.end(); ++c)
                 cornerConstraints[c] = static_cast<signed char>(edgeConstraint(mesh, c, field, normals, hardEdgeDegrees));
@@ -264,7 +264,7 @@ namespace {
         }
     }
 
-    const double quarterTurn[4][2][2] = {
+    constexpr double quarterTurn[4][2][2] = {
         { { 1, 0 }, { 0, 1 } },
         { { 0, 1 }, { -1, 0 } },
         { { -1, 0 }, { 0, -1 } },
@@ -291,7 +291,7 @@ namespace {
 
         std::vector<char> anchored(faceCount, 0);
         for (size_t c = 0; c < mesh.cornerCount(); ++c)
-            if (cornerConstraints[c] != ConstraintNone)
+            if (cornerConstraints[c] != static_cast<signed char>(EdgeConstraint::ConstraintNone))
                 anchored[mesh.cornerFace(c)] = 1;
 
         const auto request = [&](size_t corner, size_t face, double* constant,
@@ -551,9 +551,8 @@ namespace {
                 continue;
             for (int coord = 0; coord < 2; ++coord) {
                 std::vector<std::pair<size_t, double>> row;
-                for (const auto& item : wheel) {
-                    const size_t t = uvVariables + 2 * item.first;
-                    const int r = item.second;
+                for (const auto& [corner, r] : wheel) {
+                    const size_t t = uvVariables + 2 * corner;
                     if (coord == 0) {
                         if (r == 0)
                             row.push_back({ t, 1 });
@@ -579,13 +578,13 @@ namespace {
         }
         for (size_t c = 0; c < corners; ++c) {
             const size_t n = mesh.nextCorner(c);
-            const int constraint = cornerConstraints[c];
-            if (constraint == ConstraintV) {
+            const EdgeConstraint constraint = static_cast<EdgeConstraint>(cornerConstraints[c]);
+            if (constraint == EdgeConstraint::ConstraintV) {
                 s.setVariablePeriod(2 * c + 1, 1);
                 s.setVariablePeriod(2 * n + 1, 1);
                 hardCoordinateCount += 2;
                 s.addConstraint(2 * c + 1, 1, 2 * n + 1, -1);
-            } else if (constraint == ConstraintU) {
+            } else if (constraint == EdgeConstraint::ConstraintU) {
                 s.setVariablePeriod(2 * c, 1);
                 s.setVariablePeriod(2 * n, 1);
                 hardCoordinateCount += 2;
@@ -597,10 +596,10 @@ namespace {
         // Rounding usually converges after a couple of passes, well short of the
         // cap, so spread the fraction over the passes it is expected to take and
         // clamp instead of pacing it against the cap and barely moving.
-        const size_t maximumIterations = 100;
-        const size_t expectedIterations = 4;
+        constexpr size_t maximumIterations = 100;
+        constexpr size_t expectedIterations = 4;
         for (size_t iteration = 0; iteration < maximumIterations; ++iteration) {
-            report(0.3f + 0.65f * std::min(1.0f, (float)iteration / expectedIterations),
+            report(0.3f + 0.65f * std::min(1.0f, static_cast<float>(iteration) / expectedIterations),
                 "Rounding cover to integers");
             if (!s.solveIteration())
                 return false;

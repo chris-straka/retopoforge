@@ -45,7 +45,7 @@ void QuadMeshGenerator::printProgress(float progress, const QString& status)
 {
     // Reprint on a new step as well as a new percent: several steps are shorter
     // than one percent of the run and would otherwise never be named.
-    const int percent = (int)(progress * 100);
+    const int percent = static_cast<int>(progress * 100);
     if (percent == m_lastPrintedPercent && status == m_lastPrintedStatus)
         return;
     m_lastPrintedPercent = percent;
@@ -72,7 +72,7 @@ void QuadMeshGenerator::emitProgress(float progress, const QString& status)
 
 static void reportProgressHandler(void* tag, float progress, const char* status)
 {
-    QuadMeshGenerator* generator = (QuadMeshGenerator*)tag;
+    QuadMeshGenerator* generator = static_cast<QuadMeshGenerator*>(tag);
     generator->emitProgress(progress, QString::fromUtf8(status));
 }
 

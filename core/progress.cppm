@@ -34,6 +34,6 @@ export namespace AutoRemesher {
 // The fractions are hand-assigned at the call sites from measured step costs;
 // they only have to be monotonic and roughly proportional, and the phase report
 // prints the real per-step times so they can be re-tuned against a run.
-typedef std::function<void(float fraction, const char* name)> ProgressHandler;
+using ProgressHandler = std::function<void(float fraction, const char* name)>;
 
 }

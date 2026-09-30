@@ -52,7 +52,7 @@ struct ITaskbarList3;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    enum PreviewMode {
+    enum class PreviewMode {
         PreviewSource = 0,
         PreviewDecimate,
         PreviewIsotropic,
@@ -145,7 +145,7 @@ private:
     QPushButton* m_previewIsotropicButton = nullptr;
     QPushButton* m_previewParamButton = nullptr;
     QPushButton* m_previewRemeshButton = nullptr;
-    PreviewMode m_previewMode = PreviewSource;
+    PreviewMode m_previewMode = PreviewMode::PreviewSource;
     IntNumberWidget* m_targetQuadCountWidget = nullptr;
     FloatNumberWidget* m_targetScalingWidget = nullptr;
     //QComboBox *m_modelTypeSelectBox = nullptr;

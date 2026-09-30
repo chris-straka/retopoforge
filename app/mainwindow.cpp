@@ -247,7 +247,7 @@ MainWindow::MainWindow()
     m_sharpEdgeDegreesWidget->setRange(30.0, 180.0);
     m_sharpEdgeDegreesWidget->setValue(m_sharpEdgeDegrees);
     m_sharpEdgeDegreesWidget->setToolTip(tr("Dihedral angle threshold (degrees). Edges sharper than this are preserved as feature edges."));
-    connect(m_sharpEdgeDegreesWidget, &FloatNumberWidget::valueChanged, [=](float value) {
+    connect(m_sharpEdgeDegreesWidget, &FloatNumberWidget::valueChanged, [this](float value) {
         m_sharpEdgeDegrees = value;
     });
 
@@ -256,7 +256,7 @@ MainWindow::MainWindow()
     m_smoothNormalDegreesWidget->setRange(0.0, 180.0);
     m_smoothNormalDegreesWidget->setValue(m_smoothNormalDegrees);
     m_smoothNormalDegreesWidget->setToolTip(tr("Smooth normal angle threshold (degrees). 0 = faceted (current behavior), larger values produce a smoother surface during remeshing by respecting the original vertex normals."));
-    connect(m_smoothNormalDegreesWidget, &FloatNumberWidget::valueChanged, [=](float value) {
+    connect(m_smoothNormalDegreesWidget, &FloatNumberWidget::valueChanged, [this](float value) {
         m_smoothNormalDegrees = value;
     });
 
@@ -265,7 +265,7 @@ MainWindow::MainWindow()
     m_adaptivityWidget->setRange(0.0, 1.0);
     m_adaptivityWidget->setValue(m_adaptivity);
     m_adaptivityWidget->setToolTip(tr("Curvature-adaptive quad density. 0 = uniform, 1 = full adaptivity (finer quads in high-curvature areas)."));
-    connect(m_adaptivityWidget, &FloatNumberWidget::valueChanged, [=](float value) {
+    connect(m_adaptivityWidget, &FloatNumberWidget::valueChanged, [this](float value) {
         m_adaptivity = value;
     });
 
@@ -274,7 +274,7 @@ MainWindow::MainWindow()
     m_anisotropyWidget->setRange(0.0, 1.0);
     m_anisotropyWidget->setValue(m_anisotropy);
     m_anisotropyWidget->setToolTip(tr("Curvature-adaptive quad elongation. 0 = square quads, 1 = quads stretched along the flatter direction (long on tubes and ridges, square on spheres)."));
-    connect(m_anisotropyWidget, &FloatNumberWidget::valueChanged, [=](float value) {
+    connect(m_anisotropyWidget, &FloatNumberWidget::valueChanged, [this](float value) {
         m_anisotropy = value;
     });
 
@@ -282,7 +282,7 @@ MainWindow::MainWindow()
     m_targetQuadCountWidget->setItemName(tr("Target Quads"));
     m_targetQuadCountWidget->setRange(1000, 1000000);
     m_targetQuadCountWidget->setValue(m_targetQuadCount);
-    connect(m_targetQuadCountWidget, &IntNumberWidget::valueChanged, [=](int value) {
+    connect(m_targetQuadCountWidget, &IntNumberWidget::valueChanged, [this](int value) {
         m_targetQuadCount = value;
     });
 
@@ -290,7 +290,7 @@ MainWindow::MainWindow()
     m_targetScalingWidget->setItemName(tr("Edge Scaling"));
     m_targetScalingWidget->setRange(1.0, 4.0);
     m_targetScalingWidget->setValue(m_targetScaling);
-    connect(m_targetScalingWidget, &FloatNumberWidget::valueChanged, [=](float value) {
+    connect(m_targetScalingWidget, &FloatNumberWidget::valueChanged, [this](float value) {
         m_targetScaling = value;
     });
 
@@ -529,7 +529,7 @@ bool MainWindow::loadObj(const QString& filename)
     m_remeshedVertices = nullptr;
     delete m_remeshedQuads;
     m_remeshedQuads = nullptr;
-    m_previewMode = PreviewSource;
+    m_previewMode = PreviewMode::PreviewSource;
     m_previewSourceButton->setChecked(false);
     m_previewDecimateButton->setChecked(false);
     m_previewIsotropicButton->setChecked(false);
@@ -643,7 +643,7 @@ void MainWindow::updateTitle()
 
 void MainWindow::switchToSourceView()
 {
-    m_previewMode = PreviewSource;
+    m_previewMode = PreviewMode::PreviewSource;
     m_previewSourceButton->setChecked(true);
     m_previewDecimateButton->setChecked(false);
     m_previewIsotropicButton->setChecked(false);
@@ -655,7 +655,7 @@ void MainWindow::switchToSourceView()
 
 void MainWindow::switchToDecimateView()
 {
-    m_previewMode = PreviewDecimate;
+    m_previewMode = PreviewMode::PreviewDecimate;
     m_previewSourceButton->setChecked(false);
     m_previewDecimateButton->setChecked(true);
     m_previewIsotropicButton->setChecked(false);
@@ -667,7 +667,7 @@ void MainWindow::switchToDecimateView()
 
 void MainWindow::switchToIsotropicView()
 {
-    m_previewMode = PreviewIsotropic;
+    m_previewMode = PreviewMode::PreviewIsotropic;
     m_previewSourceButton->setChecked(false);
     m_previewDecimateButton->setChecked(false);
     m_previewIsotropicButton->setChecked(true);
@@ -679,7 +679,7 @@ void MainWindow::switchToIsotropicView()
 
 void MainWindow::switchToParamView()
 {
-    m_previewMode = PreviewParam;
+    m_previewMode = PreviewMode::PreviewParam;
     m_previewSourceButton->setChecked(false);
     m_previewDecimateButton->setChecked(false);
     m_previewIsotropicButton->setChecked(false);
@@ -691,7 +691,7 @@ void MainWindow::switchToParamView()
 
 void MainWindow::switchToRemeshView()
 {
-    m_previewMode = PreviewRemesh;
+    m_previewMode = PreviewMode::PreviewRemesh;
     m_previewSourceButton->setChecked(false);
     m_previewDecimateButton->setChecked(false);
     m_previewIsotropicButton->setChecked(false);
@@ -704,7 +704,7 @@ void MainWindow::switchToRemeshView()
 void MainWindow::updateProgress(float progress)
 {
 #if defined(Q_OS_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    m_taskbarButton->progress()->setValue((int)(progress * 100));
+    m_taskbarButton->progress()->setValue(static_cast<int>(progress * 100));
 #elif defined(Q_OS_WIN32)
     if (nullptr != m_taskbarList) {
         QWindow* handle = windowHandle();
@@ -723,7 +723,7 @@ void MainWindow::updateProgress(float progress)
 
 void MainWindow::updateProgressDetailed(float progress, const QString& status)
 {
-    const int percent = (int)(progress * 100);
+    const int percent = static_cast<int>(progress * 100);
     m_progressBar->setValue(percent);
     m_progressBar->show();
     m_progressStatusLabel->setText(status.isEmpty()
@@ -760,7 +760,7 @@ void MainWindow::showSupporters()
         g_supportersWidget->setWindowTitle(unifiedWindowTitle(tr("Supporters")));
         g_supportersWidget->setMinimumSize(QSize(320, 280));
         QFile supporters(":/SUPPORTERS");
-        supporters.open(QFile::ReadOnly | QFile::Text);
+        (void)supporters.open(QFile::ReadOnly | QFile::Text);
         g_supportersWidget->setHtml("<h1>SUPPORTERS</h1><pre>" + supporters.readAll() + "</pre>");
     }
     g_supportersWidget->show();
@@ -775,9 +775,9 @@ void MainWindow::showContributors()
         g_contributorsWidget->setWindowTitle(unifiedWindowTitle(tr("Contributors")));
         g_contributorsWidget->setMinimumSize(QSize(320, 280));
         QFile authors(":/AUTHORS");
-        authors.open(QFile::ReadOnly | QFile::Text);
+        (void)authors.open(QFile::ReadOnly | QFile::Text);
         QFile contributors(":/CONTRIBUTORS");
-        contributors.open(QFile::ReadOnly | QFile::Text);
+        (void)contributors.open(QFile::ReadOnly | QFile::Text);
         g_contributorsWidget->setHtml("<h1>AUTHORS</h1><pre>" + authors.readAll() + "</pre><h1>CONTRIBUTORS</h1><pre>" + contributors.readAll() + "</pre>");
     }
     g_contributorsWidget->show();
@@ -792,7 +792,7 @@ void MainWindow::showAcknowlegements()
         g_acknowlegementsWidget->setWindowTitle(unifiedWindowTitle(tr("Acknowlegements")));
         g_acknowlegementsWidget->setMinimumSize(QSize(640, 380));
         QFile file(":/ACKNOWLEDGEMENTS.html");
-        file.open(QFile::ReadOnly | QFile::Text);
+        (void)file.open(QFile::ReadOnly | QFile::Text);
         QTextStream stream(&file);
         g_acknowlegementsWidget->setHtml(stream.readAll());
     }
@@ -923,7 +923,7 @@ void MainWindow::renderMeshReady()
         // This is the source mesh being displayed
         delete m_sourceRenderMesh;
         m_sourceRenderMesh = new ModelShaderMesh(*renderMesh);
-        m_previewMode = PreviewSource;
+        m_previewMode = PreviewMode::PreviewSource;
         m_previewSourceButton->setChecked(true);
         m_previewDecimateButton->setChecked(false);
         m_previewIsotropicButton->setChecked(false);
@@ -986,7 +986,7 @@ void MainWindow::previewMeshesReady()
     m_previewRemeshButton->setEnabled(true);
 
     // Show the remesh result by default (master copy stays in m_remeshRenderMesh)
-    m_previewMode = PreviewRemesh;
+    m_previewMode = PreviewMode::PreviewRemesh;
     m_previewSourceButton->setChecked(false);
     m_previewDecimateButton->setChecked(false);
     m_previewIsotropicButton->setChecked(false);
@@ -1046,7 +1046,7 @@ void MainWindow::runHeadless()
     QApplication::restoreOverrideCursor();
 
     if (!objLoaded) {
-        std::cerr << "Error: Failed to load " << m_currentFilename.toStdString() << std::endl;
+        std::cerr << "Error: Failed to load " << m_currentFilename.toStdString() << '\n';
         QCoreApplication::quit();
         return;
     }
@@ -1188,7 +1188,7 @@ void MainWindow::quadMeshReady()
         checkRenderQueue();
     } else {
         if (m_headlessMode) {
-            std::cerr << "Error: Remeshing produced no result" << std::endl;
+            std::cerr << "Error: Remeshing produced no result" << '\n';
             emit headlessFinished(0, 0, 0, m_headlessTimer.elapsed() / 1000.0);
             return;
         }

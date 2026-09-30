@@ -135,3 +135,6 @@ if(TARGET autoremesher)
     unset(_RETOPO_MMI_FLAGS)
     unset(_mod)
 endif()
+
+enable_testing()
+add_subdirectory(tests)

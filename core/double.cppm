@@ -29,12 +29,12 @@ export namespace AutoRemesher {
 
 namespace Double {
 
-    inline bool isZero(double number)
+    [[nodiscard]] inline bool isZero(double number) noexcept
     {
         return std::abs(number) <= std::numeric_limits<double>::epsilon();
     }
 
-    inline bool isEqual(double a, double b)
+    [[nodiscard]] inline bool isEqual(double a, double b) noexcept
     {
         return isZero(a - b);
     }
