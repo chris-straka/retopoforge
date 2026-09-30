@@ -239,7 +239,7 @@ static bool loadObj(const std::string& filename,
     std::vector<std::vector<size_t>> loadedTriangles;
     std::string warn, err;
 
-    // Note: the reader fan-triangulates polygons, so every face below
+    // Note: the reader ear-clip triangulates polygons, so every face below
     // is a triangle.
     bool loadSuccess = AutoRemesher::loadObjPositionsAndTriangles(filename.c_str(), &positions, &loadedTriangles, &warn, &err);
     if (!warn.empty())

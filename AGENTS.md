@@ -64,4 +64,5 @@ tracks the original repo for merging future fixes.
   `baseline.json` committed).
 - `app/` = Qt GUI shell (sources, `shaders/`, `resources/`, `resources.qrc`).
 - `thirdparty/` = vendored deps (Eigen, TBB, meshoptimizer,
-  isotropicremesher, tinyobjloader, QtAwesome, QtWaitingSpinner).
+  isotropicremesher, QtAwesome). OBJ loading and the spinner are native
+  (`core/objreader.*`, `app/spinnerwidget.*`).

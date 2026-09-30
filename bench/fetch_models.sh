@@ -2,6 +2,7 @@
 # Download benchmark test models (not committed to the repo).
 # Source: https://github.com/alecjacobson/common-3d-test-models
 set -euo pipefail
+mkdir -p "$(dirname "$0")/models"
 cd "$(dirname "$0")/models"
 BASE="https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data"
 for model in armadillo.obj beast.obj nefertiti.obj fandisk.obj; do
