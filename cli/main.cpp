@@ -28,10 +28,12 @@
 
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/ObjReader>
+import retopo.core.mesh_separator;
 import retopo.core.vector3;
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -56,6 +58,7 @@ struct Params {
     double adaptivity = 1.0;
     double anisotropy = 1.0;
     AutoRemesher::ModelType modelType = AutoRemesher::ModelType::Organic;
+    bool quiet = false;
 };
 
 static void printUsage(const char* argv0)
@@ -88,6 +91,8 @@ static void printUsage(const char* argv0)
               << "                              (default: 1.0, range: 0.0-1.0)\n"
               << "  --model-type <organic|hardsurface>\n"
               << "                              Model type hint (default: organic)\n"
+              << "  --quiet                     Silence progress and info output; only\n"
+              << "                              warnings, errors and the report print\n"
               << "  -h, --help                  Show this help\n"
               << "  -v, --version               Show version\n";
 }
@@ -233,6 +238,8 @@ static bool parseArgs(int argc, char** argv, Params* params)
                 return false;
             if (!parseDouble(value, "--anisotropy", &params->anisotropy))
                 return false;
+        } else if (matches(arg, "--quiet", '\0')) {
+            params->quiet = true;
         } else if (matches(arg, "--model-type", '\0')) {
             if (!takeValue(argc, argv, i, "--model-type", &value))
                 return false;
@@ -283,7 +290,9 @@ static void reportProgress(void* tag, float progress, const char* status)
 
 static bool loadObj(const std::string& filename,
     std::vector<AutoRemesher::Vector3>* vertices,
-    std::vector<std::vector<size_t>>* triangles)
+    std::vector<std::vector<size_t>>* triangles,
+    size_t* preWeldVertices = nullptr,
+    size_t* preWeldTriangles = nullptr)
 {
     std::vector<float> positions;
     std::vector<std::vector<size_t>> loadedTriangles;
@@ -298,6 +307,14 @@ static bool loadObj(const std::string& filename,
         std::cerr << err << '\n';
     if (!loadSuccess)
         return false;
+
+    if (nullptr != preWeldVertices)
+        *preWeldVertices = positions.size() / 3;
+    if (nullptr != preWeldTriangles)
+        *preWeldTriangles = loadedTriangles.size();
+    // Weld-on-load: AI exporters emit non-indexed soup, which would split
+    // into one island per triangle. Already-welded input is untouched.
+    AutoRemesher::weldPositionsAndTriangles(&positions, &loadedTriangles);
 
     vertices->resize(positions.size() / 3);
     for (size_t i = 0, j = 0; i < vertices->size(); ++i) {
@@ -371,16 +388,20 @@ static RungResult remeshLoadedMesh(const Params& params,
     remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
     remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
     ProgressState progressState;
-    remesher.setTag(&progressState);
-    remesher.setProgressHandler(reportProgress);
+    if (!params.quiet) {
+        remesher.setTag(&progressState);
+        remesher.setProgressHandler(reportProgress);
+    }
 
     if (!remesher.remesh()) {
         result.error = "remeshing produced no result";
         return result;
     }
 
-    for (const auto& line : remesher.phaseReport())
-        std::cerr << "  " << line << '\n';
+    if (!params.quiet) {
+        for (const auto& line : remesher.phaseReport())
+            std::cerr << "  " << line << '\n';
+    }
 
     const auto& remeshedVertices = remesher.remeshedVertices();
     const auto& remeshedQuads = remesher.remeshedQuads();
@@ -498,8 +519,10 @@ static int runMultiMode(const Params& params, bool batch)
             noteFailed(failName);
             continue;
         }
-        std::cerr << "Loaded " << vertices.size() << " vertices, "
-                  << triangles.size() << " triangles" << '\n';
+        if (!params.quiet) {
+            std::cerr << "Loaded " << vertices.size() << " vertices, "
+                      << triangles.size() << " triangles" << '\n';
+        }
 
         for (size_t rung = 0; rung < targets.size(); ++rung) {
             std::string outputPath;
@@ -558,6 +581,70 @@ static int runMultiMode(const Params& params, bool batch)
     return failedFiles.empty() ? 0 : 1;
 }
 
+// Count input islands with no output vertex near them. The engine merges
+// per-island outputs without attribution, so a failed or skipped island is
+// visible only as missing output geometry. A remeshed island stays in
+// place, so any output vertex inside the island's slightly expanded
+// bounding box proves the island produced output. Conservative by design:
+// a failed island nested inside another island's box can hide, but a
+// successful island always leaves vertices behind on its own surface.
+static size_t countIslandsWithoutOutput(
+    const std::vector<std::vector<std::vector<size_t>>>& islands,
+    const std::vector<AutoRemesher::Vector3>& inputVertices,
+    const std::vector<AutoRemesher::Vector3>& outputVertices)
+{
+    size_t failed = 0;
+    for (const auto& island : islands) {
+        bool first = true;
+        double minX = 0.0, minY = 0.0, minZ = 0.0;
+        double maxX = 0.0, maxY = 0.0, maxZ = 0.0;
+        for (const auto& face : island) {
+            for (const size_t index : face) {
+                const auto& v = inputVertices[index];
+                if (first) {
+                    minX = maxX = v.x();
+                    minY = maxY = v.y();
+                    minZ = maxZ = v.z();
+                    first = false;
+                } else {
+                    if (v.x() < minX)
+                        minX = v.x();
+                    if (v.x() > maxX)
+                        maxX = v.x();
+                    if (v.y() < minY)
+                        minY = v.y();
+                    if (v.y() > maxY)
+                        maxY = v.y();
+                    if (v.z() < minZ)
+                        minZ = v.z();
+                    if (v.z() > maxZ)
+                        maxZ = v.z();
+                }
+            }
+        }
+        if (first) {
+            ++failed;
+            continue;
+        }
+        const double dx = maxX - minX;
+        const double dy = maxY - minY;
+        const double dz = maxZ - minZ;
+        const double pad = std::sqrt(dx * dx + dy * dy + dz * dz) * 0.01 + 1e-6;
+        bool found = false;
+        for (const auto& v : outputVertices) {
+            if (v.x() >= minX - pad && v.x() <= maxX + pad
+                && v.y() >= minY - pad && v.y() <= maxY + pad
+                && v.z() >= minZ - pad && v.z() <= maxZ + pad) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            ++failed;
+    }
+    return failed;
+}
+
 int main(int argc, char** argv)
 {
     Params params;
@@ -573,12 +660,21 @@ int main(int argc, char** argv)
 
     std::vector<AutoRemesher::Vector3> vertices;
     std::vector<std::vector<size_t>> triangles;
-    if (!loadObj(params.inputPath, &vertices, &triangles)) {
+    size_t preWeldVertices = 0;
+    size_t preWeldTriangles = 0;
+    if (!loadObj(params.inputPath, &vertices, &triangles, &preWeldVertices, &preWeldTriangles)) {
         std::cerr << "Error: failed to load " << params.inputPath << '\n';
         return 1;
     }
-    std::cerr << "Loaded " << vertices.size() << " vertices, "
-              << triangles.size() << " triangles" << '\n';
+    if (!params.quiet) {
+        std::cerr << "Loaded " << vertices.size() << " vertices, "
+                  << triangles.size() << " triangles" << '\n';
+        if (preWeldVertices != vertices.size() || preWeldTriangles != triangles.size()) {
+            std::cerr << "Welded input: " << preWeldVertices << " -> " << vertices.size()
+                      << " vertices, " << preWeldTriangles << " -> " << triangles.size()
+                      << " triangles" << '\n';
+        }
+    }
 
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
@@ -591,19 +687,35 @@ int main(int argc, char** argv)
     remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
     remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
     ProgressState progressState;
-    remesher.setTag(&progressState);
-    remesher.setProgressHandler(reportProgress);
+    if (!params.quiet) {
+        remesher.setTag(&progressState);
+        remesher.setProgressHandler(reportProgress);
+    }
 
     if (!remesher.remesh()) {
         std::cerr << "Error: remeshing produced no result" << '\n';
         return 1;
     }
 
-    for (const auto& line : remesher.phaseReport())
-        std::cerr << "  " << line << '\n';
+    if (!params.quiet) {
+        for (const auto& line : remesher.phaseReport())
+            std::cerr << "  " << line << '\n';
+    }
 
     const auto& remeshedVertices = remesher.remeshedVertices();
     const auto& remeshedQuads = remesher.remeshedQuads();
+
+    // Island accounting on the welded input: same splitter the engine ran,
+    // so the total matches its phase report. A failed island leaves no
+    // output geometry behind; warn loudly but keep exit 0 on partial
+    // success so pipelines still get the surviving output.
+    std::vector<std::vector<std::vector<size_t>>> inputIslands;
+    AutoRemesher::MeshSeparator::splitToIslands(triangles, inputIslands);
+    const size_t failedIslands = countIslandsWithoutOutput(inputIslands, vertices, remeshedVertices);
+    if (failedIslands > 0) {
+        std::cerr << "Warning: " << failedIslands << " of " << inputIslands.size()
+                  << " islands produced no output and were dropped from the mesh" << '\n';
+    }
 
     size_t quadCount = 0;
     size_t nonQuadCount = 0;
@@ -625,6 +737,8 @@ int main(int argc, char** argv)
     std::cout << "=== retopoforge Report ===" << '\n';
     std::cout << "Input: " << params.inputPath << '\n';
     std::cout << "Output: " << params.outputPath << '\n';
+    std::cout << "Islands: " << inputIslands.size() << '\n';
+    std::cout << "Failed islands: " << failedIslands << '\n';
     std::cout << "Quads: " << quadCount << '\n';
     std::cout << "Non-quads: " << nonQuadCount << '\n';
     std::cout << "Vertices: " << remeshedVertices.size() << '\n';
@@ -649,6 +763,8 @@ int main(int argc, char** argv)
         report << "Anisotropy: " << params.anisotropy << "\n";
         report << "Model type: " << (params.modelType == AutoRemesher::ModelType::Organic ? "organic" : "hardsurface") << "\n\n";
         report << "Results:\n";
+        report << "  Islands: " << inputIslands.size() << "\n";
+        report << "  Failed islands: " << failedIslands << "\n";
         report << "  Quads: " << quadCount << "\n";
         report << "  Non-quads: " << nonQuadCount << "\n";
         report << "  Vertices: " << remeshedVertices.size() << "\n";

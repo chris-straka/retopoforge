@@ -36,8 +36,10 @@ Qt installed, add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to the configure line.
 Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--target-quads` (default 50000), `--edge-scaling` (1.0–4.0),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
-`--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`, `--lods <q0,q1,...>`,
-`--help`/`-h`, `--version`/`-v`. The input model comes from
+`--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`, `--lods <q0,q1,...>`, `--quiet`,
+`--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is welded on
+load; `--quiet` silences progress output (warnings, errors, and the
+report still print). The input model comes from
 `bench/fetch_models.sh` (see Benchmarks).
 
 Multi-output: `--lods 10000,5000,2000` emits a full LOD chain in one run

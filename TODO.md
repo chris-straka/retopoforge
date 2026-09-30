@@ -38,14 +38,17 @@ new warnings.
       `bench/baseline.json` (counts rise everywhere). Mobile budgets are
       exact — and Exoside's count is approximate too, so exact counts
       would be a genuine edge, not catch-up.
-- [ ] Weld-on-load in the CLI: AI exporters emit non-indexed triangle
-      soup; unwelded input exploded into thousands of islands in testing
-      (meshopt remap in the loader, drop degenerate tris)
-- [ ] `--quiet` CLI flag: progress spam hit 1.7 MB of stdout on the soup
-      input; throttle or silence per-island stage reports
-- [ ] Loud island-failure accounting: failed islands vanish from the
-      output with exit 0 (report failed-island count; decide fallback
-      output)
+- [x] Weld-on-load in the CLI: `weldPositionsAndTriangles` (meshopt
+      remap, degenerate-tris drop) runs on every load; de-indexed
+      armadillo went from 99,978 islands / 305 s / empty output to
+      1 island / 0.3 s / baseline counts
+- [x] `--quiet` CLI flag: silences CLI-owned progress/info; report
+      block, warnings, and errors always print (engine-owned stderr
+      still prints — needs an engine touch to fully silence)
+- [x] Loud island-failure accounting: report block + `--report` file
+      carry `Islands:` / `Failed islands:`, stderr warns; exit 0 kept
+      on partial success so pipelines keep surviving output (CLI-side
+      bbox heuristic — exact attribution needs an engine counter)
 - [x] Batch mode: remesh a whole asset folder in one CLI invocation
       (`--input` dir + `--output` dir, per-file report, failed-files
       list, exit 1 on partial failure)

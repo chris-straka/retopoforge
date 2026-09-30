@@ -21,9 +21,11 @@
  */
 #include <AutoRemesher/ObjReader>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
+#include <meshoptimizer.h>
 #include <sstream>
 
 namespace AutoRemesher {
@@ -331,6 +333,81 @@ bool loadObjPositionsAndTriangles(const char* filename,
     positions->assign(localPositions.begin(), localPositions.end());
     triangles->assign(localTriangles.begin(), localTriangles.end());
     return true;
+}
+
+void weldPositionsAndTriangles(std::vector<float>* positions,
+    std::vector<std::vector<size_t>>* triangles)
+{
+    if (nullptr == positions || nullptr == triangles)
+        return;
+
+    // Drop index-degenerate triangles first: two corners sharing an index
+    // can never form an area, before or after welding.
+    {
+        std::vector<std::vector<size_t>> kept;
+        kept.reserve(triangles->size());
+        for (const auto& face : *triangles) {
+            if (face.size() == 3 && (face[0] == face[1] || face[1] == face[2] || face[0] == face[2]))
+                continue;
+            kept.push_back(face);
+        }
+        triangles->assign(kept.begin(), kept.end());
+    }
+
+    if (triangles->empty() || positions->empty() || positions->size() % 3 != 0)
+        return;
+    const size_t vertexCount = positions->size() / 3;
+    if (vertexCount > static_cast<size_t>(std::numeric_limits<unsigned int>::max()))
+        return;
+
+    // Flatten the triangle faces to a 32-bit index buffer, bailing out
+    // (degenerates already dropped) on any corner the remapper cannot see:
+    // non-triangle faces stay in place and out-of-range indices are left
+    // for the caller to deal with.
+    std::vector<unsigned int> indices;
+    indices.reserve(triangles->size() * 3);
+    for (const auto& face : *triangles) {
+        if (face.size() != 3)
+            return;
+        for (const size_t corner : face) {
+            if (corner >= vertexCount)
+                return;
+            indices.push_back(static_cast<unsigned int>(corner));
+        }
+    }
+    if (indices.empty())
+        return;
+
+    std::vector<unsigned int> remap(vertexCount);
+    const size_t weldedVertexCount = meshopt_generateVertexRemap(remap.data(),
+        indices.data(), indices.size(),
+        positions->data(), vertexCount, sizeof(float) * 3);
+
+    bool identity = (weldedVertexCount == vertexCount);
+    for (size_t i = 0; identity && i < vertexCount; ++i)
+        identity = (remap[i] == i);
+    if (identity)
+        return;
+
+    std::vector<float> weldedPositions(weldedVertexCount * 3);
+    meshopt_remapVertexBuffer(weldedPositions.data(), positions->data(),
+        vertexCount, sizeof(float) * 3, remap.data());
+    meshopt_remapIndexBuffer(indices.data(), indices.data(), indices.size(), remap.data());
+
+    // Welding can collapse a triangle's distinct corners onto one vertex.
+    std::vector<std::vector<size_t>> weldedTriangles;
+    weldedTriangles.reserve(indices.size() / 3);
+    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+        const size_t a = indices[i + 0];
+        const size_t b = indices[i + 1];
+        const size_t c = indices[i + 2];
+        if (a == b || b == c || a == c)
+            continue;
+        weldedTriangles.push_back(std::vector<size_t> { a, b, c });
+    }
+
+    positions->assign(weldedPositions.begin(), weldedPositions.end());
+    triangles->assign(weldedTriangles.begin(), weldedTriangles.end());
 }
 
 }
