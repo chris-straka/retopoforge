@@ -941,7 +941,7 @@ bool AutoRemesher::remesh()
                     // extractor's stderr chatter) stay off with no handler.
                     const bool quiet = m_remesher->quiet();
                     const ProgressHandler isotropicProgress = quiet ? ProgressHandler()
-                        : m_remesher->makeStageProgress(i, 0.0f, islandResampleEnd, -1.0f);
+                                                                    : m_remesher->makeStageProgress(i, 0.0f, islandResampleEnd, -1.0f);
 
                     auto t0 = std::chrono::high_resolution_clock::now();
                     resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, i, m_decimationStats,
