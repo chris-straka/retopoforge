@@ -612,6 +612,7 @@ void AutoRemesher::accumulateStageTime(const char* name, float order, long long 
 
 bool AutoRemesher::remesh()
 {
+    m_islandOutputQuadCounts.clear();
     // Validate inputs before any sizing math. In particular a zero target
     // triangle count would divide by zero in initializeVoxelSize().
     const char* invalidInputReason = nullptr;
@@ -797,12 +798,16 @@ bool AutoRemesher::remesh()
                     auto& ctx = (*m_contexts)[i];
 
                     m_remesher->updateProgress(i, 0.0f, "Remeshing uniformly");
-                    const ProgressHandler isotropicProgress = m_remesher->makeStageProgress(i,
-                        0.0f, islandResampleEnd, -1.0f);
+                    // Quiet runs skip downstream progress installation: no
+                    // per-stage timings, and downstream progress echoes (the
+                    // extractor's stderr chatter) stay off with no handler.
+                    const bool quiet = m_remesher->quiet();
+                    const ProgressHandler isotropicProgress = quiet ? ProgressHandler()
+                        : m_remesher->makeStageProgress(i, 0.0f, islandResampleEnd, -1.0f);
 
                     auto t0 = std::chrono::high_resolution_clock::now();
                     resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, i, m_decimationStats,
-                        m_adaptiveFieldTime, &isotropicProgress,
+                        m_adaptiveFieldTime, quiet ? nullptr : &isotropicProgress,
                         &(*m_decimatedIslandVertices)[i], &(*m_decimatedIslandTriangles)[i],
                         ctx.density, &ctx.resampledDensity);
                     auto t1 = std::chrono::high_resolution_clock::now();
@@ -929,9 +934,11 @@ bool AutoRemesher::remesh()
                 thread.parameterizer = std::make_unique<Parameterizer>(&vertices,
                     &triangles,
                     nullptr);
-                thread.parameterizer->setProgressHandler(
-                    thread.autoRemesher->makeStageProgress(thread.islandIndex,
-                        islandResampleEnd, islandParameterizeEnd, 0.0f));
+                if (!thread.autoRemesher->quiet()) {
+                    thread.parameterizer->setProgressHandler(
+                        thread.autoRemesher->makeStageProgress(thread.islandIndex,
+                            islandResampleEnd, islandParameterizeEnd, 0.0f));
+                }
                 if (thread.island->scaling > 0.0)
                     thread.parameterizer->setScaling(thread.island->scaling);
                 thread.parameterizer->setGradientAdaptivity(thread.island->adaptivity);
@@ -977,9 +984,13 @@ bool AutoRemesher::remesh()
                         uvs.get());
                     thread.remesher->setOriginalTriangleUvs(&thread.capturedOriginalUvs);
                     thread.remesher->setSingularVertices(&thread.capturedSingularVertexIndices);
-                    thread.remesher->setProgressHandler(
-                        thread.autoRemesher->makeStageProgress(thread.islandIndex,
-                            islandParameterizeEnd, 1.0f, 1.0f));
+                    // No handler in quiet mode: the extractor's stderr
+                    // progress echoes key off handler presence.
+                    if (!thread.autoRemesher->quiet()) {
+                        thread.remesher->setProgressHandler(
+                            thread.autoRemesher->makeStageProgress(thread.islandIndex,
+                                islandParameterizeEnd, 1.0f, 1.0f));
+                    }
                     thread.remesher->setComputeVertexUvs(thread.computeVertexUvs);
                     if (!thread.remesher->extract()) {
                         thread.remesher.reset();
@@ -1048,12 +1059,15 @@ bool AutoRemesher::remesh()
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
     }
     m_remeshedVertexUvs.clear();
-    for (auto& thread : parameterizationThreads) {
+    m_islandOutputQuadCounts.assign(parameterizationThreads.size(), 0);
+    for (size_t threadIndex = 0; threadIndex < parameterizationThreads.size(); ++threadIndex) {
+        auto& thread = parameterizationThreads[threadIndex];
         if (nullptr == thread.remesher)
             continue;
         const auto& quads = thread.remesher->remeshedQuads();
         if (quads.empty())
             continue;
+        m_islandOutputQuadCounts[threadIndex] = quads.size();
         const auto& vertices = thread.remesher->remeshedVertices();
         size_t vertexStartIndex = m_remeshedVertices.size();
         m_remeshedVertices.reserve(m_remeshedVertices.size() + vertices.size());
@@ -1190,8 +1204,12 @@ bool AutoRemesher::remesh()
         phase("Total", t_totalUs);
     }
 
-    for (const auto& line : m_phaseReport)
-        std::cerr << line << '\n';
+    // The report itself is always populated (phaseReport()); only the stderr
+    // dump is quiet-gated. Warnings and errors above still print.
+    if (!m_quiet) {
+        for (const auto& line : m_phaseReport)
+            std::cerr << line << '\n';
+    }
 
 #if AUTO_REMESHER_DEBUG
     std::cerr << "Remesh done" << '\n';

@@ -61,9 +61,13 @@ bool QuadExtractor::extract()
         if (m_progressHandler)
             m_progressHandler(fraction, name);
     };
+    // Every std::cerr diagnostic in extract() and its helpers is likewise
+    // gated on m_progressHandler: with no progress subscriber (a quiet run)
+    // the extractor stays silent. Failures propagate via return values.
 
     report(0.0f, "Extracting connections");
-    std::cerr << "Extract connections...\n";
+    if (m_progressHandler)
+        std::cerr << "Extract connections...\n";
     std::vector<Vector3> crossPoints;
     std::vector<size_t> crossPointSourceTriangles;
     std::set<std::pair<size_t, size_t>> connections;
@@ -105,7 +109,8 @@ bool QuadExtractor::extract()
             m_extractedConnectionMoved.push_back(0);
         }
     }
-    std::cerr << "Extract connections done\n";
+    if (m_progressHandler)
+        std::cerr << "Extract connections done\n";
 
 #if AUTO_REMESHER_DEV
     {
@@ -122,7 +127,8 @@ bool QuadExtractor::extract()
 #endif
 
     report(0.21f, "Extracting edges");
-    std::cerr << "Extract edges...\n";
+    if (m_progressHandler)
+        std::cerr << "Extract edges...\n";
     std::unordered_map<size_t, std::unordered_set<size_t>> edgeConnectMap;
     extractEdges(connections, &edgeConnectMap);
     if (collapseShortEdges(&crossPoints, &edgeConnectMap))
@@ -131,7 +137,8 @@ bool QuadExtractor::extract()
     if (removeSingleEndpoints(&crossPoints, &edgeConnectMap))
         simplifyGraph(edgeConnectMap);
 
-    std::cerr << "Extract edges done\n";
+    if (m_progressHandler)
+        std::cerr << "Extract edges done\n";
 
 #if AUTO_REMESHER_DEV
     {
@@ -163,9 +170,11 @@ bool QuadExtractor::extract()
 #endif
 
     report(0.25f, "Extracting mesh");
-    std::cerr << "Extract mesh...\n";
+    if (m_progressHandler)
+        std::cerr << "Extract mesh...\n";
     extractMesh(crossPoints, crossPointSourceTriangles, edgeConnectMap, &m_remeshedPolygons);
-    std::cerr << "Extract mesh done\n";
+    if (m_progressHandler)
+        std::cerr << "Extract mesh done\n";
 
     report(0.29f, "Fixing holes");
     fixHoles();
@@ -234,9 +243,11 @@ bool QuadExtractor::extract()
     }
 
     report(0.31f, "Smoothing and projecting");
-    std::cerr << "Smooth and project...\n";
+    if (m_progressHandler)
+        std::cerr << "Smooth and project...\n";
     smoothAndProject(5);
-    std::cerr << "Smooth and project done\n";
+    if (m_progressHandler)
+        std::cerr << "Smooth and project done\n";
 
     report(0.44f, "Splitting seven edge faces");
     splitSevenEdgeFaces();
@@ -1264,8 +1275,9 @@ void QuadExtractor::holdSingularLines(std::vector<Vector3>* crossPoints,
         ++walkedCones;
     }
 
-    std::cerr << "Hold singular lines walked " << walkedCones << " of " << starvedCones
-              << " starved cone(s), added " << addedConnections << " connection(s)\n";
+    if (m_progressHandler)
+        std::cerr << "Hold singular lines walked " << walkedCones << " of " << starvedCones
+                  << " starved cone(s), added " << addedConnections << " connection(s)\n";
 }
 
 bool QuadExtractor::testPointInTriangle(const std::vector<Vector3>& points,
@@ -1310,10 +1322,12 @@ void QuadExtractor::fixHoles()
     searchBoundaries(m_halfEdges, &loops);
     for (auto& loop : loops) {
         if (loop.size() > 65) {
-            std::cerr << "Ignore long hole at length:" << loop.size() << '\n';
+            if (m_progressHandler)
+                std::cerr << "Ignore long hole at length:" << loop.size() << '\n';
             continue;
         }
-        std::cerr << "Fixing hole at length:" << loop.size() << "...\n";
+        if (m_progressHandler)
+            std::cerr << "Fixing hole at length:" << loop.size() << "...\n";
         fixHoleWithQuads(loop, true);
         if (loop.size() >= 4)
             fixHoleWithQuads(loop, false);
@@ -1332,7 +1346,8 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
 
     for (;;) {
         if (hole.size() <= 2) {
-            std::cerr << "fixHoleWithQuads cancel on edge length:" << hole.size() << '\n';
+            if (m_progressHandler)
+                std::cerr << "fixHoleWithQuads cancel on edge length:" << hole.size() << '\n';
             return;
         }
 
@@ -1366,7 +1381,8 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
             const auto& score = edgeScores[edgeIndex];
             if (checkScore) {
                 if (score.second <= 0) {
-                    std::cerr << "fixHoleWithQuads failed, highest score(dot):" << score.second << '\n';
+                    if (m_progressHandler)
+                        std::cerr << "fixHoleWithQuads failed, highest score(dot):" << score.second << '\n';
                     return;
                 }
             }
@@ -1376,7 +1392,8 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
             int k = (j + 1) % hole.size();
             std::vector<size_t> candidate = { static_cast<size_t>(hole[k]), static_cast<size_t>(hole[j]), static_cast<size_t>(hole[i]), static_cast<size_t>(hole[h]) };
             if (m_halfEdges.contains({ candidate[0], candidate[1] }) || m_halfEdges.contains({ candidate[1], candidate[2] }) || m_halfEdges.contains({ candidate[2], candidate[3] }) || m_halfEdges.contains({ candidate[3], candidate[0] })) {
-                std::cerr << "fixHoleWithQuads ignore score:" << score.second << " because conflicts with existed quads\n";
+                if (m_progressHandler)
+                    std::cerr << "fixHoleWithQuads ignore score:" << score.second << " because conflicts with existed quads\n";
                 continue;
             }
             std::vector<size_t> remainPoints;
@@ -1386,7 +1403,8 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
                 remainPoints.push_back(hole[w]);
             }
             if (testPointInTriangle(m_remeshedVertices, { candidate[0], candidate[1], candidate[2] }, remainPoints) || testPointInTriangle(m_remeshedVertices, { candidate[2], candidate[3], candidate[0] }, remainPoints)) {
-                std::cerr << "fixHoleWithQuads ignore score:" << score.second << " because other point in the same loop fall into quad plane\n";
+                if (m_progressHandler)
+                    std::cerr << "fixHoleWithQuads ignore score:" << score.second << " because other point in the same loop fall into quad plane\n";
                 continue;
             }
             m_remeshedPolygons.push_back(candidate);
@@ -1410,7 +1428,8 @@ void QuadExtractor::fixHoleWithQuads(std::vector<size_t>& hole, bool checkScore)
 void QuadExtractor::searchBoundaries(const std::set<std::pair<size_t, size_t>>& halfEdges,
     std::vector<std::vector<size_t>>* loops)
 {
-    std::cerr << "Searching boundaries...\n";
+    if (m_progressHandler)
+        std::cerr << "Searching boundaries...\n";
 
     std::unordered_map<size_t, std::unordered_set<size_t>> nextMap;
     for (const auto& [from, to] : halfEdges) {
@@ -1424,17 +1443,21 @@ void QuadExtractor::searchBoundaries(const std::set<std::pair<size_t, size_t>>& 
         std::vector<size_t> loop;
         size_t startVertex = it->first;
         bool validate = false;
-        std::cerr << "Searching loop from:" << startVertex << '\n';
+        if (m_progressHandler)
+            std::cerr << "Searching loop from:" << startVertex << '\n';
         while (it != nextMap.end()) {
             if (startVertex == it->first && loop.size() >= 3) {
-                std::cerr << "Found valid loop, size:" << loop.size() << '\n';
+                if (m_progressHandler)
+                    std::cerr << "Found valid loop, size:" << loop.size() << '\n';
                 validate = true;
                 break;
             }
-            std::cerr << "Loop add vertex:" << it->first << '\n';
+            if (m_progressHandler)
+                std::cerr << "Loop add vertex:" << it->first << '\n';
             loop.push_back(it->first);
             if (it->second.size() != 1) {
-                std::cerr << "Break loop, because of next size:" << it->second.size() << '\n';
+                if (m_progressHandler)
+                    std::cerr << "Break loop, because of next size:" << it->second.size() << '\n';
                 break;
             }
             it = nextMap.find(*it->second.begin());
@@ -1445,7 +1468,8 @@ void QuadExtractor::searchBoundaries(const std::set<std::pair<size_t, size_t>>& 
             loops->push_back(loop);
     }
 
-    std::cerr << "Searching boundaries done\n";
+    if (m_progressHandler)
+        std::cerr << "Searching boundaries done\n";
 }
 
 bool QuadExtractor::removeIsolatedFaces()
@@ -1934,7 +1958,8 @@ void QuadExtractor::splitSixEdgeFaces()
             }
         }
         if (-1 == bestCorner) {
-            std::cerr << "Six edge face kept, no diagonal available" << '\n';
+            if (m_progressHandler)
+                std::cerr << "Six edge face kept, no diagonal available" << '\n';
             polygons.push_back(face);
             continue;
         }
@@ -1950,7 +1975,8 @@ void QuadExtractor::splitSixEdgeFaces()
     if (0 == splitNum)
         return;
 
-    std::cerr << "Split six edge faces:" << splitNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Split six edge faces:" << splitNum << '\n';
     m_remeshedPolygons = std::move(polygons);
     rebuildHalfEdges();
 }
@@ -2208,7 +2234,8 @@ void QuadExtractor::convertTriangleAndFiveEdgeFans()
     if (0 == convertNum)
         return;
 
-    std::cerr << "Convert triangle and five edge fans:" << convertNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Convert triangle and five edge fans:" << convertNum << '\n';
     rebuildHalfEdges();
 
     smoothAroundVertices(convertedVertices, 3, 5);
@@ -2472,7 +2499,8 @@ void QuadExtractor::collapseThreeValenceDiagonals()
             compactedCollapsedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Collapse three valence diagonals:" << collapseCount << '\n';
+    if (m_progressHandler)
+        std::cerr << "Collapse three valence diagonals:" << collapseCount << '\n';
     rebuildHalfEdges();
 
     // The point in the middle came from the diagonal, not from the source mesh, pull
@@ -2654,7 +2682,8 @@ void QuadExtractor::mergeDoubleSharedEdgeQuads()
             compactedMergedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Merge double shared edge quads:" << mergeNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Merge double shared edge quads:" << mergeNum << '\n';
     rebuildHalfEdges();
 
     smoothAroundVertices(compactedMergedVertices, 3, 5);
@@ -3023,7 +3052,8 @@ void QuadExtractor::mergeThreeAndFiveValenceTriangles()
             compactedMergedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Merge three and five valence triangles:" << mergeNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Merge three and five valence triangles:" << mergeNum << '\n';
     rebuildHalfEdges();
 
     smoothAroundVertices(compactedMergedVertices, 3, 5);
@@ -3280,7 +3310,8 @@ void QuadExtractor::collapseThreeValenceCorners()
             compactedCollapsedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Collapse three valence corners:" << collapseCount << '\n';
+    if (m_progressHandler)
+        std::cerr << "Collapse three valence corners:" << collapseCount << '\n';
     rebuildHalfEdges();
 
     smoothAroundVertices(compactedCollapsedVertices, 3, 5);
@@ -3547,7 +3578,8 @@ void QuadExtractor::splitHighValenceTriangleFans()
     if (0 == splitNum)
         return;
 
-    std::cerr << "Split high valence triangle fans:" << splitNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Split high valence triangle fans:" << splitNum << '\n';
     rebuildHalfEdges();
 
     smoothAroundVertices(splitVertices, 3, 5);
@@ -3844,7 +3876,8 @@ void QuadExtractor::collapseThreeValenceEdgePairs()
             compactedCollapsedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Collapse three valence edge pairs:" << collapseCount << '\n';
+    if (m_progressHandler)
+        std::cerr << "Collapse three valence edge pairs:" << collapseCount << '\n';
     rebuildHalfEdges();
 
     smoothAroundVertices(compactedCollapsedVertices, 3, 5);
@@ -4057,7 +4090,8 @@ void QuadExtractor::switchHighValenceEdges()
     if (0 == switchNum)
         return;
 
-    std::cerr << "Switch high valence edges:" << switchNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Switch high valence edges:" << switchNum << '\n';
     rebuildHalfEdges();
 
     // The switched quads kept their points, pull the reconnected patches back
@@ -4388,7 +4422,8 @@ void QuadExtractor::cleanupTriangles()
             compactedCollapsedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Cleanup triangle faces:" << collapseCount << '\n';
+    if (m_progressHandler)
+        std::cerr << "Cleanup triangle faces:" << collapseCount << '\n';
     rebuildHalfEdges();
 
     // The rungs met halfway, pull the closed up strips back onto the source mesh
@@ -4481,7 +4516,8 @@ void QuadExtractor::splitSevenEdgeFaces()
             }
         }
         if (-1 == bestCorner) {
-            std::cerr << "Seven edge face kept, no diagonal available" << '\n';
+            if (m_progressHandler)
+                std::cerr << "Seven edge face kept, no diagonal available" << '\n';
             polygons.push_back(face);
             continue;
         }
@@ -4497,7 +4533,8 @@ void QuadExtractor::splitSevenEdgeFaces()
     if (0 == splitNum)
         return;
 
-    std::cerr << "Split seven edge faces:" << splitNum << '\n';
+    if (m_progressHandler)
+        std::cerr << "Split seven edge faces:" << splitNum << '\n';
     m_remeshedPolygons = std::move(polygons);
     rebuildHalfEdges();
 }
@@ -4730,7 +4767,8 @@ void QuadExtractor::mergeSharedFiveEdgeFaces(const ProgressHandler* progressHand
             compactedMergedVertices.insert(findNew->second);
     }
 
-    std::cerr << "Merge shared five edge faces:" << mergeCount << '\n';
+    if (m_progressHandler)
+        std::cerr << "Merge shared five edge faces:" << mergeCount << '\n';
     rebuildHalfEdges();
 
     // The two pentagons closed up around the merged point, pull the patch back
