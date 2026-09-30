@@ -109,6 +109,23 @@ public:
         m_guidePolylines = guides;
     }
 
+    // Explicit sharp/feature polylines: same contract as the guide setter
+    // (ordered point chains in input-mesh coordinates), snapped to the
+    // resampled island mesh before use. Faces near a segment lock in the
+    // frame field (winning ties over guides) and edges near a segment gain
+    // hard corner marks in the quad cover. Null (the default) disables the
+    // sharp pass; the caller keeps the pointee alive through parameterize().
+    // setFeaturePolylines is the CLI-flag-spelled alias (--features).
+    void setSharpPolylines(const std::vector<std::vector<Vector3>>* sharps)
+    {
+        m_sharpPolylines = sharps;
+    }
+
+    void setFeaturePolylines(const std::vector<std::vector<Vector3>>* sharps)
+    {
+        m_sharpPolylines = sharps;
+    }
+
     // Local density control: per-vertex multipliers on this parameterizer's
     // input mesh (the resampled island mesh), 1.0 = unchanged. Values clamp
     // to [0.25, 4.0]; an empty, uniform, or wrong-sized field disables the
@@ -142,6 +159,7 @@ private:
     size_t m_maximumSingularityPairDistance = 6;
     SymmetryPlane m_symmetryPlane;
     const std::vector<std::vector<Vector3>>* m_guidePolylines = nullptr;
+    const std::vector<std::vector<Vector3>>* m_sharpPolylines = nullptr;
     std::vector<double> m_densityField;
     ProgressHandler m_progressHandler;
 

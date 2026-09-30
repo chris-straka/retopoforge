@@ -38,6 +38,7 @@ module retopo.core.parameterizer;
 import retopo.core.constrained_least_squares;
 import retopo.core.density;
 import retopo.core.frame_field;
+import retopo.core.guides;
 import retopo.core.progress;
 import retopo.core.quad_parameterizer;
 import retopo.core.singularity_simplifier;
@@ -51,6 +52,48 @@ namespace AutoRemesher {
 namespace {
 
     const std::vector<std::vector<Vector3>> emptyGuides;
+
+    // Snap user sharp polylines (input-mesh coordinates) onto the resampled
+    // island mesh: each point moves to its nearest resampled vertex, so the
+    // frame-field locks and corner marks sit exactly on mesh edges despite
+    // resampling drift. Points farther than the guide influence radius from
+    // the island are dropped (a polyline drawn on another island, or in the
+    // wrong coordinates, must not snap spuriously onto this one); polylines
+    // left with fewer than two points carry no direction and are dropped,
+    // matching the guide contract.
+    std::vector<std::vector<Vector3>> snapPolylinesToMesh(const SurfaceMesh& mesh,
+        const std::vector<std::vector<Vector3>>& input)
+    {
+        std::vector<std::vector<Vector3>> snapped;
+        snapped.reserve(input.size());
+        if (mesh.vertexCount() == 0)
+            return snapped;
+        const double radius = Guides::influenceRadius(mesh);
+        const double radiusSquared = radius * radius;
+        for (const auto& polyline : input) {
+            if (polyline.size() < 2)
+                continue;
+            std::vector<Vector3> out;
+            out.reserve(polyline.size());
+            for (const auto& point : polyline) {
+                size_t best = 0;
+                double bestDistanceSquared = (mesh.position(0) - point).lengthSquared();
+                for (size_t v = 1; v < mesh.vertexCount(); ++v) {
+                    const double d2 = (mesh.position(v) - point).lengthSquared();
+                    if (d2 < bestDistanceSquared) {
+                        bestDistanceSquared = d2;
+                        best = v;
+                    }
+                }
+                if (bestDistanceSquared > radiusSquared)
+                    continue;
+                out.push_back(mesh.position(best));
+            }
+            if (out.size() >= 2)
+                snapped.push_back(std::move(out));
+        }
+        return snapped;
+    }
 
     std::vector<double> computeConformalScaling(const SurfaceMesh& mesh,
         const std::vector<int>& vertexCharges,
@@ -411,12 +454,20 @@ bool Parameterizer::parameterize()
 
     report(0.03f, "Solving frame field");
     // Topology, field, and quad cover form the complete active path.
+    // Explicit sharps arrive in input-mesh coordinates; the island mesh was
+    // resampled upstream, so snap them onto it before constraining. Null or
+    // empty input leaves snappedSharps empty and every sharp pass below is
+    // skipped, keeping the default run bit-identical.
+    std::vector<std::vector<Vector3>> snappedSharps;
+    if (nullptr != m_sharpPolylines && !m_sharpPolylines->empty())
+        snappedSharps = snapPolylinesToMesh(topology, *m_sharpPolylines);
     std::vector<Vector3> field;
     if (nullptr != m_triangleFieldVectors) {
         field = *m_triangleFieldVectors;
     } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
                    &field,
-                   nullptr != m_guidePolylines ? *m_guidePolylines : emptyGuides)) {
+                   nullptr != m_guidePolylines ? *m_guidePolylines : emptyGuides,
+                   snappedSharps)) {
         std::cerr << "Frame field solve failed\n";
         return false;
     }
@@ -460,7 +511,8 @@ bool Parameterizer::parameterize()
     if (!QuadParameterizer::parameterize(*m_vertices, *m_triangles,
             &field, m_scaling, m_sharpEdgeDegrees, &cover,
             &faceScalingField, &faceScalingU, &faceScalingV,
-            coverProgress ? &coverProgress : nullptr)) {
+            coverProgress ? &coverProgress : nullptr,
+            snappedSharps.empty() ? nullptr : &snappedSharps)) {
         std::cerr << "Quad cover solve failed\n";
         return false;
     }

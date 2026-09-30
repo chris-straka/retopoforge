@@ -699,6 +699,7 @@ bool AutoRemesher::remesh()
         double smoothNormalDegrees;
         SymmetryPlane symmetryPlane;
         const std::vector<std::vector<Vector3>>* guidePolylines = nullptr;
+        const std::vector<std::vector<Vector3>>* sharpPolylines = nullptr;
         // Density mask slice on the island's input vertices (empty = off),
         // plus the same mask carried onto the resampled island vertices.
         std::vector<double> density;
@@ -747,6 +748,7 @@ bool AutoRemesher::remesh()
                 context.smoothNormalDegrees = m_smoothNormalDegrees;
                 context.symmetryPlane = m_symmetryPlane;
                 context.guidePolylines = &m_guidePolylines;
+                context.sharpPolylines = &m_sharpPolylines;
             }
         });
     auto t_buildEnd = std::chrono::high_resolution_clock::now();
@@ -937,6 +939,7 @@ bool AutoRemesher::remesh()
                 thread.parameterizer->setSharpEdgeDegrees(thread.island->sharpEdgeDegrees);
                 thread.parameterizer->setSymmetryPlane(thread.island->symmetryPlane);
                 thread.parameterizer->setGuidePolylines(thread.island->guidePolylines);
+                thread.parameterizer->setSharpPolylines(thread.island->sharpPolylines);
                 if (!thread.island->resampledDensity.empty())
                     thread.parameterizer->setDensityField(thread.island->resampledDensity);
                 bool parameterizeSucceeded = true;

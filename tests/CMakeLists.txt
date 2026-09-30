@@ -27,6 +27,8 @@ retopo_add_test(test_guides test_guides.cpp)
 set_tests_properties(test_guides PROPERTIES TIMEOUT 600)
 retopo_add_test(test_density test_density.cpp)
 set_tests_properties(test_density PROPERTIES TIMEOUT 600)
+retopo_add_test(test_sharp test_sharp.cpp)
+set_tests_properties(test_sharp PROPERTIES TIMEOUT 600)
 
 # CLI round-trip: runs the built retopo binary on bench/models/armadillo.obj.
 # Needs the model file (bench/fetch_models.sh, gitignored) and the retopo
@@ -120,3 +122,12 @@ target_compile_definitions(test_cli_corpus PRIVATE
 )
 add_dependencies(test_cli_corpus retopo)
 set_tests_properties(test_cli_corpus PROPERTIES TIMEOUT 600)
+
+# CLI --features: sharp-file wiring end to end (help text, missing/bad
+# files, batch rejection, marked output differs, --lods wiring).
+retopo_add_test(test_cli_features test_cli_features.cpp)
+target_compile_definitions(test_cli_features PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+)
+add_dependencies(test_cli_features retopo)
+set_tests_properties(test_cli_features PROPERTIES TIMEOUT 600)

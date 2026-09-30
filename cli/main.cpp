@@ -63,6 +63,7 @@ struct Params {
     bool symmetryEnabled = false;
     int symmetryAxis = -1; // -1 = auto-detect, 0/1/2 = X/Y/Z
     std::string guidesPath;
+    std::string featuresPath;
     std::string densityPath;
     bool emitUvs = false;
     bool quiet = false;
@@ -112,6 +113,14 @@ static void printUsage(const char* argv0)
               << "                              a comment. Points live in input-mesh\n"
               << "                              coordinates. Single-file and --lods runs\n"
               << "                              only (rejected in batch mode)\n"
+              << "  --features <file>           Sharp/feature constraints: crisp edges\n"
+              << "                              along the polylines (hard-surface props).\n"
+              << "                              Same file format as --guides: one\n"
+              << "                              'x y z' point per line, blank lines\n"
+              << "                              separate polylines, '#' starts a comment.\n"
+              << "                              Points live in input-mesh coordinates.\n"
+              << "                              Single-file and --lods runs only\n"
+              << "                              (rejected in batch mode)\n"
               << "  --density <file>            Local density control: one multiplier\n"
               << "                              per input vertex (OBJ v-line order),\n"
               << "                              1.0 = unchanged, range 0.25-4.0 (values\n"
@@ -201,17 +210,20 @@ static bool parseLods(const std::string& text, std::vector<int>* out)
     return true;
 }
 
-// Guide file: one "x y z" point per line, blank lines separate polylines,
-// "#" starts a comment. Single-point chains are dropped (the engine
-// ignores them); a file with no usable polyline is an error, since an
-// explicitly passed --guides that silently does nothing hides mistakes.
+// Guide/feature polyline file: one "x y z" point per line, blank lines
+// separate polylines, "#" starts a comment. Single-point chains are
+// dropped (the engine ignores them); a file with no usable polyline is an
+// error, since an explicitly passed flag that silently does nothing hides
+// mistakes. Shared by --guides and --features (same format, no fork);
+// `flagLabel` names the flag in error messages only.
 static bool parseGuidesFile(const std::string& path,
-    std::vector<std::vector<AutoRemesher::Vector3>>* guides)
+    std::vector<std::vector<AutoRemesher::Vector3>>* guides,
+    const char* flagLabel = "--guides")
 {
     guides->clear();
     std::ifstream in(path);
     if (!in.is_open()) {
-        std::cerr << "Error: cannot open --guides file '" << path << "'" << '\n';
+        std::cerr << "Error: cannot open " << flagLabel << " file '" << path << "'" << '\n';
         return false;
     }
     std::vector<AutoRemesher::Vector3> current;
@@ -237,7 +249,7 @@ static bool parseGuidesFile(const std::string& path,
         if (3 != std::sscanf(line.c_str() + first, "%lf %lf %lf %n", &x, &y, &z, &endPos)
             || line.find_first_not_of(" \t\r", first + static_cast<size_t>(endPos))
                 != std::string::npos) {
-            std::cerr << "Error: --guides file '" << path << "' line " << lineNo
+            std::cerr << "Error: " << flagLabel << " file '" << path << "' line " << lineNo
                       << " expects 'x y z', got '" << line << "'" << '\n';
             return false;
         }
@@ -249,7 +261,7 @@ static bool parseGuidesFile(const std::string& path,
     }
     flushCurrent();
     if (guides->empty()) {
-        std::cerr << "Error: --guides file '" << path << "' holds no usable polyline"
+        std::cerr << "Error: " << flagLabel << " file '" << path << "' holds no usable polyline"
                   << " (need 2+ points per polyline)" << '\n';
         return false;
     }
@@ -411,6 +423,10 @@ static bool parseArgs(int argc, char** argv, Params* params)
             if (!takeValue(argc, argv, i, "--guides", &value))
                 return false;
             params->guidesPath = value;
+        } else if (matches(arg, "--features", '\0')) {
+            if (!takeValue(argc, argv, i, "--features", &value))
+                return false;
+            params->featuresPath = value;
         } else if (matches(arg, "--model-type", '\0')) {
             if (!takeValue(argc, argv, i, "--model-type", &value))
                 return false;
@@ -729,6 +745,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<AutoRemesher::Vector3>>& guides,
+    const std::vector<std::vector<AutoRemesher::Vector3>>& features,
     const std::vector<double>& density,
     int targetQuads,
     const std::string& outputPath)
@@ -748,6 +765,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     remesher.setSymmetryEnabled(params.symmetryEnabled);
     remesher.setSymmetryPlane(params.symmetryAxis);
     remesher.setGuidePolylines(guides);
+    remesher.setSharpPolylines(features);
     remesher.setDensityMultipliers(density);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
@@ -824,12 +842,20 @@ static int runMultiMode(const Params& params, bool batch)
         std::cerr << "Error: --guides needs a single input mesh, not a batch directory" << '\n';
         return 1;
     }
+    // Same for explicit sharp/feature polylines: input-mesh coordinates.
+    if (batch && !params.featuresPath.empty()) {
+        std::cerr << "Error: --features needs a single input mesh, not a batch directory" << '\n';
+        return 1;
+    }
     if (batch && !params.densityPath.empty()) {
         std::cerr << "Error: --density needs a single input mesh, not a batch directory" << '\n';
         return 1;
     }
     std::vector<std::vector<AutoRemesher::Vector3>> guides;
     if (!params.guidesPath.empty() && !parseGuidesFile(params.guidesPath, &guides))
+        return 1;
+    std::vector<std::vector<AutoRemesher::Vector3>> features;
+    if (!params.featuresPath.empty() && !parseGuidesFile(params.featuresPath, &features, "--features"))
         return 1;
     std::vector<double> density;
     if (!params.densityPath.empty() && !parseDensityFile(params.densityPath, &density))
@@ -949,7 +975,7 @@ static int runMultiMode(const Params& params, bool batch)
             if (lodMode)
                 label += "LOD " + std::to_string(rung) + ": ";
 
-            RungResult result = remeshLoadedMesh(params, vertices, triangles, guides, density, targets[rung], outputPath);
+            RungResult result = remeshLoadedMesh(params, vertices, triangles, guides, features, density, targets[rung], outputPath);
             if (!result.ok) {
                 std::cerr << "Error: " << result.error << " (" << outputPath << ")" << '\n';
                 std::cout << label << "FAILED " << result.error << '\n';
@@ -1041,6 +1067,13 @@ int main(int argc, char** argv)
         if (!params.quiet)
             std::cerr << "Guide polylines: " << guides.size() << '\n';
     }
+    std::vector<std::vector<AutoRemesher::Vector3>> features;
+    if (!params.featuresPath.empty()) {
+        if (!parseGuidesFile(params.featuresPath, &features, "--features"))
+            return 1;
+        if (!params.quiet)
+            std::cerr << "Feature polylines: " << features.size() << '\n';
+    }
     std::vector<double> density;
     if (!params.densityPath.empty()) {
         if (!parseDensityFile(params.densityPath, &density))
@@ -1060,6 +1093,7 @@ int main(int argc, char** argv)
     remesher.setSymmetryEnabled(params.symmetryEnabled);
     remesher.setSymmetryPlane(params.symmetryAxis);
     remesher.setGuidePolylines(guides);
+    remesher.setSharpPolylines(features);
     remesher.setDensityMultipliers(density);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);

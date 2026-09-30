@@ -113,11 +113,46 @@ namespace {
             (*locked)[faceIndex] = 1;
         }
     }
+
+    // Sharp influence radius: tighter than the guide radius (6 edge
+    // lengths) because sharp polylines arrive snapped to mesh vertices —
+    // adjacent faces sit within ~1 edge length, and a crisp feature line
+    // must not wash out into a broad flow region.
+    double sharpInfluenceRadius(const SurfaceMesh& mesh)
+    {
+        return 2.0 * mesh.averageEdgeLength();
+    }
+
+    // Lock faces near an explicit sharp/feature polyline. Same
+    // hard-constraint pattern as lockGuideFaces (skip faces an earlier pass
+    // claimed); runs BEFORE the guide pass so sharps win ties over guides.
+    void lockSharpFaces(const SurfaceMesh& mesh,
+        const std::vector<FacetTangentBasis>& facetBases,
+        const std::vector<std::vector<Vector3>>& sharps,
+        std::vector<double>* periodic, std::vector<char>* locked)
+    {
+        const double radius = sharpInfluenceRadius(mesh);
+        for (size_t faceIndex = 0; faceIndex < mesh.faceCount(); ++faceIndex) {
+            if ((*locked)[faceIndex])
+                continue;
+            const auto& triangle = mesh.triangle(faceIndex);
+            const Vector3 centroid = (mesh.position(triangle[0]) + mesh.position(triangle[1]) + mesh.position(triangle[2])) / 3.0;
+            const Vector3 tangent = Guides::tangentNear(sharps, centroid,
+                facetBases[faceIndex].normal, radius);
+            if (tangent.length() <= 1e-12)
+                continue;
+            const double fieldAngle = kSymmetry * tangentAngle(tangent, facetBases[faceIndex]);
+            (*periodic)[2 * faceIndex] = std::cos(fieldAngle);
+            (*periodic)[2 * faceIndex + 1] = std::sin(fieldAngle);
+            (*locked)[faceIndex] = 1;
+        }
+    }
 }
 
 bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
     std::vector<Vector3>* field,
-    const std::vector<std::vector<Vector3>>& guides)
+    const std::vector<std::vector<Vector3>>& guides,
+    const std::vector<std::vector<Vector3>>& sharps)
 {
     if (nullptr == field || mesh.faceCount() == 0)
         return false;
@@ -141,6 +176,9 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
             periodic[2 * faceIndex + 1] = std::sin(fieldAngle);
             locked[faceIndex] = 1;
         }
+
+    if (!sharps.empty())
+        lockSharpFaces(mesh, facetBases, sharps, &periodic, &locked);
 
     if (!guides.empty())
         lockGuideFaces(mesh, facetBases, guides, &periodic, &locked);
