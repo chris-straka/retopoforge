@@ -24,6 +24,7 @@ set(CORE_SOURCES
     core/quadextractor.cpp
     core/positionkey.cpp
     core/meshseparator.cpp
+    core/objreader.cpp
     thirdparty/isotropicremesher/isotropicremesher.cpp
     thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
     thirdparty/isotropicremesher/axisalignedboundingboxtree.cpp

@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved.
+ *  Copyright (c) 2026 retopoforge contributors. All rights reserved.
  *
  *  Permission is hereby granted, free of charge, to any person obtaining a copy
  *  of this software and associated documentation files (the "Software"), to deal
@@ -19,23 +19,26 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef DUST3D_SPINNABLE_AWESOME_BUTTON_H
-#define DUST3D_SPINNABLE_AWESOME_BUTTON_H
-#include "spinnerwidget.h"
-#include <QPushButton>
-#include <QWidget>
+#ifndef AUTO_REMESHER_OBJ_READER_H
+#define AUTO_REMESHER_OBJ_READER_H
+#include <cstddef>
+#include <string>
+#include <vector>
 
-class SpinnableAwesomeButton : public QWidget {
-public:
-    SpinnableAwesomeButton(QWidget* parent = nullptr);
-    void setAwesomeIcon(QChar c);
-    void showSpinner(bool showSpinner = true);
-    bool isSpinning();
-    QPushButton* button();
+namespace AutoRemesher {
 
-private:
-    QPushButton* m_button = nullptr;
-    SpinnerWidget* m_spinner = nullptr;
-};
+// Minimal Wavefront OBJ reader: vertex positions plus triangulated faces
+// only (texture coordinates, normals, materials and groups are ignored).
+// Mirrors the tinyobjloader behavior the callers relied on: positions are
+// parsed as doubles rounded to float, face indices are 1-based with
+// negative relative indices supported, and polygons are ear-clip
+// triangulated.
+bool loadObjPositionsAndTriangles(const char* filename,
+    std::vector<float>* positions,
+    std::vector<std::vector<size_t>>* triangles,
+    std::string* warn,
+    std::string* err);
+
+}
 
 #endif

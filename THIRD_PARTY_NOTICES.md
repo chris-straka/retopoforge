@@ -12,7 +12,6 @@ third-party software. Full license texts live next to each dependency under
 | Eigen | MPL 2.0 (some files BSD/MPL2-compatible) | Header-only linear algebra | `thirdparty/eigen/COPYING.*` |
 | oneTBB | Apache-2.0 | Linked from the system install (Homebrew `tbb` / apt `libtbb-dev`) | https://github.com/oneapi-src/oneTBB |
 | meshoptimizer | MIT | `simplifier.cpp`, `indexgenerator.cpp` compiled in | `thirdparty/meshoptimizer/LICENSE.md` |
-| tinyobjloader | MIT | Header-only OBJ loader | `thirdparty/tinyobjloader/tiny_obj_loader.h` |
 | isotropicremesher | MIT (Jeremy HU) | Compiled in | `thirdparty/isotropicremesher/LICENSE` |
 | zlib | zlib license | Linked on Unix | system / `ACKNOWLEDGEMENTS.html` |
 | Apple Accelerate | System framework (macOS only) | BLAS/LAPACK via `Eigen/AccelerateSupport` | system |
@@ -30,7 +29,6 @@ Everything above, plus:
 |---|---|---|
 | Qt 5 / Qt 6 | LGPLv3 (dynamically linked) | GUI, OpenGL widgets |
 | QtAwesome | MIT | Icon font helper (`thirdparty/QtAwesome`) |
-| QtWaitingSpinner | MIT | Progress spinner (`thirdparty/QtWaitingSpinner`) |
 | QuantumCD dark Fusion palette | Credit (design reference) | Color values inspired by https://gist.github.com/QuantumCD/6245215 |
 
 Qt is used under the LGPL via dynamic linking; no GPL obligations arise from it.
