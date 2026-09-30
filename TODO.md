@@ -21,23 +21,18 @@ new warnings.
 
 ## Game-asset pipeline (owner's core loop)
 
-- [ ] AI-soup sliver output (BLOCKER for the owner's use): dense AI soup
-      remeshes into microscopic slivers (median face area ~1e-8 at
-      q5000; total surface ~2% of sane) at all adaptivity settings and
-      input orientations. Coverage improves with target but stays far
-      below sane. Repro: `bench/models/ai-soup-repro.obj` (local-only,
-      gitignored — never commit). Suspect sizing-field breakdown on
-      noisy soup; the count-accuracy fix below may cure both — re-test
-      slivers right after it lands.
-- [ ] Target-count accuracy: `--target-quads` currently undershoots badly
-      (10k asked, ~4.3k produced on the owner's corpus). Research done:
-      root cause is the unnormalized adaptivity field in
-      `Parameterizer::computeFaceScalingField` (no budget
-      renormalization; flat regions pin at 3x = 1/9 density). Fix =
-      renormalize to preserve integral(area/s^2), then regen
-      `bench/baseline.json` (counts rise everywhere). Mobile budgets are
-      exact — and Exoside's count is approximate too, so exact counts
-      would be a genuine edge, not catch-up.
+- [x] AI-soup sliver output (was BLOCKER): fixed by weld-on-load +
+      renorm together — soup repro now yields 4879 quads on a 5000
+      target, median face ~1e-4, 82% surface retained (was: median
+      ~1e-8, ~2% surface). Repro kept at `bench/models/ai-soup-repro.obj`
+      (local-only, gitignored — never commit).
+- [x] Target-count accuracy: renormalized `computeFaceScalingField` to
+      preserve integral(area/s^2); baseline regen (counts rise
+      everywhere, e.g. armadillo small 2856→4566). Test pins are now
+      tolerance-based (0.5% + 8): macOS Accelerate MT solves jitter a
+      few quads run-to-run, and Linux SimplicialLDLT may differ —
+      revisit per-platform exact pins if Linux CI disagrees beyond
+      tolerance.
 - [x] Weld-on-load in the CLI: `weldPositionsAndTriangles` (meshopt
       remap, degenerate-tris drop) runs on every load; de-indexed
       armadillo went from 99,978 islands / 305 s / empty output to

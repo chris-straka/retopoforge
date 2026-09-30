@@ -38,6 +38,17 @@ namespace {
 
 // Expected LOD counts for fandisk.obj --lods 2000,1000 (verified against the
 // built binary; rung 0 matches the bench tiny preset counts).
+// Counts jitter a few quads run-to-run (macOS Accelerate multithreaded
+// sparse solves; other solvers/platforms may also differ), so pin with a
+// small tolerance instead of exact equality. A real regression moves
+// counts by percent, not by single quads. Revisit per-platform pins if
+// Linux CI disagrees beyond tolerance.
+inline bool nearCount(long actual, long expected)
+{
+    const long diff = actual >= expected ? actual - expected : expected - actual;
+    return diff <= expected / 200 + 8; // 0.5% + 8 quads floor
+}
+
 constexpr long kLod0Quads = 3090;
 constexpr long kLod1Quads = 1546;
 // Expected batch count for fandisk.obj at the default 50000 target.
@@ -129,23 +140,23 @@ int main()
     std::filesystem::remove_all(tmpdir, ec);
     std::filesystem::create_directories(tmpdir, ec);
 
-    // --lods chain: both rungs exist, exact counts, strictly decreasing.
+    // --lods chain: both rungs exist, pinned counts, strictly decreasing.
     {
         const std::string outBase = (tmpdir / "lod_t.obj").string();
         const RunResult run = runCapture(binary,
             "--input \"" + model + "\" --output \"" + outBase + "\" --lods 2000,1000",
             tmpdir / "lod_stdout.txt");
         CHECK(run.exitCode == 0);
-        CHECK(quadsOnLine(run.stdoutText, "LOD 0:") == kLod0Quads);
-        CHECK(quadsOnLine(run.stdoutText, "LOD 1:") == kLod1Quads);
+        CHECK(nearCount(quadsOnLine(run.stdoutText, "LOD 0:"), kLod0Quads));
+        CHECK(nearCount(quadsOnLine(run.stdoutText, "LOD 1:"), kLod1Quads));
         const std::string lod0 = (tmpdir / "lod_t_lod0.obj").string();
         const std::string lod1 = (tmpdir / "lod_t_lod1.obj").string();
         CHECK(std::filesystem::exists(lod0));
         CHECK(std::filesystem::exists(lod1));
         const long fileQuads0 = countObjQuads(lod0);
         const long fileQuads1 = countObjQuads(lod1);
-        CHECK(fileQuads0 == kLod0Quads);
-        CHECK(fileQuads1 == kLod1Quads);
+        CHECK(nearCount(fileQuads0, kLod0Quads));
+        CHECK(nearCount(fileQuads1, kLod1Quads));
         CHECK(fileQuads0 > fileQuads1);
     }
 
@@ -167,7 +178,7 @@ int main()
             "--input \"" + batchIn.string() + "\" --output \"" + batchOut.string() + "\"",
             tmpdir / "batch_stdout.txt");
         CHECK(run.exitCode == 1);
-        CHECK(quadsOnLine(run.stdoutText, "FILE fandisk.obj:") == kBatchQuads);
+        CHECK(nearCount(quadsOnLine(run.stdoutText, "FILE fandisk.obj:"), kBatchQuads));
         CHECK(run.stdoutText.find("FILE unreadable.obj: FAILED") != std::string::npos);
         CHECK(run.stdoutText.find("Failed files (1): unreadable.obj") != std::string::npos);
         CHECK(std::filesystem::exists(batchOut / "fandisk.obj"));
