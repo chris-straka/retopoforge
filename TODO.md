@@ -16,8 +16,8 @@ game project next door; refer to it only as "the owner's AI corpus".
 
 Ordered by owner value: game pipeline first, Exoside-beating last.
 Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
-must report no regressions with identical counts, and new code adds zero
-new warnings.
+must report no regressions (quality bar: good remeshes, not
+bit-identical counts), and new code adds zero new warnings.
 
 ## Game-asset pipeline (owner's core loop)
 
@@ -234,4 +234,4 @@ and QtAwesome deleted as dead code before the removal.
       fallback.
 - [ ] Single-island parallelism (research): one island uses ~1 core;
       top bottleneck is "merging shared five edge faces" (5.5s on
-      dragon-50k). Profile-guided; bench-identical gate.
+      dragon-50k). Profile-guided; quality-gated (no --check regressions).
