@@ -19,19 +19,19 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_MIXED_INTEGER_LEAST_SQUARES_H
-#define AUTO_REMESHER_MIXED_INTEGER_LEAST_SQUARES_H
-
+module;
 #include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
+export module retopo.core.mixed_integer_least_squares;
+
+import retopo.core.constrained_least_squares;
+
 namespace AutoRemesher {
 
-class ConstrainedLeastSquares;
-
-class MixedIntegerLeastSquares {
+export class MixedIntegerLeastSquares {
 public:
     explicit MixedIntegerLeastSquares(size_t variableCount);
     ~MixedIntegerLeastSquares();
@@ -125,4 +125,3 @@ private:
     std::unique_ptr<ConstrainedLeastSquares> m_system;
 };
 }
-#endif

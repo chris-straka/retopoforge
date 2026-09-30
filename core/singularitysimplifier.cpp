@@ -19,15 +19,20 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/SingularitySimplifier>
-
+module;
+#include <AutoRemesher/SurfaceMesh>
+#include <AutoRemesher/Vector3>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <deque>
 #include <iostream>
 #include <set>
 #include <utility>
+#include <vector>
+
+module retopo.core.singularity_simplifier;
 
 namespace AutoRemesher {
 namespace {

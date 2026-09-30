@@ -19,8 +19,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/ConstrainedLeastSquares>
-
+module;
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 #include <Eigen/SparseLU>
@@ -30,7 +29,13 @@
 #endif
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <memory>
+#include <utility>
+#include <vector>
+
+module retopo.core.constrained_least_squares;
 
 namespace AutoRemesher {
 namespace {

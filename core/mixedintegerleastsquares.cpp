@@ -19,12 +19,18 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/ConstrainedLeastSquares>
-#include <AutoRemesher/MixedIntegerLeastSquares>
-
+module;
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <memory>
+#include <utility>
+#include <vector>
+
+module retopo.core.mixed_integer_least_squares;
+
+import retopo.core.constrained_least_squares;
 
 namespace AutoRemesher {
 namespace {

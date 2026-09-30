@@ -19,12 +19,12 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/ConstrainedLeastSquares>
 #include <AutoRemesher/FrameField>
 #include <AutoRemesher/Parameterizer>
 #include <AutoRemesher/QuadParameterizer>
-#include <AutoRemesher/SingularitySimplifier>
 #include <AutoRemesher/SurfaceMesh>
+import retopo.core.constrained_least_squares;
+import retopo.core.singularity_simplifier;
 #include <algorithm>
 #include <cmath>
 #include <iostream>

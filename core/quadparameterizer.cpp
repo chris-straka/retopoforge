@@ -19,9 +19,9 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/ConstrainedLeastSquares>
-#include <AutoRemesher/MixedIntegerLeastSquares>
 #include <AutoRemesher/QuadParameterizer>
+import retopo.core.constrained_least_squares;
+import retopo.core.mixed_integer_least_squares;
 #include <AutoRemesher/SurfaceMesh>
 
 #include <algorithm>

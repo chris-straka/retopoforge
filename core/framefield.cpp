@@ -21,8 +21,8 @@
  */
 #include <AutoRemesher/FrameField>
 
-#include <AutoRemesher/ConstrainedLeastSquares>
 #include <AutoRemesher/SurfaceMesh>
+import retopo.core.constrained_least_squares;
 #include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <array>
