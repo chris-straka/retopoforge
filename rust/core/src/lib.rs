@@ -5,7 +5,7 @@
 //! differential oracle: see `docs/rust-port-conventions.md`.
 
 // Wave 1 leaves land here:
-// pub mod double_utils;
-// pub mod progress;
+pub mod double_utils;
+pub mod progress;
 // pub mod obj_reader;
 // pub mod mesh_separator;

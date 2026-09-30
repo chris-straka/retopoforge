@@ -150,6 +150,14 @@ add_executable(solver_diff_dump solver_diff_dump.cpp)
 set_target_properties(solver_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(solver_diff_dump PRIVATE retopo_core)
 
+# Differential oracle dump for the double_utils + progress port (wave 1).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/double_progress_diff.txt for
+# rust/core/tests/double_progress_diff.rs.
+add_executable(double_progress_diff_dump double_progress_diff_dump.cpp)
+set_target_properties(double_progress_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(double_progress_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
 retopo_add_test(test_island_stats test_island_stats.cpp)
