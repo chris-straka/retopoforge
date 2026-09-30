@@ -34,6 +34,7 @@
 # Build folder
 build/
 build2/
+rust/solvers/target/
 obj/
 
 # Benchmark models + run results (use bench/baseline.json for regressions)
