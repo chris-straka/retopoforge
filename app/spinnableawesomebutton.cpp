@@ -30,7 +30,7 @@ SpinnableAwesomeButton::SpinnableAwesomeButton(QWidget* parent)
     m_button = new QPushButton(this);
     Theme::initAwesomeButton(m_button);
 
-    m_spinner = new WaitingSpinnerWidget(this);
+    m_spinner = new SpinnerWidget(this);
     m_spinner->setColor(Theme::white);
     m_spinner->setInnerRadius(Theme::toolIconSize / 8);
     m_spinner->setLineLength(Theme::toolIconSize / 4);

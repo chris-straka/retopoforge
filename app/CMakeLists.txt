@@ -62,8 +62,8 @@ set(APP_SOURCES
     ../thirdparty/QtAwesome/QtAwesome/QtAwesome.h
     ../thirdparty/QtAwesome/QtAwesome/QtAwesomeAnim.h
     ../thirdparty/QtAwesome/QtAwesome/QtAwesome.qrc
-    ../thirdparty/QtWaitingSpinner/waitingspinnerwidget.cpp
-    ../thirdparty/QtWaitingSpinner/waitingspinnerwidget.h
+    spinnerwidget.cpp
+    spinnerwidget.h
 )
 
 if(WIN32)
@@ -116,7 +116,6 @@ endif()
 target_include_directories(autoremesher PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/QtAwesome/QtAwesome
-    ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/QtWaitingSpinner
     ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/tinyobjloader
 )
 
