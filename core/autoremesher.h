@@ -22,6 +22,7 @@
 #ifndef AUTO_REMESHER_AUTO_REMESHER_H
 #define AUTO_REMESHER_AUTO_REMESHER_H
 import retopo.core.progress;
+import retopo.core.symmetry;
 import retopo.core.vector2;
 import retopo.core.vector3;
 #include <atomic>
@@ -97,6 +98,40 @@ public:
     void setSmoothNormalDegrees(double degrees)
     {
         m_smoothNormalDegrees = degrees;
+    }
+
+    // Mirror-symmetry constraints for organic remeshing. Disabled by default;
+    // when off, the pipeline is byte-for-byte the unmodified one. When on,
+    // the frame field is mirror-averaged about the symmetry plane and the
+    // output vertices are snapped to exact mirror symmetry. `axis` selects
+    // the plane normal (-1 = auto-detect the dominant X/Y/Z plane, the
+    // default); the plane offset always sits at the bounding-box center.
+    // The run falls back to unconstrained output when the input scores below
+    // threshold on the chosen plane. The three getters below report the plane
+    // the last remesh() actually used (axis -1 = symmetry was off/skipped).
+    void setSymmetryEnabled(bool enabled)
+    {
+        m_symmetryEnabled = enabled;
+    }
+
+    void setSymmetryPlane(int axis)
+    {
+        m_symmetryAxis = axis;
+    }
+
+    int symmetryPlaneAxis() const
+    {
+        return m_symmetryPlane.axis;
+    }
+
+    double symmetryPlaneOffset() const
+    {
+        return m_symmetryPlane.offset;
+    }
+
+    double symmetryPlaneScore() const
+    {
+        return m_symmetryPlane.score;
     }
 
     const std::vector<Vector3>& remeshedVertices()
@@ -237,6 +272,9 @@ private:
     double m_sharpEdgeDegrees = m_defaultSharpEdgeDegrees;
     double m_smoothNormalDegrees = 0.0;
     ModelType m_modelType = ModelType::Organic;
+    bool m_symmetryEnabled = false;
+    int m_symmetryAxis = -1;
+    SymmetryPlane m_symmetryPlane;
     AutoRemesherProgressHandler m_progressHandler = nullptr;
     void* m_tag = nullptr;
 

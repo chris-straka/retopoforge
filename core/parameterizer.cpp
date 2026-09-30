@@ -41,6 +41,7 @@ import retopo.core.progress;
 import retopo.core.quad_parameterizer;
 import retopo.core.singularity_simplifier;
 import retopo.core.surface_mesh;
+import retopo.core.symmetry;
 import retopo.core.vector2;
 import retopo.core.vector3;
 
@@ -410,6 +411,11 @@ bool Parameterizer::parameterize()
     if (field.size() != topology.faceCount()) {
         std::cerr << "Frame field has the wrong face count\n";
         return false;
+    }
+
+    if (m_symmetryPlane.valid()) {
+        report(0.16f, "Symmetrizing frame field");
+        Symmetry::symmetrizeFrameField(*m_vertices, *m_triangles, field, m_symmetryPlane);
     }
 
     SingularitySimplifier simplifier(topology, &field);

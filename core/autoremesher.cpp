@@ -24,6 +24,7 @@ import retopo.core.isotropic_remesher;
 import retopo.core.mesh_separator;
 import retopo.core.parameterizer;
 import retopo.core.quad_extractor;
+import retopo.core.symmetry;
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -87,6 +88,11 @@ namespace {
 
     constexpr double decimateTriggerRatio = 8.0;
     constexpr double decimateTargetRatio = 4.0;
+
+    // Minimum input support for the symmetry plane: below this fraction of
+    // mirrored vertices the run falls back to unconstrained output rather
+    // than snapping an asymmetric mesh onto a plane it does not have.
+    constexpr double minSymmetryScore = 0.75;
 
     void markSharpEdgeVertices(const std::vector<Vector3>& vertices,
         const std::vector<unsigned int>& indices,
@@ -562,6 +568,24 @@ bool AutoRemesher::remesh()
             m_progressHandler(m_tag, 1.0, invalidInputReason);
         return false;
     }
+
+    // Resolve the symmetry plane once for the whole run. Islands share the
+    // input's global coordinates, so the plane applies to every island as-is.
+    // From here on, m_symmetryPlane.valid() alone gates all symmetry work.
+    m_symmetryPlane = SymmetryPlane();
+    if (m_symmetryEnabled) {
+        if (m_symmetryAxis >= 0 && m_symmetryAxis < 3)
+            m_symmetryPlane = Symmetry::fixedPlane(m_vertices, m_symmetryAxis);
+        else
+            m_symmetryPlane = Symmetry::detectPlane(m_vertices);
+        if (!m_symmetryPlane.valid() || m_symmetryPlane.score < minSymmetryScore) {
+            std::cerr << "Symmetry skipped: input scores " << m_symmetryPlane.score
+                      << " on the " << "XYZ"[std::max(0, m_symmetryPlane.axis)] << " plane (needs "
+                      << minSymmetryScore << ")\n";
+            m_symmetryPlane = SymmetryPlane();
+        }
+    }
+
     auto t_start = std::chrono::high_resolution_clock::now();
 
     // Each label names the step that is about to run, not the one that just
@@ -599,6 +623,7 @@ bool AutoRemesher::remesh()
         double anisotropy;
         double sharpEdgeDegrees;
         double smoothNormalDegrees;
+        SymmetryPlane symmetryPlane;
     };
 
     if (nullptr != m_progressHandler)
@@ -632,6 +657,7 @@ bool AutoRemesher::remesh()
                 context.anisotropy = m_anisotropy;
                 context.sharpEdgeDegrees = m_sharpEdgeDegrees;
                 context.smoothNormalDegrees = m_smoothNormalDegrees;
+                context.symmetryPlane = m_symmetryPlane;
             }
         });
     auto t_buildEnd = std::chrono::high_resolution_clock::now();
@@ -814,6 +840,7 @@ bool AutoRemesher::remesh()
                 thread.parameterizer->setGradientAdaptivity(thread.island->adaptivity);
                 thread.parameterizer->setAnisotropy(thread.island->anisotropy);
                 thread.parameterizer->setSharpEdgeDegrees(thread.island->sharpEdgeDegrees);
+                thread.parameterizer->setSymmetryPlane(thread.island->symmetryPlane);
                 bool parameterizeSucceeded = true;
                 try {
                     parameterizeSucceeded = thread.parameterizer->parameterize();
@@ -937,6 +964,11 @@ bool AutoRemesher::remesh()
             m_remeshedQuads.push_back(quad);
         }
     }
+
+    // Mirror partners can live on different islands (two disconnected halves),
+    // so the vertex constraint runs once on the merged output, not per island.
+    if (m_symmetryPlane.valid() && !m_remeshedVertices.empty())
+        Symmetry::symmetrizeVertices(m_remeshedVertices, m_symmetryPlane);
 
     auto t_mergeEnd = std::chrono::high_resolution_clock::now();
 

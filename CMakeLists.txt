@@ -26,6 +26,7 @@ set(CORE_SOURCES
     core/quadparameterizer.cpp
     core/quadextractor.cpp
     core/positionkey.cpp
+    core/symmetry.cpp
     core/meshseparator.cpp
     core/objreader.cpp
     thirdparty/isotropicremesher/isotropicremesher.cpp
@@ -52,6 +53,7 @@ target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
     core/quadparameterizer.cppm
     core/singularitysimplifier.cppm
     core/surfacemesh.cppm
+    core/symmetry.cppm
     core/vector2.cppm
     core/vector3.cppm
 )
@@ -120,6 +122,7 @@ if(TARGET retopoforge)
         retopo.core.progress
         retopo.core.vector2
         retopo.core.vector3
+        retopo.core.symmetry
         retopo.core.quad_extractor
     )
     set(_RETOPO_APP_PCM_DIR ${CMAKE_BINARY_DIR}/app/CMakeFiles/retopoforge.dir)

@@ -27,6 +27,7 @@ module;
 export module retopo.core.parameterizer;
 
 import retopo.core.progress;
+import retopo.core.symmetry;
 import retopo.core.vector2;
 import retopo.core.vector3;
 
@@ -93,6 +94,13 @@ public:
         m_maximumSingularityPairDistance = faceHops;
     }
 
+    // Mirror-symmetry constraint for the frame field. Default is no plane
+    // (axis -1), which leaves the field untouched.
+    void setSymmetryPlane(SymmetryPlane plane)
+    {
+        m_symmetryPlane = plane;
+    }
+
     void setProgressHandler(ProgressHandler progressHandler)
     {
         m_progressHandler = std::move(progressHandler);
@@ -115,6 +123,7 @@ private:
     double m_maxAspectRatio = 2.3;
     bool m_singularitySimplification = true;
     size_t m_maximumSingularityPairDistance = 6;
+    SymmetryPlane m_symmetryPlane;
     ProgressHandler m_progressHandler;
 
     std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,
