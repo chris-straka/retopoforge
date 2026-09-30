@@ -11,15 +11,21 @@ tracks the original repo for merging future fixes.
   (Explicit standing authorization from the project owner.)
 - Never force-push, rebase, amend published commits, or otherwise rewrite
   published history.
-- The Qt desktop app (`autoremesher.pro`) must keep building — verify it or
-  leave its inputs untouched whenever shared sources change.
+- The Qt desktop app must keep building — verify it or leave its inputs
+  untouched whenever shared sources change.
+- Never launch GUI binaries without explicit user approval. Offscreen
+  smoke tests count as launches: batch them, and prefer exit-code-checked
+  `--help` / headless runs over open-ended GUI sessions.
 
 ## Build
 
-- Headless: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`
-  produces `build/cli/retopo` (needs TBB; macOS: `brew install cmake tbb`).
-- Qt app: `qmake && make` (Qt 5/6). For a quick `.pro` parse check, run
-  `qmake /path/to/autoremesher.pro` from an empty shadow directory.
+- Everything: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`
+  produces `build/cli/retopo` and the Qt6 app (`build/app/autoremesher[.app]`).
+  Needs TBB + Qt6; macOS: `brew install cmake tbb qtbase`.
+- Headless only (no Qt): add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to configure.
+- Qt app smoke test (ask first): `QT_QPA_PLATFORM=offscreen` + `--help`
+  (must exit 0), plus a headless `--input` remesh compared against the
+  `bench/baseline.json` counts for the same model/preset.
 
 ## Checks
 

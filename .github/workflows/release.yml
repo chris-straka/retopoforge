@@ -21,18 +21,18 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           aqtversion: '==3.3.*'
-          version: '5.15.2'
+          version: '6.5.3'
           host: 'linux'
           target: 'desktop'
-          archives: 'qttools qtsvg qtimageformats qtbase qtmultimedia icu'
+          archives: 'qtbase qttools qtsvg qtimageformats'
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libtbb-dev libgl1-mesa-dev libfuse2 libfontconfig1
       - name: Build application
         run: |
-          qmake
-          make -j`nproc`
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+          cmake --build build -j`nproc`
       - name: Generate AppImage
         run: |
           set -e
@@ -63,7 +63,7 @@ jobs:
           cp ${GITHUB_WORKSPACE}/ci/autoremesher.png appdir/usr/share/icons/hicolor/256x256/apps/autoremesher.png
           cp ${GITHUB_WORKSPACE}/ci/autoremesher.appdata.xml appdir/usr/share/metainfo/autoremesher.appdata.xml
           cp ${GITHUB_WORKSPACE}/ci/autoremesher.desktop appdir/usr/share/applications/autoremesher.desktop
-          cp ${GITHUB_WORKSPACE}/autoremesher appdir/usr/bin/autoremesher
+          cp ${GITHUB_WORKSPACE}/build/app/autoremesher appdir/usr/bin/autoremesher
           chmod a+x appdir/usr/bin/autoremesher
 
           # Verify binary was copied
@@ -203,6 +203,14 @@ jobs:
         with:
           name: autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt
           path: autoremesher-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt
+      - name: Test headless retopo CLI
+        run: |
+          set -e
+          ./build/cli/retopo \
+            --input test-models/data/armadillo.obj \
+            --output retopo-cli-test.obj \
+            --target-quads 2000
+          test -f retopo-cli-test.obj
       - name: Run AppImage and capture screenshot
         run: |
           set +e
@@ -247,12 +255,12 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
-          aqtversion: '==2.1.*'
-          version: '5.15.2'
+          aqtversion: '==3.3.*'
+          version: '6.5.3'
           host: 'windows'
           target: 'desktop'
-          arch: 'win64_msvc2019_64'
-          archives: 'qttools qtsvg qtimageformats qtbase qtmultimedia qtwinextras opengl32sw'
+          arch: 'win64_msvc2022_64'
+          archives: 'qtbase qttools qtsvg qtimageformats'
       - name: Build TBB
         run: |
           cd $env:GITHUB_WORKSPACE\thirdparty\tbb
@@ -260,55 +268,55 @@ jobs:
           cmake --build build2 --config Release
       - name: Build application
         run: |
-          cd $env:GITHUB_WORKSPACE
-          qmake -spec win32-msvc
-          set CL=/MP
-          nmake -f Makefile.Release
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_Dir" `
+            -DTBB_DIR="$env:GITHUB_WORKSPACE/thirdparty/tbb/build2"
+          cmake --build build --config Release --parallel
       - name: Deploy Qt dependencies
         run: |
-          windeployqt release/autoremesher.exe --no-translations --release
+          windeployqt build/app/Release/autoremesher.exe --no-translations --release
         shell: bash
       - name: Copy TBB DLL
         shell: bash
         run: |
-          cp thirdparty/tbb/build2/Release/tbb.dll release/
-      - name: Copy offscreen platform plugin and opengl32sw
+          cp thirdparty/tbb/build2/Release/tbb.dll build/app/Release/
+      - name: Copy offscreen platform plugin
         shell: bash
         run: |
-          cp "$Qt5_Dir/plugins/platforms/qoffscreen.dll" release/platforms/
-          cp "$Qt5_Dir/bin/opengl32sw.dll" release/
+          cp "$Qt6_Dir/plugins/platforms/qoffscreen.dll" build/app/Release/platforms/
       - name: Set environment variable
         run: |
           set PATH="%PATH%;C:\Program Files\7-Zip"
       - name: Package executable
         shell: bash
         run: |
-          cd release
+          ZIP="$GITHUB_WORKSPACE/autoremesher-${{ github.ref_name }}-win32-x86_64.zip"
+          cd build/app/Release
           # Main executable
-          7z a ../autoremesher-${{ github.ref_name }}-win32-x86_64.zip autoremesher.exe
+          7z a "$ZIP" autoremesher.exe
           # Plugin directories — pass the directory name (not dir\*) so structure is preserved
           for dir in platforms imageformats styles translations; do
             if [ -d "$dir" ]; then
-              7z a ../autoremesher-${{ github.ref_name }}-win32-x86_64.zip "$dir"
+              7z a "$ZIP" "$dir"
             fi
           done
-          # All root-level DLLs (Qt + TBB + opengl32sw + ANGLE)
+          # All root-level DLLs (Qt + TBB + ANGLE)
           for f in *.dll; do
             if [ -f "$f" ]; then
-              7z a ../autoremesher-${{ github.ref_name }}-win32-x86_64.zip "$f"
+              7z a "$ZIP" "$f"
             fi
           done
-          cd ..
+          cd "$GITHUB_WORKSPACE"
           # VC++ runtime DLLs (required on systems without the redistributable installed)
           CRT_DIR=$(ls -d "${VCToolsRedistDir}x64"/Microsoft.VC*.CRT 2>/dev/null | head -1)
           if [ -n "$CRT_DIR" ]; then
-            7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/msvcp140.dll"
-            7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140.dll"
+            7z a "$ZIP" "${CRT_DIR}/msvcp140.dll"
+            7z a "$ZIP" "${CRT_DIR}/vcruntime140.dll"
             # msvcp140_1.dll and vcruntime140_1.dll may not exist in all toolset versions
-            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/msvcp140_1.dll" || true
-            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a autoremesher-${{ github.ref_name }}-win32-x86_64.zip "${CRT_DIR}/vcruntime140_1.dll" || true
+            [ -f "${CRT_DIR}/msvcp140_1.dll" ] && 7z a "$ZIP" "${CRT_DIR}/msvcp140_1.dll" || true
+            [ -f "${CRT_DIR}/vcruntime140_1.dll" ] && 7z a "$ZIP" "${CRT_DIR}/vcruntime140_1.dll" || true
           fi
-          7z l autoremesher-${{ github.ref_name }}-win32-x86_64.zip
+          7z l "$ZIP"
       - name: Checkout test models
         uses: actions/checkout@v4
         with:
@@ -375,6 +383,16 @@ jobs:
         with:
           name: autoremesher-${{ github.ref_name }}-windows-2022-remeshed_report.txt
           path: autoremesher-${{ github.ref_name }}-windows-2022-remeshed_report.txt
+      - name: Test headless retopo CLI
+        shell: bash
+        run: |
+          set -e
+          export PATH="$PATH:$GITHUB_WORKSPACE/thirdparty/tbb/build2/Release"
+          ./build/cli/Release/retopo.exe \
+            --input test-models/data/armadillo.obj \
+            --output retopo-cli-test.obj \
+            --target-quads 2000
+          test -f retopo-cli-test.obj
       - name: Run application and capture screenshot (from release zip)
         timeout-minutes: 3
         run: |
@@ -413,8 +431,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Qt
         run: |
-          HOMEBREW_VERBOSE_USING_DOTS=1 brew reinstall --verbose qt@5
-          HOMEBREW_VERBOSE_USING_DOTS=1 brew link qt@5 --force
+          brew install qtbase
       - name: Install TBB
         run: |
           brew install tbb
@@ -423,20 +440,16 @@ jobs:
           brew install create-dmg
       - name: Build application
         run: |
-          export PATH="/usr/local/opt/qt@5/bin:$PATH"
-          qmake CONFIG+=sdk_no_version_check
-          CPU_COUNT=$(sysctl -n hw.logicalcpu)
-          make -j${CPU_COUNT}
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j$(sysctl -n hw.logicalcpu)
       - name: Generate DMG
         run: |
-          export PATH="/usr/local/opt/qt@5/bin:$PATH"
-          # deploy Qt frameworks into the app bundle
-          macdeployqt ${GITHUB_WORKSPACE}/autoremesher.app
-          # ad-hoc sign so Gatekeeper doesn't report the app as damaged
-          codesign --force --deep --sign - ${GITHUB_WORKSPACE}/autoremesher.app
+          export PATH="$(brew --prefix qtbase)/bin:$PATH"
+          # deploy Qt frameworks, bundle TBB dylibs, ad-hoc sign, verify
+          ./ci/macos_bundle.sh "${GITHUB_WORKSPACE}/build/app/autoremesher.app"
           # prepare a staging folder containing the app bundle
           STAGING_DIR=$(mktemp -d)
-          cp -R "${GITHUB_WORKSPACE}/autoremesher.app" "${STAGING_DIR}/"
+          cp -R "${GITHUB_WORKSPACE}/build/app/autoremesher.app" "${STAGING_DIR}/"
           # package into drag-to-Applications DMG
           create-dmg \
             --volname "AutoRemesher" \
@@ -505,6 +518,14 @@ jobs:
         with:
           name: autoremesher-${{ github.ref_name }}-macos-latest-remeshed_report.txt
           path: autoremesher-${{ github.ref_name }}-macos-latest-remeshed_report.txt
+      - name: Test headless retopo CLI
+        run: |
+          set -e
+          ./build/cli/retopo \
+            --input test-models/data/armadillo.obj \
+            --output retopo-cli-test.obj \
+            --target-quads 2000
+          test -f retopo-cli-test.obj
       - name: Run application and capture screenshot (from DMG)
         run: |
           DMG_APP="/Volumes/AutoRemesher/autoremesher.app"

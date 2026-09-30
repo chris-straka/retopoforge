@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 project(retopoforge VERSION 0.1.0 LANGUAGES C CXX)
 
 # retopoforge: fork of huxingyi/autoremesher (MIT), restructured around a
-# Qt-free core library + CLI. The Qt desktop app still builds via qmake
-# (autoremesher.pro); this CMake build covers the headless engine only.
+# Qt-free headless engine + CLI + Qt6 desktop app. One CMake build covers
+# everything: retopo_core, the retopo CLI, and the autoremesher app.
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -71,3 +71,8 @@ if(UNIX)
 endif()
 
 add_subdirectory(cli)
+
+option(RETOPOFORGE_BUILD_QT_APP "Build the Qt6 desktop app" ON)
+if(RETOPOFORGE_BUILD_QT_APP)
+    add_subdirectory(app)
+endif()
