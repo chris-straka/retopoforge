@@ -88,8 +88,13 @@ new warnings.
       animator-grade face topology; the goal is 80% + fast cleanup.
 - [ ] Symmetry constraints (characters are the main subject)
 - [ ] Sharp / feature constraints end-to-end (weapons and hard-surface
-      props need crisp edges; Blender sharp-edge marks as constraints
-      needs a CLI `--features` input flag first)
+      props need crisp edges). Research done: NO explicit-constraint
+      hook exists anywhere (all sharp handling is automatic dihedral
+      detection; `setConstraintVertices` is a dead setter). Real work
+      is engine-first: polyline snapping post-resample + locked faces
+      in FrameField + corner marks in computeCornerConstraints + curl
+      anchors; CLI `--features` and Blender sharp-marks export go on
+      top after.
 - [ ] Local density control (face/hands detail without blowing the
       total budget)
 
