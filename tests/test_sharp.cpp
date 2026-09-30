@@ -1,7 +1,7 @@
 // Unit + engine tests for explicit sharp/feature constraints.
 // Plain assert-style main, no third-party framework.
 // NOTE: CHECK instead of <cassert> assert(), which is a no-op under NDEBUG.
-#include <AutoRemesher/AutoRemesher>
+import retopo.core.auto_remesher;
 import retopo.core.frame_field;
 import retopo.core.surface_mesh;
 import retopo.core.vector3;
@@ -549,7 +549,7 @@ int main()
     // run-to-run — the sharp path exposes the same pre-existing ordering
     // race as plain box runs — so the alias asserts an effect, not
     // equality: it must differ from plain, as the sharp run does. Both
-    // setters assign the same member; see autoremesher.h.)
+    // setters assign the same member; see autoremesher.cppm.)
     {
         Remesher remesher(sphereVertices, sphereTriangles);
         remesher.setTargetTriangleCount(2000);

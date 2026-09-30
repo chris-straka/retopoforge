@@ -42,6 +42,7 @@ add_library(retopo_core STATIC ${CORE_SOURCES})
 
 # C++ named modules, one per converted component (importable by dependents).
 target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
+    core/autoremesher.cppm
     core/constrainedleastsquares.cppm
     core/density.cppm
     core/double.cppm
@@ -50,6 +51,7 @@ target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
     core/isotropicremesher.cppm
     core/meshseparator.cppm
     core/mixedintegerleastsquares.cppm
+    core/objreader.cppm
     core/parameterizer.cppm
     core/positionkey.cppm
     core/progress.cppm
@@ -66,7 +68,6 @@ target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
 set_target_properties(retopo_core PROPERTIES CXX_SCAN_FOR_MODULES ON)
 
 target_include_directories(retopo_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/include
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/eigen
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/isotropicremesher
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/meshoptimizer/src

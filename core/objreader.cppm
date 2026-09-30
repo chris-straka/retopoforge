@@ -19,13 +19,14 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_OBJ_READER_H
-#define AUTO_REMESHER_OBJ_READER_H
+module;
 #include <cstddef>
 #include <string>
 #include <vector>
 
-namespace AutoRemesher {
+export module retopo.core.obj_reader;
+
+export namespace AutoRemesher {
 
 // Minimal Wavefront OBJ reader: vertex positions plus triangulated faces
 // only (texture coordinates, normals, materials and groups are ignored).
@@ -67,5 +68,3 @@ void weldPositionsAndTriangles(std::vector<float>* positions,
     WeldStats* stats = nullptr);
 
 }
-
-#endif

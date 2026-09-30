@@ -3,8 +3,8 @@
 // triangles are dropped, and already-welded input is left untouched.
 // Plain assert-style main, no framework.
 // NOTE: CHECK instead of <cassert> assert(), which is a no-op under NDEBUG.
-#include <AutoRemesher/ObjReader>
 import retopo.core.mesh_separator;
+import retopo.core.obj_reader;
 
 #include <cstdio>
 #include <string>

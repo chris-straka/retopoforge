@@ -19,12 +19,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_AUTO_REMESHER_H
-#define AUTO_REMESHER_AUTO_REMESHER_H
-import retopo.core.progress;
-import retopo.core.symmetry;
-import retopo.core.vector2;
-import retopo.core.vector3;
+module;
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -36,9 +31,14 @@ import retopo.core.vector3;
 #include <utility>
 #include <vector>
 
-namespace AutoRemesher {
+export module retopo.core.auto_remesher;
 
-class IsotropicRemesher;
+import retopo.core.progress;
+import retopo.core.symmetry;
+import retopo.core.vector2;
+import retopo.core.vector3;
+
+export namespace AutoRemesher {
 
 enum class ModelType {
     Organic,
@@ -370,5 +370,3 @@ private:
 };
 
 }
-
-#endif

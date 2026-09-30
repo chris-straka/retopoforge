@@ -8,8 +8,9 @@
 //     crashing (backstop for every loader, including the GLB one).
 // Plain assert-style main, no framework.
 // NOTE: CHECK instead of <cassert> assert(), which is a no-op under NDEBUG.
-#include <AutoRemesher/AutoRemesher>
-#include <AutoRemesher/ObjReader>
+import retopo.core.auto_remesher;
+import retopo.core.obj_reader;
+import retopo.core.vector3;
 
 #include <cmath>
 #include <cstdio>

@@ -27,9 +27,9 @@
 // dependency: no QApplication, no event loop, works over ssh and in CI.
 
 #include "glb.h"
-#include <AutoRemesher/AutoRemesher>
-#include <AutoRemesher/ObjReader>
+import retopo.core.auto_remesher;
 import retopo.core.mesh_separator;
+import retopo.core.obj_reader;
 import retopo.core.vector2;
 import retopo.core.vector3;
 
