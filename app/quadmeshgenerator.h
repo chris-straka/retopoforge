@@ -22,7 +22,7 @@
 #ifndef AUTO_REMESHER_QUAD_MESH_GENERATOR_H
 #define AUTO_REMESHER_QUAD_MESH_GENERATOR_H
 #include <AutoRemesher/AutoRemesher>
-#include <AutoRemesher/Vector2>
+import retopo.core.vector2;
 #include <QObject>
 #include <cstdint>
 #include <memory>

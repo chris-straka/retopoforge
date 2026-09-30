@@ -20,14 +20,14 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector3>
 #include <cstddef>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
 export module retopo.core.isotropic_remesher;
+
+import retopo.core.progress;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

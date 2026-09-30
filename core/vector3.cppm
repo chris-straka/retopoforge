@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved. 
+ *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved.
  *
  *  Permission is hereby granted, free of charge, to any person obtaining a copy
  *  of this software and associated documentation files (the "Software"), to deal
@@ -19,15 +19,18 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_VECTOR3_H
-#define AUTO_REMESHER_VECTOR3_H
-#include <AutoRemesher/Double>
-#include <AutoRemesher/Vector2>
+module;
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
 
-namespace AutoRemesher {
+export module retopo.core.vector3;
+
+import retopo.core.double_utils;
+import retopo.core.vector2;
+
+export namespace AutoRemesher {
 
 class Vector3;
 
@@ -325,5 +328,3 @@ inline std::ostream& operator<<(std::ostream& os, const Vector3& v)
 }
 
 }
-
-#endif

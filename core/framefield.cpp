@@ -20,7 +20,6 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Vector3>
 #include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <array>
@@ -34,6 +33,7 @@ module retopo.core.frame_field;
 
 import retopo.core.constrained_least_squares;
 import retopo.core.surface_mesh;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 namespace {

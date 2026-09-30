@@ -20,8 +20,6 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector3>
 #include <cstddef>
 #include <cstdio>
 #include <unordered_set>
@@ -31,6 +29,9 @@ module;
 #include <isotropichalfedgemesh.h>
 #include <isotropicremesher.h>
 module retopo.core.isotropic_remesher;
+
+import retopo.core.progress;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

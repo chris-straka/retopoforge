@@ -28,7 +28,7 @@
 
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/ObjReader>
-#include <AutoRemesher/Vector3>
+import retopo.core.vector3;
 
 #include <chrono>
 #include <cstdio>

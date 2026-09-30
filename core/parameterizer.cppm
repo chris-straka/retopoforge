@@ -18,9 +18,6 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -28,6 +25,10 @@ module;
 #include <vector>
 
 export module retopo.core.parameterizer;
+
+import retopo.core.progress;
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

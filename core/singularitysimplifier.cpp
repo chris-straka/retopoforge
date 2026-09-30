@@ -20,7 +20,6 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Vector3>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -34,6 +33,7 @@ module;
 module retopo.core.singularity_simplifier;
 
 import retopo.core.surface_mesh;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 namespace {

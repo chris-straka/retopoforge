@@ -20,8 +20,6 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -29,6 +27,9 @@ module;
 #include <limits>
 #include <vector>
 module retopo.core.surface_mesh;
+
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

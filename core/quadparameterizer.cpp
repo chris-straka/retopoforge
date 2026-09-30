@@ -20,9 +20,6 @@
  *  SOFTWARE.
  */
 module;
-#include <AutoRemesher/Progress>
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -37,7 +34,10 @@ module retopo.core.quad_parameterizer;
 
 import retopo.core.constrained_least_squares;
 import retopo.core.mixed_integer_least_squares;
+import retopo.core.progress;
 import retopo.core.surface_mesh;
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 namespace {

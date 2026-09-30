@@ -23,7 +23,7 @@
 import retopo.core.isotropic_remesher;
 import retopo.core.mesh_separator;
 import retopo.core.parameterizer;
-#include <AutoRemesher/QuadExtractor>
+import retopo.core.quad_extractor;
 #include <algorithm>
 #include <atomic>
 #include <chrono>
