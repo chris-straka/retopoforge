@@ -131,3 +131,14 @@ target_compile_definitions(test_cli_features PRIVATE
 )
 add_dependencies(test_cli_features retopo)
 set_tests_properties(test_cli_features PROPERTIES TIMEOUT 600)
+
+# CLI UV atlas: multi-island --uvs on packs island UV ranges into one shared
+# 0..1 atlas (disjoint boxes, geometry identical to --uvs off); single-island
+# output keeps the exact per-island 0..1 normalization.
+retopo_add_test(test_cli_uv_atlas test_cli_uv_atlas.cpp)
+target_compile_definitions(test_cli_uv_atlas PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_FANDISK=\"${CMAKE_SOURCE_DIR}/bench/models/fandisk.obj\""
+)
+add_dependencies(test_cli_uv_atlas retopo)
+set_tests_properties(test_cli_uv_atlas PROPERTIES TIMEOUT 600)

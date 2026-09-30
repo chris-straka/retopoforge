@@ -188,11 +188,13 @@ public:
     }
 
     // Per-output-vertex UVs interpolated from each island's internal
-    // parameterization, normalized to 0..1 per island. Only populated when
-    // setComputeRemeshedUvs(true) was called before remesh(); otherwise
+    // parameterization, normalized to 0..1 per island and then shelf-packed
+    // into one shared 0..1 atlas (a single island keeps the exact per-island
+    // normalization: the atlas is a no-op for one island). Only populated
+    // when setComputeRemeshedUvs(true) was called before remesh(); otherwise
     // empty. When populated, size always matches remeshedVertices().
-    // Computing them never alters geometry (pure post-pass in the quad
-    // extractor), so the default-off path is byte-identical.
+    // Computing them never alters geometry (pure post-pass over the final
+    // positions), so the default-off path is byte-identical.
     const std::vector<Vector2>& remeshedVertexUvs()
     {
         return m_remeshedVertexUvs;
