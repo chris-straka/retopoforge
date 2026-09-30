@@ -69,7 +69,9 @@ DEFINES += "PROJECT_DEFINED_APP_REPOSITORY_URL=\"\\\"$$REPOSITORY_URL\\\"\""
 DEFINES += "PROJECT_DEFINED_APP_ISSUES_URL=\"\\\"$$ISSUES_URL\\\"\""
 DEFINES += "PROJECT_DEFINED_APP_PLATFORM=\"\\\"$$PLATFORM\\\"\""
 
-CONFIG += c++17
+# C++23: Qt5 qmake predates the c++23 knob; c++2b is its name for it
+# (maps to -std=c++2b on clang/gcc, /std:c++latest on MSVC).
+CONFIG += c++2b
 
 macx {
 	QMAKE_CXXFLAGS_RELEASE -= -O
