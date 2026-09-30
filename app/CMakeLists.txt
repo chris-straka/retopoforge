@@ -66,10 +66,6 @@ set(APP_SOURCES
     spinnerwidget.h
 )
 
-if(WIN32)
-    list(APPEND APP_SOURCES autoremesher.rc)
-endif()
-
 add_executable(autoremesher ${APP_SOURCES})
 
 set_target_properties(autoremesher PROPERTIES
