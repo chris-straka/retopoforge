@@ -39,7 +39,7 @@ module retopo.core.constrained_least_squares;
 
 namespace AutoRemesher {
 namespace {
-    const size_t noIndex = std::numeric_limits<size_t>::max();
+    constexpr size_t noIndex = std::numeric_limits<size_t>::max();
 
     // The regularizer nudges a rank-deficient normal matrix back to something
     // factorizable, so it only has meaning relative to that matrix.  Callers
@@ -49,14 +49,14 @@ namespace {
     // is a hundred times smaller in world units.  It is applied as a fraction of
     // the mean diagonal instead, which keeps a solve's outcome independent of
     // the units the input mesh happens to be modelled in.
-    const double relativeRidge = 1e-10;
+    constexpr double relativeRidge = 1e-10;
 
     double ridgeFor(const Eigen::SparseMatrix<double>& normalMatrix)
     {
         const Eigen::Index size = normalMatrix.rows();
         if (0 == size)
             return relativeRidge;
-        const double mean = normalMatrix.diagonal().sum() / (double)size;
+        const double mean = normalMatrix.diagonal().sum() / static_cast<double>(size);
         // An all-zero diagonal leaves nothing to be relative to; any positive
         // ridge does the same job there.
         return mean > 0.0 ? relativeRidge * mean : relativeRidge;
@@ -117,7 +117,7 @@ struct ConstrainedLeastSquares::Cache {
 
 ConstrainedLeastSquares::ConstrainedLeastSquares(size_t variableCount)
     : m_variableCount(variableCount)
-    , m_cache(new Cache)
+    , m_cache(std::make_unique<Cache>())
 {
 }
 
@@ -184,20 +184,20 @@ bool ConstrainedLeastSquares::buildSubstitutions()
     for (const LinearEquation& constraint : m_constraintEquations) {
         double rightHandSide = constraint.rightHandSide;
         rootCoefficients.clear();
-        for (const auto& coefficient : constraint.coefficients) {
-            if (coefficient.first >= m_variableCount)
+        for (const auto& [variable, value] : constraint.coefficients) {
+            if (variable >= m_variableCount)
                 return false;
-            const Substitution substitution = resolve(coefficient.first);
+            const Substitution substitution = resolve(variable);
             if (substitution.fixed) {
-                rightHandSide -= coefficient.second * substitution.offset;
+                rightHandSide -= value * substitution.offset;
                 continue;
             }
-            rightHandSide -= coefficient.second * substitution.offset;
-            const double scaled = coefficient.second * substitution.scale;
+            rightHandSide -= value * substitution.offset;
+            const double scaled = value * substitution.scale;
             bool merged = false;
-            for (auto& existing : rootCoefficients) {
-                if (existing.first == substitution.root) {
-                    existing.second += scaled;
+            for (auto& [existingRoot, existingValue] : rootCoefficients) {
+                if (existingRoot == substitution.root) {
+                    existingValue += scaled;
                     merged = true;
                     break;
                 }
@@ -256,20 +256,20 @@ bool ConstrainedLeastSquares::buildReducedSystem()
         const double weightRoot = std::sqrt(equation.weight);
         cache.rowWeightRoot[row] = weightRoot;
         double shift = 0.0;
-        for (const auto& coefficient : equation.coefficients) {
-            if (coefficient.first >= m_variableCount)
+        for (const auto& [variable, value] : equation.coefficients) {
+            if (variable >= m_variableCount)
                 return false;
-            const Substitution& substitution = m_substitutions[coefficient.first];
+            const Substitution& substitution = m_substitutions[variable];
             if (substitution.fixed) {
-                shift += coefficient.second * substitution.offset;
+                shift += value * substitution.offset;
                 continue;
             }
-            shift += coefficient.second * substitution.offset;
+            shift += value * substitution.offset;
             const size_t column = m_freeIndexOfRoot[substitution.root];
             if (noIndex == column)
                 continue;
             entries.emplace_back(row, static_cast<Eigen::Index>(column),
-                weightRoot * coefficient.second * substitution.scale);
+                weightRoot * value * substitution.scale);
         }
         cache.rowShift[row] = shift;
     }
@@ -354,10 +354,10 @@ bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* 
     Eigen::SparseMatrix<double> constraintMatrix(originalConstraintCount, variableCount);
     std::vector<Eigen::Triplet<double>> constraintEntries;
     for (Eigen::Index constraintIndex = 0; constraintIndex < originalConstraintCount; ++constraintIndex) {
-        for (const auto& coefficient : m_constraintEquations[static_cast<size_t>(constraintIndex)].coefficients) {
-            if (coefficient.first >= m_variableCount)
+        for (const auto& [variable, value] : m_constraintEquations[static_cast<size_t>(constraintIndex)].coefficients) {
+            if (variable >= m_variableCount)
                 return false;
-            constraintEntries.emplace_back(constraintIndex, static_cast<Eigen::Index>(coefficient.first), coefficient.second);
+            constraintEntries.emplace_back(constraintIndex, static_cast<Eigen::Index>(variable), value);
         }
     }
     constraintMatrix.setFromTriplets(constraintEntries.begin(), constraintEntries.end());
@@ -377,17 +377,17 @@ bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* 
     Eigen::VectorXd rightHandSide = Eigen::VectorXd::Zero(variableCount + independentConstraintCount);
     double diagonalSum = 0.0;
     for (const LinearEquation& equation : m_energyEquations) {
-        for (const auto& coefficient : equation.coefficients) {
-            if (coefficient.first >= m_variableCount)
+        for (const auto& [variable, value] : equation.coefficients) {
+            if (variable >= m_variableCount)
                 return false;
-            rightHandSide[static_cast<Eigen::Index>(coefficient.first)] += equation.weight * coefficient.second * equation.rightHandSide;
-            for (const auto& otherCoefficient : equation.coefficients) {
-                if (otherCoefficient.first >= m_variableCount)
+            rightHandSide[static_cast<Eigen::Index>(variable)] += equation.weight * value * equation.rightHandSide;
+            for (const auto& [otherVariable, otherValue] : equation.coefficients) {
+                if (otherVariable >= m_variableCount)
                     return false;
-                const double entry = equation.weight * coefficient.second * otherCoefficient.second;
-                if (coefficient.first == otherCoefficient.first)
+                const double entry = equation.weight * value * otherValue;
+                if (variable == otherVariable)
                     diagonalSum += entry;
-                entries.emplace_back(static_cast<Eigen::Index>(coefficient.first), static_cast<Eigen::Index>(otherCoefficient.first),
+                entries.emplace_back(static_cast<Eigen::Index>(variable), static_cast<Eigen::Index>(otherVariable),
                     entry);
             }
         }
@@ -395,12 +395,12 @@ bool ConstrainedLeastSquares::solveWithLagrangeMultipliers(std::vector<double>* 
     for (Eigen::Index constraintIndex = 0; constraintIndex < independentConstraintCount; ++constraintIndex) {
         const LinearEquation& equation = m_constraintEquations[static_cast<size_t>(selectedConstraints[constraintIndex])];
         rightHandSide[variableCount + constraintIndex] = equation.rightHandSide;
-        for (const auto& coefficient : equation.coefficients) {
-            entries.emplace_back(static_cast<Eigen::Index>(coefficient.first), variableCount + constraintIndex, coefficient.second);
-            entries.emplace_back(variableCount + constraintIndex, static_cast<Eigen::Index>(coefficient.first), coefficient.second);
+        for (const auto& [variable, value] : equation.coefficients) {
+            entries.emplace_back(static_cast<Eigen::Index>(variable), variableCount + constraintIndex, value);
+            entries.emplace_back(variableCount + constraintIndex, static_cast<Eigen::Index>(variable), value);
         }
     }
-    const double meanDiagonal = variableCount > 0 ? diagonalSum / (double)variableCount : 0.0;
+    const double meanDiagonal = variableCount > 0 ? diagonalSum / static_cast<double>(variableCount) : 0.0;
     const double ridge = meanDiagonal > 0.0 ? relativeRidge * meanDiagonal : relativeRidge;
     for (Eigen::Index i = 0; i < variableCount; ++i)
         entries.emplace_back(i, i, ridge);

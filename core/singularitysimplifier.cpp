@@ -250,7 +250,7 @@ std::vector<size_t> SingularitySimplifier::pathBetween(size_t first, size_t seco
             for (size_t at = second; at != first; at = previous[at])
                 path.push_back(at);
             path.push_back(first);
-            std::reverse(path.begin(), path.end());
+            std::ranges::reverse(path);
             return path;
         }
         for (const size_t c : m_mesh.cornersAroundVertex(v)) {
@@ -437,8 +437,8 @@ void SingularitySimplifier::simplify()
         std::vector<Candidate> candidates;
         std::set<std::pair<size_t, size_t>> seen;
         auto consider = [&](size_t a, size_t b, size_t d) {if(a==b||d>m_maximumPairDistance||(charges[singular[a]]+charges[singular[b]])%4)return;auto key=std::minmax(a,b);if(seen.insert(key).second)candidates.push_back({key.first,key.second,d}); };
-        for (const auto& e : encounters)
-            consider(e.first, e.second, 0);
+        for (const auto& [first, second] : encounters)
+            consider(first, second, 0);
         while (!queue.empty()) {
             const size_t f = queue.front();
             queue.pop_front();
