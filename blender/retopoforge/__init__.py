@@ -26,7 +26,10 @@ from bpy.props import (
 )
 from mathutils import Matrix
 
-ADDON_ID = "retopoforge"
+# Must equal the module name Blender loaded us under: "retopoforge" on the
+# legacy/sys.path test path, "bl_ext.<repo>.retopoforge" as an installed
+# extension. A hardcoded id unlinks AddonPreferences on one path or the other.
+ADDON_ID = __package__
 
 _SUMMARY_RE = re.compile(
     r"Quads:\s*(\d+).*?Non-quads:\s*(\d+).*?Vertices:\s*(\d+).*?Time:\s*([\d.]+)",
