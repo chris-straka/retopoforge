@@ -19,18 +19,25 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/ConstrainedLeastSquares>
-#include <AutoRemesher/MixedIntegerLeastSquares>
-#include <AutoRemesher/QuadParameterizer>
-#include <AutoRemesher/SurfaceMesh>
-
+module;
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <queue>
+#include <utility>
+#include <vector>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
+module retopo.core.quad_parameterizer;
+
+import retopo.core.constrained_least_squares;
+import retopo.core.mixed_integer_least_squares;
+import retopo.core.progress;
+import retopo.core.surface_mesh;
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 namespace {

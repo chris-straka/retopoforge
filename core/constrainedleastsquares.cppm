@@ -19,17 +19,17 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_CONSTRAINED_LEAST_SQUARES_H
-#define AUTO_REMESHER_CONSTRAINED_LEAST_SQUARES_H
-
+module;
 #include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
+export module retopo.core.constrained_least_squares;
+
 namespace AutoRemesher {
 
-class ConstrainedLeastSquares {
+export class ConstrainedLeastSquares {
 public:
     explicit ConstrainedLeastSquares(size_t variableCount);
     ~ConstrainedLeastSquares();
@@ -77,4 +77,3 @@ private:
     std::unique_ptr<Cache> m_cache;
 };
 }
-#endif

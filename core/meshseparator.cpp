@@ -19,11 +19,16 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/MeshSeparator>
+module;
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <map>
 #include <queue>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 #if defined(__has_include)
 #if __has_include(<oneapi/tbb/parallel_sort.h>)
 #include <oneapi/tbb/parallel_sort.h>
@@ -33,6 +38,7 @@
 #else
 #include <tbb/parallel_sort.h>
 #endif
+module retopo.core.mesh_separator;
 
 namespace AutoRemesher {
 

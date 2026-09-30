@@ -19,12 +19,19 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/IsotropicRemesher>
-#include <AutoRemesher/Vector3>
+module;
+#include <cstddef>
 #include <cstdio>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include <isotropichalfedgemesh.h>
 #include <isotropicremesher.h>
+module retopo.core.isotropic_remesher;
+
+import retopo.core.progress;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

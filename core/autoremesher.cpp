@@ -20,10 +20,10 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/AutoRemesher>
-#include <AutoRemesher/IsotropicRemesher>
-#include <AutoRemesher/MeshSeparator>
-#include <AutoRemesher/Parameterizer>
-#include <AutoRemesher/QuadExtractor>
+import retopo.core.isotropic_remesher;
+import retopo.core.mesh_separator;
+import retopo.core.parameterizer;
+import retopo.core.quad_extractor;
 #include <algorithm>
 #include <atomic>
 #include <chrono>

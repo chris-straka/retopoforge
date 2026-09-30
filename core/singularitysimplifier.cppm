@@ -19,16 +19,18 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_SINGULARITY_SIMPLIFIER_H
-#define AUTO_REMESHER_SINGULARITY_SIMPLIFIER_H
-
-#include <AutoRemesher/SurfaceMesh>
+module;
 #include <cstddef>
 #include <vector>
 
+export module retopo.core.singularity_simplifier;
+
+import retopo.core.surface_mesh;
+import retopo.core.vector3;
+
 namespace AutoRemesher {
 
-class SingularitySimplifier {
+export class SingularitySimplifier {
 public:
     SingularitySimplifier(const SurfaceMesh& mesh,
         std::vector<Vector3>* faceField);
@@ -61,4 +63,3 @@ private:
 };
 
 }
-#endif

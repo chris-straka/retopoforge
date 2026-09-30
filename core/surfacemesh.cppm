@@ -19,19 +19,20 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_SURFACE_MESH_H
-#define AUTO_REMESHER_SURFACE_MESH_H
-
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
+module;
 #include <array>
 #include <cstddef>
 #include <limits>
 #include <vector>
 
+export module retopo.core.surface_mesh;
+
+import retopo.core.vector2;
+import retopo.core.vector3;
+
 namespace AutoRemesher {
 
-class SurfaceMesh {
+export class SurfaceMesh {
 public:
     static constexpr size_t npos = std::numeric_limits<size_t>::max();
 
@@ -66,5 +67,3 @@ private:
 };
 
 }
-
-#endif

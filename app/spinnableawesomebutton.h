@@ -21,7 +21,7 @@
  */
 #ifndef DUST3D_SPINNABLE_AWESOME_BUTTON_H
 #define DUST3D_SPINNABLE_AWESOME_BUTTON_H
-#include "waitingspinnerwidget.h"
+#include "spinnerwidget.h"
 #include <QPushButton>
 #include <QWidget>
 
@@ -35,7 +35,7 @@ public:
 
 private:
     QPushButton* m_button = nullptr;
-    WaitingSpinnerWidget* m_spinner = nullptr;
+    SpinnerWidget* m_spinner = nullptr;
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2026 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved. 
+ *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved.
  *
  *  Permission is hereby granted, free of charge, to any person obtaining a copy
  *  of this software and associated documentation files (the "Software"), to deal
@@ -19,4 +19,26 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "../../singularitysimplifier.h"
+module;
+#include <cmath>
+#include <limits>
+
+export module retopo.core.double_utils;
+
+export namespace AutoRemesher {
+
+namespace Double {
+
+    inline bool isZero(double number)
+    {
+        return std::abs(number) <= std::numeric_limits<double>::epsilon();
+    }
+
+    inline bool isEqual(double a, double b)
+    {
+        return isZero(a - b);
+    }
+
+} //namespace Double
+
+}

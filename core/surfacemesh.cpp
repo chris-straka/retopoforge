@@ -19,10 +19,17 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/SurfaceMesh>
-
+module;
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <limits>
+#include <vector>
+module retopo.core.surface_mesh;
+
+import retopo.core.vector2;
+import retopo.core.vector3;
 
 namespace AutoRemesher {
 

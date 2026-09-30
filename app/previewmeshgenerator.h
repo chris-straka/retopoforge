@@ -22,8 +22,8 @@
 #ifndef AUTO_REMESHER_PREVIEW_MESH_GENERATOR_H
 #define AUTO_REMESHER_PREVIEW_MESH_GENERATOR_H
 #include "modelshadermesh.h"
-#include <AutoRemesher/Vector2>
-#include <AutoRemesher/Vector3>
+import retopo.core.vector2;
+import retopo.core.vector3;
 #include <QObject>
 #include <cstdint>
 #include <utility>
