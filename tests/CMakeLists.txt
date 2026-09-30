@@ -19,6 +19,8 @@ retopo_add_test(test_positionkey test_positionkey.cpp)
 retopo_add_test(test_objreader test_objreader.cpp)
 retopo_add_test(test_surfacemesh test_surfacemesh.cpp)
 retopo_add_test(test_weld test_weld.cpp)
+retopo_add_test(test_constrainedleastsquares test_constrainedleastsquares.cpp)
+retopo_add_test(test_mixedintegerleastsquares test_mixedintegerleastsquares.cpp)
 
 # CLI round-trip: runs the built retopo binary on bench/models/armadillo.obj.
 # Needs the model file (bench/fetch_models.sh, gitignored) and the retopo

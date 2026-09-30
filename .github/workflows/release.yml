@@ -14,10 +14,9 @@ concurrency:
 
 jobs:
   appimage-upload:
-    # Parked: macOS-only for now (stock ubuntu-22.04 GCC cannot compile
-    # C++ modules). Re-enable with an LLVM/GCC-14+ toolchain later.
-    if: false
-    runs-on: ubuntu-22.04
+    # Linux CI: GitHub-hosted ubuntu with a distro LLVM/Clang toolchain
+    # (stock ubuntu-22.04 GCC cannot compile C++ modules).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install Qt
@@ -28,14 +27,27 @@ jobs:
           host: 'linux'
           target: 'desktop'
           archives: 'qtbase qttools qtsvg qtimageformats'
+      - name: Install LLVM, CMake and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm cmake ninja-build
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libtbb-dev libgl1-mesa-dev libfuse2 libfontconfig1
       - name: Build application
+        env:
+          CC: clang
+          CXX: clang++
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
           cmake --build build -j`nproc`
+      - name: Fetch benchmark models
+        run: ./bench/fetch_models.sh
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Check benchmarks
+        run: ./bench/run.py --check bench/baseline.json
       - name: Generate AppImage
         run: |
           set -e
