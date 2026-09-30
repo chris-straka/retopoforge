@@ -247,6 +247,11 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Spawn a remeshed copy and hide the original instead of replacing its mesh",
         default=False,
     )
+    compute_uvs: BoolProperty(
+        name="Compute UVs",
+        description="Ask the engine for fresh UVs on the remesh (passed as --uvs on)",
+        default=False,
+    )
     lod_targets: StringProperty(
         name="LOD Targets",
         description="Comma-separated quad counts for Generate LODs (one rung per value)",
@@ -340,6 +345,7 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
             "--model-type",
             "hardsurface" if self.model_type == "HARDSURFACE" else "organic",
             "--symmetry", self.symmetry_value(),
+            "--uvs", "on" if self.compute_uvs else "off",
         ]
 
 
@@ -1316,30 +1322,95 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         col.prop(params, "target_quads")
         col.prop(params, "model_type")
         col.prop(params, "sharp_edge")
-        col.prop(params, "smooth_normal")
-        col.prop(params, "edge_scaling")
-        col.prop(params, "adaptivity")
-        col.prop(params, "anisotropy")
+        col.prop(params, "compute_uvs")
         col.prop(params, "apply_modifiers")
         col.prop(params, "keep_original")
         col.prop(params, "symmetry_enabled")
         sym_row = col.row()
         sym_row.enabled = params.symmetry_enabled
         sym_row.prop(params, "symmetry_plane")
-        guides = layout.box()
-        guides.label(text="Flow Guides: edge selection, per target")
-        guides.prop(params, "guides_enabled")
-        guides.operator("retopoforge.export_guides",
+        report = context.scene.retopoforge_last_report
+        if report:
+            box = layout.box()
+            for line in report.strip().split("\n"):
+                box.label(text=line)
+        layout.label(text="Remeshing replaces topology;", icon="INFO")
+        layout.label(text="Original UVs do not survive.")
+        # Dev convenience: picks up extension updates without restarting
+        # Blender, with an INFO report as visible confirmation.
+        layout.operator("retopoforge.reload_scripts", text="Reload Scripts",
+                        icon="FILE_REFRESH")
+
+
+class RETOPOFORGE_PT_advanced(bpy.types.Panel):
+    bl_label = "Advanced"
+    bl_idname = "RETOPOFORGE_PT_advanced"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "RetopoForge"
+    bl_parent_id = "RETOPOFORGE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        params = context.scene.retopoforge_params
+        col = self.layout.column(align=True)
+        col.prop(params, "smooth_normal")
+        col.prop(params, "edge_scaling")
+        col.prop(params, "adaptivity")
+        col.prop(params, "anisotropy")
+
+
+class RETOPOFORGE_PT_guides(bpy.types.Panel):
+    bl_label = "Flow Guides"
+    bl_idname = "RETOPOFORGE_PT_guides"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "RetopoForge"
+    bl_parent_id = "RETOPOFORGE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        params = context.scene.retopoforge_params
+        layout = self.layout
+        layout.label(text="Edge selection, per target")
+        layout.prop(params, "guides_enabled")
+        layout.operator("retopoforge.export_guides",
                         text="Export Guide Strokes", icon="GREASEPENCIL")
-        sharp = layout.box()
-        sharp.label(text="Sharp Features: marked edges, per target")
-        sharp.prop(params, "features_enabled")
-        sharp.operator("retopoforge.export_features",
-                       text="Export Sharp Features", icon="EDGESEL")
-        density = layout.box()
-        density.label(text="Density: vertex group weights")
-        density.prop(params, "density_enabled")
-        dcol = density.column(align=True)
+
+
+class RETOPOFORGE_PT_features(bpy.types.Panel):
+    bl_label = "Sharp Features"
+    bl_idname = "RETOPOFORGE_PT_features"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "RetopoForge"
+    bl_parent_id = "RETOPOFORGE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        params = context.scene.retopoforge_params
+        layout = self.layout
+        layout.label(text="Marked edges, per target")
+        layout.prop(params, "features_enabled")
+        layout.operator("retopoforge.export_features",
+                        text="Export Sharp Features", icon="EDGESEL")
+
+
+class RETOPOFORGE_PT_density(bpy.types.Panel):
+    bl_label = "Density Mask"
+    bl_idname = "RETOPOFORGE_PT_density"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "RetopoForge"
+    bl_parent_id = "RETOPOFORGE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        params = context.scene.retopoforge_params
+        layout = self.layout
+        layout.label(text="Vertex group weights")
+        layout.prop(params, "density_enabled")
+        dcol = layout.column(align=True)
         dcol.enabled = params.density_enabled
         active = context.view_layer.objects.active
         if active is not None and active.type == "MESH":
@@ -1350,31 +1421,47 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         drow = dcol.row(align=True)
         drow.prop(params, "density_min")
         drow.prop(params, "density_max")
-        density.operator("retopoforge.export_density",
-                         text="Export Density Mask", icon="GROUP_VERTEX")
-        col.prop(params, "lod_targets")
+        layout.operator("retopoforge.export_density",
+                        text="Export Density Mask", icon="GROUP_VERTEX")
+
+
+class RETOPOFORGE_PT_lods(bpy.types.Panel):
+    bl_label = "LODs"
+    bl_idname = "RETOPOFORGE_PT_lods"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "RetopoForge"
+    bl_parent_id = "RETOPOFORGE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        params = context.scene.retopoforge_params
+        layout = self.layout
+        layout.prop(params, "lod_targets")
         layout.operator("retopoforge.generate_lods", text="Generate LODs",
                         icon="MOD_DECIM")
-        bake = layout.box()
-        bake.label(text="Bake Assist: Active = HIGH, Selected = LOW")
-        bcol = bake.column(align=True)
+
+
+class RETOPOFORGE_PT_bake(bpy.types.Panel):
+    bl_label = "Bake Assist"
+    bl_idname = "RETOPOFORGE_PT_bake"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "RetopoForge"
+    bl_parent_id = "RETOPOFORGE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        params = context.scene.retopoforge_params
+        layout = self.layout
+        layout.label(text="Active = HIGH, Selected = LOW")
+        bcol = layout.column(align=True)
         bcol.prop(params, "bake_size")
         bcol.prop(params, "bake_extrusion")
         bcol.prop(params, "bake_margin")
         bcol.prop(params, "bake_normal")
-        bake.operator("retopoforge.bake_textures", text="Bake High to Low",
-                      icon="RENDER_RESULT")
-        report = context.scene.retopoforge_last_report
-        if report:
-            box = layout.box()
-            for line in report.strip().split("\n"):
-                box.label(text=line)
-        layout.label(text="Remeshing replaces topology;", icon="INFO")
-        layout.label(text="UVs and vertex colors do not survive.")
-        # Dev convenience: picks up extension updates without restarting
-        # Blender, with an INFO report as visible confirmation.
-        layout.operator("retopoforge.reload_scripts", text="Reload Scripts",
-                        icon="FILE_REFRESH")
+        layout.operator("retopoforge.bake_textures", text="Bake High to Low",
+                        icon="RENDER_RESULT")
 
 
 _CLASSES = (
@@ -1388,6 +1475,12 @@ _CLASSES = (
     RETOPOFORGE_OT_export_density,
     RETOPOFORGE_OT_reload,
     RETOPOFORGE_PT_panel,
+    RETOPOFORGE_PT_advanced,
+    RETOPOFORGE_PT_guides,
+    RETOPOFORGE_PT_features,
+    RETOPOFORGE_PT_density,
+    RETOPOFORGE_PT_lods,
+    RETOPOFORGE_PT_bake,
 )
 
 
