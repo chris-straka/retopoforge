@@ -192,5 +192,35 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Measured black-box comparison vs QR (EULA-aware: their outputs
       stay out of the repo and out of training data) — needs the
       owner's QR license + inputs
-- [ ] UX polish in the addon and the app
+- [ ] UX polish in the addon (needs the owner's eyes on real meshes)
 - [ ] DCC breadth (other hosts) — last of last
+
+## Engine backlog (from lane follow-ups, wave 5+)
+
+- [ ] C++23 completion: convert the last two headers (`autoremesher`,
+      `objreader`) to named modules; delete the `<AutoRemesher/...>`
+      forwarders. No moc excuse remains.
+- [ ] Global UV atlas: `--uvs on` normalizes 0..1 per island, so
+      multi-island UVs overlap. Pack islands into one atlas (or emit
+      per-island UDIM offsets).
+- [ ] Blender sharp-marks export: `--features` is CLI-only; add
+      Blender-side marking (sharp edges → feature file) with recall.
+- [ ] Engine island drop counter: replace the CLI's bbox island
+      attribution heuristic with a real per-island output/empty count
+      from the engine.
+- [ ] Quiet through the engine: `--quiet` still leaks engine-owned
+      stderr (progress + phase report). Plumb the flag down.
+- [ ] Corner singularities under crossing sharps: full closed cages
+      over-constrain and distort. Fix the corner-mark radius/strength
+      handling (currently documented as "keep it small").
+- [ ] Density-aware pole placement (research): strong localized
+      refinement saturates (~2.3x for 4x asks) because poles are
+      sizing-unaware. Placing poles for the density field would unlock
+      the full 4x.
+- [ ] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
+      collapse non-monotonically with target count (empty at 8 and 2,
+      OK at 4). Probe whether a principled floor exists; report-only
+      fallback.
+- [ ] Single-island parallelism (research): one island uses ~1 core;
+      top bottleneck is "merging shared five edge faces" (5.5s on
+      dragon-50k). Profile-guided; bench-identical gate.
