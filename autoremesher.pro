@@ -10,7 +10,7 @@ CONFIG += release
 CONFIG(release, debug|release) DEFINES += NDEBUG
 CONFIG(debug, debug|release) DEFINES += AUTO_REMESHER_DEBUG
 CONFIG(debug, debug|release) DEFINES += QT_MESSAGELOGCONTEXT
-RESOURCES += resources.qrc
+RESOURCES += app/resources.qrc
 
 CONFIG += object_parallel_to_source
 
@@ -21,11 +21,11 @@ CONFIG(release, debug|release) MOC_DIR=moc
 
 win32 {
     CONFIG(debug, debug|release) CONFIG += force_debug_info
-	RC_FILE = autoremesher.rc
+	RC_FILE = app/autoremesher.rc
 }
 
 macx {
-	ICON = autoremesher.icns
+	ICON = app/autoremesher.icns
 
 	RESOURCE_FILES.files = $$ICON
 	RESOURCE_FILES.path = Contents/Resources
@@ -137,86 +137,87 @@ HEADERS += thirdparty/QtWaitingSpinner/waitingspinnerwidget.h
 
 INCLUDEPATH += thirdparty/eigen
 
-INCLUDEPATH += include
+INCLUDEPATH += core/include
 
-SOURCES += src/main.cpp
+SOURCES += app/main.cpp
 
-SOURCES += src/logbrowser.cpp
-HEADERS += src/logbrowser.h
+SOURCES += app/logbrowser.cpp
+HEADERS += app/logbrowser.h
 
-SOURCES += src/logbrowserdialog.cpp
-HEADERS += src/logbrowserdialog.h
+SOURCES += app/logbrowserdialog.cpp
+HEADERS += app/logbrowserdialog.h
 
-SOURCES += src/spinnableawesomebutton.cpp
-HEADERS += src/spinnableawesomebutton.h
+SOURCES += app/spinnableawesomebutton.cpp
+HEADERS += app/spinnableawesomebutton.h
 
-SOURCES += src/util.cpp
-HEADERS += src/util.h
+SOURCES += app/util.cpp
+HEADERS += app/util.h
 
-SOURCES += src/mainwindow.cpp
-HEADERS += src/mainwindow.h
+SOURCES += app/mainwindow.cpp
+HEADERS += app/mainwindow.h
 
-SOURCES += src/aboutwidget.cpp
-HEADERS += src/aboutwidget.h
+SOURCES += app/aboutwidget.cpp
+HEADERS += app/aboutwidget.h
 
-SOURCES += src/theme.cpp
-HEADERS += src/theme.h
+SOURCES += app/theme.cpp
+HEADERS += app/theme.h
 
-SOURCES += src/graphicscontainerwidget.cpp
-HEADERS += src/graphicscontainerwidget.h
+SOURCES += app/graphicscontainerwidget.cpp
+HEADERS += app/graphicscontainerwidget.h
 
-SOURCES += src/graphicswidget.cpp
-HEADERS += src/graphicswidget.h
+SOURCES += app/graphicswidget.cpp
+HEADERS += app/graphicswidget.h
 
-SOURCES += src/modelshadermesh.cpp
-HEADERS += src/modelshadermesh.h
+SOURCES += app/modelshadermesh.cpp
+HEADERS += app/modelshadermesh.h
 
-SOURCES += src/modelshadermeshbinder.cpp
-HEADERS += src/modelshadermeshbinder.h
+SOURCES += app/modelshadermeshbinder.cpp
+HEADERS += app/modelshadermeshbinder.h
 
-SOURCES += src/modelshaderprogram.cpp
-HEADERS += src/modelshaderprogram.h
+SOURCES += app/modelshaderprogram.cpp
+HEADERS += app/modelshaderprogram.h
 
-HEADERS += src/modelshadervertex.h
+HEADERS += app/modelshadervertex.h
 
-SOURCES += src/monochromeopenglprogram.cpp
-HEADERS += src/monochromeopenglprogram.h
+SOURCES += app/monochromeopenglprogram.cpp
+HEADERS += app/monochromeopenglprogram.h
 
-SOURCES += src/monochromeopenglobject.cpp
-HEADERS += src/monochromeopenglobject.h
+SOURCES += app/monochromeopenglobject.cpp
+HEADERS += app/monochromeopenglobject.h
 
-HEADERS += src/openglbufferutil.h
+HEADERS += app/openglbufferutil.h
 
-HEADERS += src/monochromeopenglvertex.h
+HEADERS += app/monochromeopenglvertex.h
 
-SOURCES += src/modelshaderwidget.cpp
-HEADERS += src/modelshaderwidget.h
+SOURCES += app/modelshaderwidget.cpp
+HEADERS += app/modelshaderwidget.h
 
-SOURCES += src/rendermeshgenerator.cpp
-HEADERS += src/rendermeshgenerator.h
+SOURCES += app/rendermeshgenerator.cpp
+HEADERS += app/rendermeshgenerator.h
 
-SOURCES += src/previewmeshgenerator.cpp
-HEADERS += src/previewmeshgenerator.h
+SOURCES += app/previewmeshgenerator.cpp
+HEADERS += app/previewmeshgenerator.h
 
-SOURCES += src/quadmeshgenerator.cpp
-HEADERS += src/quadmeshgenerator.h
+SOURCES += app/quadmeshgenerator.cpp
+HEADERS += app/quadmeshgenerator.h
 
-SOURCES += src/preferences.cpp
-HEADERS += src/preferences.h
+SOURCES += app/preferences.cpp
+HEADERS += app/preferences.h
 
-SOURCES += src/floatnumberwidget.cpp
-HEADERS += src/floatnumberwidget.h
+SOURCES += app/floatnumberwidget.cpp
+HEADERS += app/floatnumberwidget.h
 
-SOURCES += src/intnumberwidget.cpp
-HEADERS += src/intnumberwidget.h
+SOURCES += app/intnumberwidget.cpp
+HEADERS += app/intnumberwidget.h
 
-SOURCES += src/AutoRemesher/autoremesher.cpp
-HEADERS += src/AutoRemesher/autoremesher.h
+SOURCES += core/autoremesher.cpp
+HEADERS += core/autoremesher.h
 
-SOURCES += src/AutoRemesher/isotropicremesher.cpp
-HEADERS += src/AutoRemesher/isotropicremesher.h
+SOURCES += core/isotropicremesher.cpp
+HEADERS += core/isotropicremesher.h
 
 INCLUDEPATH += thirdparty/isotropicremesher
+INCLUDEPATH += thirdparty/tinyobjloader
 SOURCES += thirdparty/isotropicremesher/isotropicremesher.cpp
 SOURCES += thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
 SOURCES += thirdparty/isotropicremesher/axisalignedboundingboxtree.cpp
@@ -233,38 +234,38 @@ SOURCES += thirdparty/meshoptimizer/src/simplifier.cpp
 SOURCES += thirdparty/meshoptimizer/src/indexgenerator.cpp
 HEADERS += thirdparty/meshoptimizer/src/meshoptimizer.h
 
-SOURCES += src/AutoRemesher/parameterizer.cpp
-HEADERS += src/AutoRemesher/parameterizer.h
+SOURCES += core/parameterizer.cpp
+HEADERS += core/parameterizer.h
 
-SOURCES += src/AutoRemesher/surfacemesh.cpp
-HEADERS += src/AutoRemesher/surfacemesh.h
-HEADERS += include/AutoRemesher/SurfaceMesh
-SOURCES += src/AutoRemesher/singularitysimplifier.cpp
-HEADERS += src/AutoRemesher/singularitysimplifier.h
-HEADERS += include/AutoRemesher/SingularitySimplifier
-SOURCES += src/AutoRemesher/constrainedleastsquares.cpp
-HEADERS += src/AutoRemesher/constrainedleastsquares.h
-HEADERS += include/AutoRemesher/ConstrainedLeastSquares
-SOURCES += src/AutoRemesher/mixedintegerleastsquares.cpp
-HEADERS += src/AutoRemesher/mixedintegerleastsquares.h
-HEADERS += include/AutoRemesher/MixedIntegerLeastSquares
-SOURCES += src/AutoRemesher/framefield.cpp
-HEADERS += src/AutoRemesher/framefield.h
-HEADERS += include/AutoRemesher/FrameField
-SOURCES += src/AutoRemesher/quadparameterizer.cpp
-HEADERS += src/AutoRemesher/quadparameterizer.h
-HEADERS += include/AutoRemesher/QuadParameterizer
-
-
-SOURCES += src/AutoRemesher/quadextractor.cpp
-HEADERS += src/AutoRemesher/quadextractor.h
+SOURCES += core/surfacemesh.cpp
+HEADERS += core/surfacemesh.h
+HEADERS += core/include/AutoRemesher/SurfaceMesh
+SOURCES += core/singularitysimplifier.cpp
+HEADERS += core/singularitysimplifier.h
+HEADERS += core/include/AutoRemesher/SingularitySimplifier
+SOURCES += core/constrainedleastsquares.cpp
+HEADERS += core/constrainedleastsquares.h
+HEADERS += core/include/AutoRemesher/ConstrainedLeastSquares
+SOURCES += core/mixedintegerleastsquares.cpp
+HEADERS += core/mixedintegerleastsquares.h
+HEADERS += core/include/AutoRemesher/MixedIntegerLeastSquares
+SOURCES += core/framefield.cpp
+HEADERS += core/framefield.h
+HEADERS += core/include/AutoRemesher/FrameField
+SOURCES += core/quadparameterizer.cpp
+HEADERS += core/quadparameterizer.h
+HEADERS += core/include/AutoRemesher/QuadParameterizer
 
 
-SOURCES += src/AutoRemesher/positionkey.cpp
-HEADERS += src/AutoRemesher/positionkey.h
+SOURCES += core/quadextractor.cpp
+HEADERS += core/quadextractor.h
 
-SOURCES += src/AutoRemesher/meshseparator.cpp
-HEADERS += src/AutoRemesher/meshseparator.h
+
+SOURCES += core/positionkey.cpp
+HEADERS += core/positionkey.h
+
+SOURCES += core/meshseparator.cpp
+HEADERS += core/meshseparator.h
 
 unix {
     LIBS += -lz

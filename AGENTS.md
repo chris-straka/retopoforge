@@ -31,8 +31,10 @@ tracks the original repo for merging future fixes.
 
 ## Layout
 
-- `src/AutoRemesher/` + `thirdparty/{isotropicremesher,meshoptimizer}`
-  + `include/` = Qt-free core, built as `retopo_core`.
+- `core/` = Qt-free engine, built as `retopo_core` (`core/include/`
+  holds the public `<AutoRemesher/...>` forwarding headers).
 - `cli/` = Qt-free CLI. `bench/` = harness (models/results gitignored,
   `baseline.json` committed).
-- Top-level `src/*.cpp`, `shaders/`, `resources/` = Qt GUI shell.
+- `app/` = Qt GUI shell (sources, `shaders/`, `resources/`, `resources.qrc`).
+- `thirdparty/` = vendored deps (Eigen, TBB, meshoptimizer,
+  isotropicremesher, tinyobjloader, QtAwesome, QtWaitingSpinner).

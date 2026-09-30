@@ -12,18 +12,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # --- Core static library (Qt-free) ---
 # Source list mirrors autoremesher.pro minus the Qt GUI shell.
 set(CORE_SOURCES
-    src/AutoRemesher/autoremesher.cpp
-    src/AutoRemesher/isotropicremesher.cpp
-    src/AutoRemesher/parameterizer.cpp
-    src/AutoRemesher/surfacemesh.cpp
-    src/AutoRemesher/singularitysimplifier.cpp
-    src/AutoRemesher/constrainedleastsquares.cpp
-    src/AutoRemesher/mixedintegerleastsquares.cpp
-    src/AutoRemesher/framefield.cpp
-    src/AutoRemesher/quadparameterizer.cpp
-    src/AutoRemesher/quadextractor.cpp
-    src/AutoRemesher/positionkey.cpp
-    src/AutoRemesher/meshseparator.cpp
+    core/autoremesher.cpp
+    core/isotropicremesher.cpp
+    core/parameterizer.cpp
+    core/surfacemesh.cpp
+    core/singularitysimplifier.cpp
+    core/constrainedleastsquares.cpp
+    core/mixedintegerleastsquares.cpp
+    core/framefield.cpp
+    core/quadparameterizer.cpp
+    core/quadextractor.cpp
+    core/positionkey.cpp
+    core/meshseparator.cpp
     thirdparty/isotropicremesher/isotropicremesher.cpp
     thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
     thirdparty/isotropicremesher/axisalignedboundingboxtree.cpp
@@ -34,7 +34,7 @@ set(CORE_SOURCES
 add_library(retopo_core STATIC ${CORE_SOURCES})
 
 target_include_directories(retopo_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/include
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/eigen
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/isotropicremesher
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/meshoptimizer/src

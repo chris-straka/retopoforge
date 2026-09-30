@@ -12,7 +12,7 @@ third-party software. Full license texts live next to each dependency under
 | Eigen | MPL 2.0 (some files BSD/MPL2-compatible) | Header-only linear algebra | `thirdparty/eigen/COPYING.*` |
 | oneTBB | Apache-2.0 | Linked (system install, or `thirdparty/tbb` on Windows MSVC) | `thirdparty/tbb/LICENSE` |
 | meshoptimizer | MIT | `simplifier.cpp`, `indexgenerator.cpp` compiled in | `thirdparty/meshoptimizer/LICENSE.md` |
-| tinyobjloader | MIT | Header-only OBJ loader | `src/tiny_obj_loader.h` |
+| tinyobjloader | MIT | Header-only OBJ loader | `thirdparty/tinyobjloader/tiny_obj_loader.h` |
 | isotropicremesher | MIT (Jeremy HU) | Compiled in | `thirdparty/isotropicremesher/LICENSE` |
 | zlib | zlib license | Linked on Unix | system / `ACKNOWLEDGEMENTS.html` |
 | Apple Accelerate | System framework (macOS only) | BLAS/LAPACK via `Eigen/AccelerateSupport` | system |
