@@ -1,22 +1,76 @@
 # retopoforge TODO / Roadmap
 
-Owner context: solo-dev Godot game. The main workflow is AI image-to-3D
-meshes (messy, dense, often non-indexed soup) remeshed into clean quad
-game characters. Optimize for organic quality and robustness on nasty
-inputs over hard-surface features. The owner's game assets must never be
-committed to this repo — not even file names or paths in tracked files.
+Owner context: solo-dev action game in a Twilight-Princess-like stylized
+look, shipping on desktop and mobile. Asset pipeline is AI image-to-3D
+generation (dense textured triangle soup, often messy: holes,
+non-manifold spots, unwelded verts, no rig) remeshed into clean
+quad-dominant game characters and props, textured and rigged downstream
+in Blender/Godot. Optimize for organic quality and robustness on nasty
+AI inputs over hard-surface features.
+Platform strategy: ONE LOD chain per asset; desktop and mobile pick
+different rungs (mobile clamps to lower rungs / tighter screen-size
+thresholds). Never author separate per-platform models.
+The owner's game assets must never be committed to this repo — not even
+file names or paths in tracked files. Local test corpus lives in the
+game project next door; refer to it only as "the owner's AI corpus".
 
-Ordered by priority: Blender-first workflow, Exoside-beating last.
+Ordered by owner value: game pipeline first, Exoside-beating last.
 Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
 must report no regressions with identical counts, and new code adds zero
 new warnings.
 
-## In flight
+## Game-asset pipeline (owner's core loop)
 
-- [ ] Idioms wave (`retopo-idioms`): solvers + mesh + shell modernization
-      lanes and the unit-test lane; coordinator verifies each branch and
-      joins to `main`
-- [ ] Blender addon v1 scaffold (between lane reports)
+- [ ] Target-count accuracy: `--target-quads` currently undershoots badly
+      (10k asked, ~4.3k produced on the owner's corpus). Characterize the
+      mapping first (guidance vs bug), then fix the engine or document
+      the real contract. Mobile budgets are exact — this is the top
+      engine issue, and Exoside's count is approximate too, so exact
+      counts would be a genuine edge, not catch-up.
+- [ ] Weld-on-load in the CLI: AI exporters emit non-indexed triangle
+      soup; unwelded input exploded into thousands of islands in testing
+      (meshopt remap in the loader, drop degenerate tris)
+- [ ] `--quiet` CLI flag: progress spam hit 1.7 MB of stdout on the soup
+      input; throttle or silence per-island stage reports
+- [ ] Loud island-failure accounting: failed islands vanish from the
+      output with exit 0 (report failed-island count; decide fallback
+      output)
+- [ ] Batch mode: remesh a whole asset folder in one CLI invocation
+      (one LOD chain per file; per-file report)
+- [ ] Robustness pass over the owner's AI corpus (holes proven OK;
+      still to probe: non-manifold soup, floating parts, multi-component
+      meshes, 1M-tri scale perf). Record results as local-only notes,
+      never asset names in tracked files.
+
+## LOD chains (desktop + mobile from one chain)
+
+- [ ] Multi-resolution output: one run emits the full chain
+      (CLI `--lods` and/or Blender one-click "Generate LODs"). Until
+      then the workaround is N manual runs at N targets.
+- [ ] Document the rung strategy: which chain rungs serve desktop vs
+      mobile, triangle budgets per rung for hero/prop/environment
+      assets, and how Godot's import-time auto-LOD interacts with
+      hand-authored chains.
+
+## Texturing (AI output is textured; ours is bare)
+
+- [ ] (future) Emit remeshed UVs from the internal parameterization so
+      game assets can be textured without a second auto-UV pass
+      (Exoside's UV behavior is undocumented — possible leapfrog)
+- [ ] Blender bake assist: automate the standard high→low bake
+      (import high-poly source + remeshed low, Smart UV Project the low,
+      bake diffuse/normal from high) as a one-click addon step
+- [ ] GLB input (and ideally output) for the CLI to cut the manual
+      GLB→OBJ conversion out of the loop
+
+## Character quality (engine work that serves the game)
+
+- [ ] Symmetry constraints (characters are the main subject)
+- [ ] Sharp / feature constraints end-to-end (weapons and hard-surface
+      props need crisp edges; Blender sharp-edge marks as constraints
+      needs a CLI `--features` input flag first)
+- [ ] Local density control (face/hands detail without blowing the
+      total budget)
 
 ## Blender addon (the workflow goal)
 
@@ -35,8 +89,6 @@ new warnings.
 - [x] Honest UV / vertex-color data-loss notice in the UI
 - [ ] Zip install path verified (`package_install_files`); user-facing
       release packaging (signed zip? extensions.blender.org listing?)
-- [ ] (future) Blender sharp-edge marks as feature constraints — needs a
-      CLI `--features` input flag first (engine change)
 
 ## App phase 2: Qt shell headers to modules
 
@@ -53,30 +105,19 @@ new warnings.
       `thirdparty/QtAwesome`, `SpinnableAwesomeButton`, and the
       `Theme::initAwesome*` helpers.
 
-## C++ follow-ups (after the idioms join)
+## C++ follow-ups
 
 - [ ] API-shape modernization, solo (cross-file, not lane-safe):
       `string_view` params, `std::span`, `std::expected` returns
-- [ ] Expand `tests/`: solver golden tests, CLI round-trip tests;
-      wire `ctest` into CI
+- [x] Expand `tests/`: solver golden tests, CLI round-trip tests;
+      wire `ctest` into CI (CLI round-trip + SurfaceMesh tests done,
+      CI wired; solver goldens still open — see below)
+- [ ] Solver golden tests (engine behavior pins beyond counts)
 - [x] Binary rename `autoremesher` → `retopoforge` (binaries, bundle, docs)
 - [x] Upstream watch: Sept-2026 Kwizatz PRs evaluated — all already
       present (fork contains upstream/master tip 3cb2012c): #56 dense
       face map, #57 success flag, #58 input validation, #59 Qt6/MinGW,
       #60 unique_ptr. No ports needed.
-      by our tree
-
-## Game-asset workflow (owner's main use case)
-
-- [ ] Weld-on-load in the CLI: AI exporters emit non-indexed triangle soup;
-      unwelded input exploded into thousands of islands in testing (meshopt
-      remap in the loader, drop degenerate tris)
-- [ ] `--quiet` CLI flag: progress spam hit 1.7 MB of stdout on the soup
-      input; throttle or silence per-island stage reports
-- [ ] Loud island-failure accounting: failed islands vanish from the output
-      with exit 0 (report failed-island count; decide fallback output)
-- [ ] (future) Emit remeshed UVs from the internal parameterization so game
-      assets can be textured without a second auto-UV pass
 
 ## Quality / release
 
@@ -88,7 +129,12 @@ new warnings.
 
 ## Exoside parity (last)
 
-- [ ] Feature comparison pass vs Exoside (the $100 benchmark)
-- [ ] Sharp / feature constraints end-to-end
-- [ ] Perf: profile the CLI on production-size meshes, check TBB scaling
+- [x] Feature comparison pass vs Exoside (the $100 benchmark —
+      `docs/exoside-gap.md`, cited, UNVERIFIED marks where needed)
+- [ ] Guide system phase 1 (their headline differentiator; L–XL)
+- [ ] Density painting (0.25x–4x local density)
+- [ ] Perf at scale: profile the CLI on production-size meshes, check
+      TBB scaling, measured black-box comparison vs QR (EULA-aware:
+      their outputs stay out of the repo and out of training data)
 - [ ] UX polish in the addon and the app
+- [ ] DCC breadth (other hosts) — last of last
