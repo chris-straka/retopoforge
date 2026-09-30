@@ -37,6 +37,7 @@ import retopo.core.vector3;
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #define RETOPO_VERSION "0.1.0"
@@ -87,7 +88,7 @@ static bool takeValue(int argc, char** argv, int& i, const char* flag, std::stri
         return true;
     }
     if (i + 1 >= argc) {
-        std::cerr << "Error: " << flag << " requires a value" << std::endl;
+        std::cerr << "Error: " << flag << " requires a value" << '\n';
         return false;
     }
     *out = argv[++i];
@@ -99,7 +100,7 @@ static bool parseDouble(const std::string& text, const char* flag, double* out)
     char* end = nullptr;
     double value = strtod(text.c_str(), &end);
     if (nullptr == end || '\0' != *end) {
-        std::cerr << "Error: " << flag << " expects a number, got '" << text << "'" << std::endl;
+        std::cerr << "Error: " << flag << " expects a number, got '" << text << "'" << '\n';
         return false;
     }
     *out = value;
@@ -111,23 +112,24 @@ static bool parseInt(const std::string& text, const char* flag, int* out)
     char* end = nullptr;
     long value = strtol(text.c_str(), &end, 10);
     if (nullptr == end || '\0' != *end || value < 0) {
-        std::cerr << "Error: " << flag << " expects a non-negative integer, got '" << text << "'" << std::endl;
+        std::cerr << "Error: " << flag << " expects a non-negative integer, got '" << text << "'" << '\n';
         return false;
     }
-    *out = (int)value;
+    *out = static_cast<int>(value);
     return true;
 }
 
 static bool matches(const char* arg, const char* longFlag, char shortFlag)
 {
-    if (0 == shortFlag)
-        return 0 == strncmp(arg, longFlag, strlen(longFlag))
-            && (arg[strlen(longFlag)] == '\0' || arg[strlen(longFlag)] == '=');
-    char shortOpt[3] = { '-', shortFlag, '\0' };
-    if (0 == strcmp(arg, shortOpt))
-        return true;
-    return 0 == strncmp(arg, longFlag, strlen(longFlag))
-        && (arg[strlen(longFlag)] == '\0' || arg[strlen(longFlag)] == '=');
+    if (0 != shortFlag) {
+        char shortOpt[3] = { '-', shortFlag, '\0' };
+        if (0 == strcmp(arg, shortOpt))
+            return true;
+    }
+    const std::string_view view(arg);
+    const std::string_view flag(longFlag);
+    return view.starts_with(flag)
+        && (view.size() == flag.size() || view[flag.size()] == '=');
 }
 
 static bool parseArgs(int argc, char** argv, Params* params)
@@ -139,7 +141,7 @@ static bool parseArgs(int argc, char** argv, Params* params)
             printUsage(argv[0]);
             exit(0);
         } else if (matches(arg, "--version", 'v')) {
-            std::cout << "retopoforge " << RETOPO_VERSION << std::endl;
+            std::cout << "retopoforge " << RETOPO_VERSION << '\n';
             exit(0);
         } else if (matches(arg, "--input", 'i')) {
             if (!takeValue(argc, argv, i, "--input", &value))
@@ -191,17 +193,17 @@ static bool parseArgs(int argc, char** argv, Params* params)
             else if (value == "hardsurface" || value == "hard-surface" || value == "hard_surface")
                 params->modelType = AutoRemesher::ModelType::HardSurface;
             else {
-                std::cerr << "Error: --model-type expects 'organic' or 'hardsurface', got '" << value << "'" << std::endl;
+                std::cerr << "Error: --model-type expects 'organic' or 'hardsurface', got '" << value << "'" << '\n';
                 return false;
             }
         } else {
-            std::cerr << "Error: unknown option '" << arg << "'" << std::endl;
+            std::cerr << "Error: unknown option '" << arg << "'" << '\n';
             printUsage(argv[0]);
             return false;
         }
     }
     if (params->inputPath.empty() || params->outputPath.empty()) {
-        std::cerr << "Error: --input and --output are required" << std::endl;
+        std::cerr << "Error: --input and --output are required" << '\n';
         printUsage(argv[0]);
         return false;
     }
@@ -215,8 +217,8 @@ struct ProgressState {
 
 static void reportProgress(void* tag, float progress, const char* status)
 {
-    ProgressState* state = (ProgressState*)tag;
-    int percent = (int)(progress * 100);
+    ProgressState* state = static_cast<ProgressState*>(tag);
+    int percent = static_cast<int>(progress * 100);
     std::string statusText = (nullptr != status ? status : "");
     // Reprint on a new step as well as a new percent: several steps are shorter
     // than one percent of the run and would otherwise never be named.
@@ -243,9 +245,9 @@ static bool loadObj(const std::string& filename,
     // is a triangle.
     bool loadSuccess = AutoRemesher::loadObjPositionsAndTriangles(filename.c_str(), &positions, &loadedTriangles, &warn, &err);
     if (!warn.empty())
-        std::cerr << "WARN: " << warn << std::endl;
+        std::cerr << "WARN: " << warn << '\n';
     if (!err.empty())
-        std::cerr << err << std::endl;
+        std::cerr << err << '\n';
     if (!loadSuccess)
         return false;
 
@@ -293,15 +295,15 @@ int main(int argc, char** argv)
     std::vector<AutoRemesher::Vector3> vertices;
     std::vector<std::vector<size_t>> triangles;
     if (!loadObj(params.inputPath, &vertices, &triangles)) {
-        std::cerr << "Error: failed to load " << params.inputPath << std::endl;
+        std::cerr << "Error: failed to load " << params.inputPath << '\n';
         return 1;
     }
     std::cerr << "Loaded " << vertices.size() << " vertices, "
-              << triangles.size() << " triangles" << std::endl;
+              << triangles.size() << " triangles" << '\n';
 
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
-    remesher.setTargetTriangleCount((size_t)params.targetQuads * 2);
+    remesher.setTargetTriangleCount(static_cast<size_t>(params.targetQuads) * 2);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);
@@ -314,12 +316,12 @@ int main(int argc, char** argv)
     remesher.setProgressHandler(reportProgress);
 
     if (!remesher.remesh()) {
-        std::cerr << "Error: remeshing produced no result" << std::endl;
+        std::cerr << "Error: remeshing produced no result" << '\n';
         return 1;
     }
 
     for (const auto& line : remesher.phaseReport())
-        std::cerr << "  " << line << std::endl;
+        std::cerr << "  " << line << '\n';
 
     const auto& remeshedVertices = remesher.remeshedVertices();
     const auto& remeshedQuads = remesher.remeshedQuads();
@@ -334,26 +336,26 @@ int main(int argc, char** argv)
     }
 
     if (!saveObj(params.outputPath, remeshedVertices, remeshedQuads)) {
-        std::cerr << "Error: failed to write " << params.outputPath << std::endl;
+        std::cerr << "Error: failed to write " << params.outputPath << '\n';
         return 1;
     }
 
     auto endTime = std::chrono::steady_clock::now();
     double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
 
-    std::cout << "=== retopoforge Report ===" << std::endl;
-    std::cout << "Input: " << params.inputPath << std::endl;
-    std::cout << "Output: " << params.outputPath << std::endl;
-    std::cout << "Quads: " << quadCount << std::endl;
-    std::cout << "Non-quads: " << nonQuadCount << std::endl;
-    std::cout << "Vertices: " << remeshedVertices.size() << std::endl;
-    std::cout << "Time: " << elapsedSeconds << " seconds" << std::endl;
-    std::cout << "==========================" << std::endl;
+    std::cout << "=== retopoforge Report ===" << '\n';
+    std::cout << "Input: " << params.inputPath << '\n';
+    std::cout << "Output: " << params.outputPath << '\n';
+    std::cout << "Quads: " << quadCount << '\n';
+    std::cout << "Non-quads: " << nonQuadCount << '\n';
+    std::cout << "Vertices: " << remeshedVertices.size() << '\n';
+    std::cout << "Time: " << elapsedSeconds << " seconds" << '\n';
+    std::cout << "==========================" << '\n';
 
     if (!params.reportPath.empty()) {
         std::ofstream report(params.reportPath.c_str(), std::ios::out | std::ios::trunc);
         if (!report.is_open()) {
-            std::cerr << "Error: failed to write " << params.reportPath << std::endl;
+            std::cerr << "Error: failed to write " << params.reportPath << '\n';
             return 1;
         }
         report << "retopoforge Report\n";
@@ -374,7 +376,7 @@ int main(int argc, char** argv)
         report << "  Total time: " << elapsedSeconds << " seconds\n";
         report.close();
         if (report.fail()) {
-            std::cerr << "Error: failed to write " << params.reportPath << std::endl;
+            std::cerr << "Error: failed to write " << params.reportPath << '\n';
             return 1;
         }
     }

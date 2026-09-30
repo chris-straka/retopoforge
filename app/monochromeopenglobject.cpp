@@ -51,7 +51,7 @@ void MonochromeOpenGLObject::copyMeshToOpenGL()
         m_buffer.create();
         m_buffer.bind();
         if (!allocateOpenGLBuffer(m_buffer, m_vertices.get(),
-                (size_t)m_meshVertexCount * sizeof(MonochromeOpenGLVertex))) {
+                static_cast<size_t>(m_meshVertexCount) * sizeof(MonochromeOpenGLVertex))) {
             m_meshVertexCount = 0;
             m_meshIndexCount = 0;
             return;
@@ -72,7 +72,7 @@ void MonochromeOpenGLObject::copyMeshToOpenGL()
             m_indexBuffer.create();
             m_indexBuffer.bind();
             if (!allocateOpenGLBuffer(m_indexBuffer, m_indices.get(),
-                    (size_t)m_meshIndexCount * sizeof(uint32_t))) {
+                    static_cast<size_t>(m_meshIndexCount) * sizeof(uint32_t))) {
                 m_meshVertexCount = 0;
                 m_meshIndexCount = 0;
             }

@@ -10,7 +10,7 @@ static const QString& loadShaderSource(const QString& name)
     if (findShader != s_shaderSources.end())
         return findShader->second;
     QFile file(name);
-    file.open(QFile::ReadOnly | QFile::Text);
+    (void)file.open(QFile::ReadOnly | QFile::Text);
     QTextStream stream(&file);
     auto insertResult = s_shaderSources.insert({ name, stream.readAll() });
     return insertResult.first->second;

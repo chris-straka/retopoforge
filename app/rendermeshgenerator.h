@@ -25,31 +25,25 @@
 import retopo.core.vector3;
 #include <QObject>
 #include <cstdint>
+#include <memory>
 
 class RenderMeshGenerator : public QObject {
     Q_OBJECT
 public:
     RenderMeshGenerator(const std::vector<AutoRemesher::Vector3>& vertices,
         const std::vector<std::vector<size_t>>& faces)
-        : m_vertices(new std::vector<AutoRemesher::Vector3>(vertices))
-        , m_faces(new std::vector<std::vector<size_t>>(faces))
+        : m_vertices(std::make_unique<std::vector<AutoRemesher::Vector3>>(vertices))
+        , m_faces(std::make_unique<std::vector<std::vector<size_t>>>(faces))
     {
     }
 
-    ~RenderMeshGenerator()
-    {
-        delete m_renderMesh;
-        // generate() releases these as soon as it is done with them, so this
-        // only covers the paths that bail out early
-        delete m_vertices;
-        delete m_faces;
-    }
+    // generate() releases the working copies as soon as it is done with them,
+    // so the members below only cover the paths that bail out early
+    ~RenderMeshGenerator() = default;
 
     ModelShaderMesh* takeRenderMesh()
     {
-        ModelShaderMesh* renderMesh = m_renderMesh;
-        m_renderMesh = nullptr;
-        return renderMesh;
+        return m_renderMesh.release();
     }
 
     void generate();
@@ -60,9 +54,9 @@ public slots:
     void process();
 
 private:
-    std::vector<AutoRemesher::Vector3>* m_vertices = nullptr;
-    std::vector<std::vector<size_t>>* m_faces = nullptr;
-    ModelShaderMesh* m_renderMesh = nullptr;
+    std::unique_ptr<std::vector<AutoRemesher::Vector3>> m_vertices;
+    std::unique_ptr<std::vector<std::vector<size_t>>> m_faces;
+    std::unique_ptr<ModelShaderMesh> m_renderMesh;
 
     void normalizeVertices();
     static void calculateNormalizedFactors(const std::vector<AutoRemesher::Vector3>& vertices,

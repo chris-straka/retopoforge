@@ -43,7 +43,7 @@ FloatNumberWidget::FloatNumberWidget(QWidget* parent, bool singleLine)
     m_label->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
     m_label->setAlignment(Qt::AlignLeft);
 
-    connect(m_slider, &QAbstractSlider::valueChanged, [=](int value) {
+    connect(m_slider, &QAbstractSlider::valueChanged, [this](int value) {
         if (m_syncing)
             return;
         float fvalue = value / 100.0;
@@ -51,13 +51,13 @@ FloatNumberWidget::FloatNumberWidget(QWidget* parent, bool singleLine)
         emit valueChanged(fvalue);
     });
 
-    connect(m_spinBox, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged), [=](double value) {
+    connect(m_spinBox, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged), [this](double value) {
         if (m_syncing)
             return;
         m_syncing = true;
         m_slider->setValue(std::round(value * 100.0));
         m_syncing = false;
-        emit valueChanged((float)value);
+        emit valueChanged(static_cast<float>(value));
     });
 
     QBoxLayout* layout = nullptr;

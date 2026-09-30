@@ -94,8 +94,7 @@ void RenderMeshGenerator::generate()
     const size_t sourceVertexCount = m_vertices->size();
     if (sourceVertexCount > std::numeric_limits<uint32_t>::max()) {
         qWarning() << "Model has too many vertices to index:" << sourceVertexCount;
-        delete m_renderMesh;
-        m_renderMesh = new ModelShaderMesh;
+        m_renderMesh = std::make_unique<ModelShaderMesh>();
         return;
     }
 
@@ -134,23 +133,22 @@ void RenderMeshGenerator::generate()
     const size_t maxIndexCount = std::numeric_limits<int>::max() / sizeof(uint32_t);
     if (triangleIndexCount > maxIndexCount || edgeIndexCount > maxIndexCount) {
         qWarning() << "Model has too many faces to render:" << m_faces->size();
-        delete m_renderMesh;
-        m_renderMesh = new ModelShaderMesh;
+        m_renderMesh = std::make_unique<ModelShaderMesh>();
         return;
     }
 
-    ModelShaderVertex* triangleVertices = new ModelShaderVertex[sourceVertexCount];
-    memset(triangleVertices, 0, sizeof(ModelShaderVertex) * sourceVertexCount);
+    auto triangleVertices = std::make_unique<ModelShaderVertex[]>(sourceVertexCount);
+    memset(triangleVertices.get(), 0, sizeof(ModelShaderVertex) * sourceVertexCount);
     for (size_t i = 0; i < sourceVertexCount; ++i) {
         auto& v = triangleVertices[i];
         const auto& src = (*m_vertices)[i];
         const auto& normal = vertexNormals[i];
-        v.posX = (float)src.x();
-        v.posY = (float)src.y();
-        v.posZ = (float)src.z();
-        v.normX = (float)normal.x();
-        v.normY = (float)normal.y();
-        v.normZ = (float)normal.z();
+        v.posX = static_cast<float>(src.x());
+        v.posY = static_cast<float>(src.y());
+        v.posZ = static_cast<float>(src.z());
+        v.normX = static_cast<float>(normal.x());
+        v.normY = static_cast<float>(normal.y());
+        v.normZ = static_cast<float>(normal.z());
         v.colorR = 1.0f;
         v.colorG = 0.996f;
         v.colorB = 0.890f;
@@ -158,7 +156,7 @@ void RenderMeshGenerator::generate()
         v.alpha = 1.0f;
     }
 
-    uint32_t* triangleIndices = new uint32_t[triangleIndexCount];
+    auto triangleIndices = std::make_unique<uint32_t[]>(triangleIndexCount);
     size_t triangleIndexOffset = 0;
     // Undirected edges packed as (low << 32) | high, so shared edges collapse to
     // one key and the wireframe draws each edge once instead of once per face
@@ -167,41 +165,38 @@ void RenderMeshGenerator::generate()
     for (const auto& sourceFace : *m_faces) {
         if (sourceFace.size() < 3)
             continue;
-        const uint32_t first = (uint32_t)sourceFace[0];
+        const uint32_t first = static_cast<uint32_t>(sourceFace[0]);
         for (size_t j = 1; j + 1 < sourceFace.size(); ++j) {
             triangleIndices[triangleIndexOffset++] = first;
-            triangleIndices[triangleIndexOffset++] = (uint32_t)sourceFace[j];
-            triangleIndices[triangleIndexOffset++] = (uint32_t)sourceFace[j + 1];
+            triangleIndices[triangleIndexOffset++] = static_cast<uint32_t>(sourceFace[j]);
+            triangleIndices[triangleIndexOffset++] = static_cast<uint32_t>(sourceFace[j + 1]);
         }
         for (size_t j = 0; j < sourceFace.size(); ++j) {
-            const uint32_t from = (uint32_t)sourceFace[j];
-            const uint32_t to = (uint32_t)sourceFace[(j + 1) % sourceFace.size()];
+            const uint32_t from = static_cast<uint32_t>(sourceFace[j]);
+            const uint32_t to = static_cast<uint32_t>(sourceFace[(j + 1) % sourceFace.size()]);
             if (from == to)
                 continue;
             edgeKeys.push_back(from < to
-                    ? ((uint64_t)from << 32) | to
-                    : ((uint64_t)to << 32) | from);
+                    ? (static_cast<uint64_t>(from) << 32) | to
+                    : (static_cast<uint64_t>(to) << 32) | from);
         }
     }
     std::sort(edgeKeys.begin(), edgeKeys.end());
     edgeKeys.erase(std::unique(edgeKeys.begin(), edgeKeys.end()), edgeKeys.end());
 
-    uint32_t* edgeIndices = new uint32_t[edgeKeys.size() * 2];
+    auto edgeIndices = std::make_unique<uint32_t[]>(edgeKeys.size() * 2);
     size_t edgeIndexOffset = 0;
     for (const auto& key : edgeKeys) {
-        edgeIndices[edgeIndexOffset++] = (uint32_t)(key >> 32);
-        edgeIndices[edgeIndexOffset++] = (uint32_t)(key & 0xffffffff);
+        edgeIndices[edgeIndexOffset++] = static_cast<uint32_t>(key >> 32);
+        edgeIndices[edgeIndexOffset++] = static_cast<uint32_t>(key & 0xffffffff);
     }
 
-    delete m_renderMesh;
-    m_renderMesh = new ModelShaderMesh(triangleVertices, (int)sourceVertexCount, nullptr, 0,
-        m_vertices, m_faces);
-    m_renderMesh->updateTriangleIndices(triangleIndices, (int)triangleIndexOffset);
-    m_renderMesh->updateEdgeIndices(edgeIndices, (int)edgeIndexOffset);
+    m_renderMesh = std::make_unique<ModelShaderMesh>(triangleVertices.release(), static_cast<int>(sourceVertexCount), nullptr, 0,
+        m_vertices.get(), m_faces.get());
+    m_renderMesh->updateTriangleIndices(triangleIndices.release(), static_cast<int>(triangleIndexOffset));
+    m_renderMesh->updateEdgeIndices(edgeIndices.release(), static_cast<int>(edgeIndexOffset));
 
     // ModelShaderMesh copies these, so the working copies are ours to release
-    delete m_vertices;
-    m_vertices = nullptr;
-    delete m_faces;
-    m_faces = nullptr;
+    m_vertices.reset();
+    m_faces.reset();
 }

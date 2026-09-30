@@ -75,18 +75,18 @@ import retopo.core.quad_extractor;
 namespace AutoRemesher {
 
 namespace {
-    const float parallelPhaseBegin = 0.03f;
-    const float parallelPhaseEnd = 0.95f;
+    constexpr float parallelPhaseBegin = 0.03f;
+    constexpr float parallelPhaseEnd = 0.95f;
 
     // How an island's own 0..1 progress splits across its three stages, from the
     // measured cost of each on a typical model.  The phase report prints the
     // real accumulated times, so these can be re-checked against a run.
-    const float islandResampleEnd = 0.17f;
-    const float islandParameterizeEnd = 0.50f;
+    constexpr float islandResampleEnd = 0.17f;
+    constexpr float islandParameterizeEnd = 0.50f;
     // Quad extraction runs from islandParameterizeEnd to 1.0.
 
-    const double decimateTriggerRatio = 8.0;
-    const double decimateTargetRatio = 4.0;
+    constexpr double decimateTriggerRatio = 8.0;
+    constexpr double decimateTargetRatio = 4.0;
 
     void markSharpEdgeVertices(const std::vector<Vector3>& vertices,
         const std::vector<unsigned int>& indices,
@@ -114,7 +114,7 @@ namespace {
                         unsigned int second = indices[i * 3 + (j + 1) % 3];
                         if (first > second)
                             std::swap(first, second);
-                        edges[i * 3 + j] = { ((uint64_t)first << 32) | second, (unsigned int)i };
+                        edges[i * 3 + j] = { (static_cast<uint64_t>(first) << 32) | second, static_cast<unsigned int>(i) };
                     }
                 }
             });
@@ -129,8 +129,8 @@ namespace {
                     faceNormals[edges[i + 1].second])
                 < sharpEdgeRadians)
                 continue;
-            vertexLock[(size_t)(edges[i].first >> 32)] |= meshopt_SimplifyVertex_Priority;
-            vertexLock[(size_t)(edges[i].first & 0xffffffffu)] |= meshopt_SimplifyVertex_Priority;
+            vertexLock[static_cast<size_t>(edges[i].first >> 32)] |= meshopt_SimplifyVertex_Priority;
+            vertexLock[static_cast<size_t>(edges[i].first & 0xffffffffu)] |= meshopt_SimplifyVertex_Priority;
         }
     }
 }
@@ -160,7 +160,7 @@ void AutoRemesher::initializeVoxelSize()
     double triangleArea = area / m_targetTriangleCount;
     m_voxelSize = std::sqrt(triangleArea / (0.86602540378 * 0.5));
 #if AUTO_REMESHER_DEBUG
-    std::cerr << "Area: " << area << " voxelSize: " << m_voxelSize << std::endl;
+    std::cerr << "Area: " << area << " voxelSize: " << m_voxelSize << '\n';
 #endif
 }
 
@@ -187,7 +187,7 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     if (vertices.empty() || triangles.empty() || voxelSize <= 0.0)
         return false;
 
-    if (vertices.size() > (size_t)std::numeric_limits<unsigned int>::max())
+    if (vertices.size() > static_cast<size_t>(std::numeric_limits<unsigned int>::max()))
         return false;
 
     const double targetTriangleArea = voxelSize * voxelSize * 0.86602540378 * 0.5;
@@ -197,18 +197,18 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     if (islandTargetTriangleCount < 1.0)
         return false;
 
-    if ((double)triangles.size() < islandTargetTriangleCount * decimateTriggerRatio)
+    if (static_cast<double>(triangles.size()) < islandTargetTriangleCount * decimateTriggerRatio)
         return false;
 
-    const size_t decimateTriangleCount = (size_t)(islandTargetTriangleCount * decimateTargetRatio);
+    const size_t decimateTriangleCount = static_cast<size_t>(islandTargetTriangleCount * decimateTargetRatio);
 
     std::vector<unsigned int> indices;
     indices.reserve(triangles.size() * 3);
     for (const auto& triangle : triangles) {
         if (3 != triangle.size())
             return false;
-        for (size_t i = 0; i < 3; ++i)
-            indices.push_back((unsigned int)triangle[i]);
+        for (const size_t corner : triangle)
+            indices.push_back(static_cast<unsigned int>(corner));
     }
 
     Vector3 lowerBound = vertices.front();
@@ -224,9 +224,9 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     std::vector<float> positions;
     positions.reserve(vertices.size() * 3);
     for (const auto& position : vertices) {
-        positions.push_back((float)(position.x() - center.x()));
-        positions.push_back((float)(position.y() - center.y()));
-        positions.push_back((float)(position.z() - center.z()));
+        positions.push_back(static_cast<float>(position.x() - center.x()));
+        positions.push_back(static_cast<float>(position.y() - center.y()));
+        positions.push_back(static_cast<float>(position.z() - center.z()));
     }
 
     std::vector<unsigned int> remap(vertices.size());
@@ -289,8 +289,8 @@ bool AutoRemesher::decimateIfTooDense(std::vector<Vector3>& vertices,
     std::cerr << "Island[" << islandIndex << "]: Decimated " << triangles.size()
               << " triangles to " << decimatedTriangles.size()
               << " (target " << decimateTriangleCount
-              << ", island target " << (size_t)islandTargetTriangleCount
-              << "), normalized error: " << resultError << std::endl;
+              << ", island target " << static_cast<size_t>(islandTargetTriangleCount)
+              << "), normalized error: " << resultError << '\n';
 #else
     (void)islandIndex;
     (void)resultError;
@@ -456,7 +456,7 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
     }
 
 #if AUTO_REMESHER_DEBUG
-    std::cerr << "Island[" << islandIndex << "]: Uniformly remeshing on target edge length: " << voxelSize << std::endl;
+    std::cerr << "Island[" << islandIndex << "]: Uniformly remeshing on target edge length: " << voxelSize << '\n';
 #endif
     IsotropicRemesher isotropicRemesher(vertices, triangles);
     if (nullptr != progressHandler && *progressHandler)
@@ -470,7 +470,7 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
     vertices = isotropicRemesher.remeshedVertices();
     triangles = isotropicRemesher.remeshedTriangles();
 #if AUTO_REMESHER_DEBUG
-    std::cerr << "Island[" << islandIndex << "]: Uniformly remesh done, vertex count: " << vertices.size() << " triangle count: " << triangles.size() << std::endl;
+    std::cerr << "Island[" << islandIndex << "]: Uniformly remesh done, vertex count: " << vertices.size() << " triangle count: " << triangles.size() << '\n';
 #endif
 }
 
@@ -485,7 +485,7 @@ void AutoRemesher::updateProgress(size_t threadIndex, float progress, const char
     if (nullptr != status && '\0' != status[0])
         m_threadStatus[threadIndex] = status;
     if (progress > m_threadProgress[threadIndex]) {
-        m_progressSum += (double)(progress - m_threadProgress[threadIndex])
+        m_progressSum += static_cast<double>(progress - m_threadProgress[threadIndex])
             * m_threadProgressWeights[threadIndex];
         m_threadProgress[threadIndex] = progress;
     }
@@ -495,7 +495,7 @@ void AutoRemesher::updateProgress(size_t threadIndex, float progress, const char
 
     // Steps now report many times per island, so only wake the UI when the bar
     // would actually move or the status line would change.
-    const int permille = (int)(overall * 1000.0);
+    const int permille = static_cast<int>(overall * 1000.0);
     const char* islandStatus = m_threadStatus[threadIndex];
     if (permille == m_reportedPermille && islandStatus == m_reportedStatus)
         return;
@@ -510,14 +510,14 @@ void AutoRemesher::updateProgress(size_t threadIndex, float progress, const char
             slowest = i;
     }
     const char* name = m_threadStatus[slowest];
-    m_progressHandler(m_tag, (float)overall, nullptr != name ? name : "");
+    m_progressHandler(m_tag, static_cast<float>(overall), nullptr != name ? name : "");
 }
 
 ProgressHandler AutoRemesher::makeStageProgress(size_t islandIndex, float begin, float end, float stageOrder)
 {
     return [this, islandIndex, begin, end, stageOrder,
                lastTime = std::chrono::high_resolution_clock::now(),
-               lastName = (const char*)nullptr,
+               lastName = static_cast<const char*>(nullptr),
                lastOrder = 0.0f](float fraction, const char* name) mutable {
         const auto now = std::chrono::high_resolution_clock::now();
         if (nullptr != lastName) {
@@ -557,7 +557,7 @@ bool AutoRemesher::remesh()
     else if (0 == m_targetTriangleCount)
         invalidInputReason = "target triangle count must be greater than zero";
     if (nullptr != invalidInputReason) {
-        std::cerr << "Invalid remesh input: " << invalidInputReason << std::endl;
+        std::cerr << "Invalid remesh input: " << invalidInputReason << '\n';
         if (nullptr != m_progressHandler)
             m_progressHandler(m_tag, 1.0, invalidInputReason);
         return false;
@@ -580,14 +580,14 @@ bool AutoRemesher::remesh()
     auto t_afterSplit = std::chrono::high_resolution_clock::now();
 
     if (trianglesIslands.empty()) {
-        std::cerr << "Input mesh is empty" << std::endl;
+        std::cerr << "Input mesh is empty" << '\n';
         if (nullptr != m_progressHandler)
             m_progressHandler(m_tag, 1.0, "Input mesh is empty");
         return false;
     }
 
 #if AUTO_REMESHER_DEBUG
-    std::cerr << "Split to islands: " << trianglesIslands.size() << std::endl;
+    std::cerr << "Split to islands: " << trianglesIslands.size() << '\n';
 #endif
 
     struct IslandContext {
@@ -646,7 +646,7 @@ bool AutoRemesher::remesh()
         m_threadProgressWeights.assign(islandContexes.size(), 1.0f);
         for (size_t i = 0; i < islandContexes.size(); ++i) {
             if (!m_triangles.empty())
-                m_threadProgressWeights[i] = (float)(((double)islandContexes[i].triangles.size() / m_triangles.size()));
+                m_threadProgressWeights[i] = static_cast<float>(static_cast<double>(islandContexes[i].triangles.size()) / m_triangles.size());
         }
         m_threadProgress.assign(islandContexes.size(), 0.0f);
         m_threadStatus.assign(islandContexes.size(), nullptr);
@@ -823,11 +823,11 @@ bool AutoRemesher::remesh()
                     parameterizeSucceeded = false;
                     std::cerr << "Island " << (thread.islandIndex + 1)
                               << ": parameterization failed (" << e.what()
-                              << "), skipping this island." << std::endl;
+                              << "), skipping this island." << '\n';
                 } catch (...) {
                     parameterizeSucceeded = false;
                     std::cerr << "Island " << (thread.islandIndex + 1)
-                              << ": parameterization failed (unknown error), skipping this island." << std::endl;
+                              << ": parameterization failed (unknown error), skipping this island." << '\n';
                 }
 
                 auto t1 = std::chrono::high_resolution_clock::now();
@@ -885,8 +885,7 @@ bool AutoRemesher::remesh()
     // Merge isotropic UVs from all islands (for [param] preview)
     m_isotropicTriangleUvs.clear();
     m_isotropicOriginalTriangleUvs.clear();
-    for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
+    for (auto& thread : parameterizationThreads) {
         if (thread.capturedUvs.empty())
             continue;
         m_isotropicTriangleUvs.insert(m_isotropicTriangleUvs.end(),
@@ -897,8 +896,7 @@ bool AutoRemesher::remesh()
 
     // Merge singular vertex positions from all islands (for [param] preview)
     m_isotropicSingularVertices.clear();
-    for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
+    for (auto& thread : parameterizationThreads) {
         if (thread.capturedSingularVertices.empty())
             continue;
         m_isotropicSingularVertices.insert(m_isotropicSingularVertices.end(),
@@ -919,8 +917,7 @@ bool AutoRemesher::remesh()
             thread.capturedExtractedConnectionMoved.end());
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
     }
-    for (size_t i = 0; i < parameterizationThreads.size(); ++i) {
-        auto& thread = parameterizationThreads[i];
+    for (auto& thread : parameterizationThreads) {
         if (nullptr == thread.remesher)
             continue;
         const auto& quads = thread.remesher->remeshedQuads();
@@ -969,7 +966,7 @@ bool AutoRemesher::remesh()
             std::ostringstream value;
             value.setf(std::ios::fixed);
             value.precision(1);
-            value << (double)microseconds / 1000.0 << " ms";
+            value << static_cast<double>(microseconds) / 1000.0 << " ms";
             return value.str();
         };
         auto phase = [&](const char* name, long long microseconds) {
@@ -996,7 +993,7 @@ bool AutoRemesher::remesh()
                  << milliseconds(t_decimateUs);
         } else {
             line << "Mesh simplifier: SKIPPED (no island above "
-                 << (long long)decimateTriggerRatio << "x target triangle count), "
+                 << static_cast<long long>(decimateTriggerRatio) << "x target triangle count), "
                  << milliseconds(t_decimateUs);
         }
         m_phaseReport.push_back(line.str());
@@ -1034,7 +1031,7 @@ bool AutoRemesher::remesh()
             line.setf(std::ios::fixed);
             line.precision(2);
             line << "Cores kept busy across the parallel phase: "
-                 << (t_parallelWallUs > 0 ? (double)accumulated / t_parallelWallUs : 0.0)
+                 << (t_parallelWallUs > 0 ? static_cast<double>(accumulated) / t_parallelWallUs : 0.0)
                  << " (islands are the unit of parallelism)";
             m_phaseReport.push_back(line.str());
         }
@@ -1044,10 +1041,10 @@ bool AutoRemesher::remesh()
     }
 
     for (const auto& line : m_phaseReport)
-        std::cerr << line << std::endl;
+        std::cerr << line << '\n';
 
 #if AUTO_REMESHER_DEBUG
-    std::cerr << "Remesh done" << std::endl;
+    std::cerr << "Remesh done" << '\n';
 #endif
 
     if (nullptr != m_progressHandler)

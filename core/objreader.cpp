@@ -251,7 +251,7 @@ bool loadObjPositionsAndTriangles(const char* filename,
     std::ifstream file(filename, std::ios::in | std::ios::binary);
     if (!file.is_open()) {
         std::ostringstream oss;
-        oss << "Cannot open file [" << (filename ? filename : "(null)") << "]" << std::endl;
+        oss << "Cannot open file [" << (filename ? filename : "(null)") << "]" << '\n';
         errString = oss.str();
         if (warn)
             *warn = warnString;

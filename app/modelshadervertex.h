@@ -25,8 +25,7 @@
 
 #pragma pack(push)
 #pragma pack(1)
-typedef struct
-{
+struct ModelShaderVertex {
     GLfloat posX;
     GLfloat posY;
     GLfloat posZ;
@@ -44,7 +43,7 @@ typedef struct
     GLfloat tangentY;
     GLfloat tangentZ;
     GLfloat alpha;
-} ModelShaderVertex;
+};
 #pragma pack(pop)
 
 #endif

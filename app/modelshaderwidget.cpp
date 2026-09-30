@@ -27,6 +27,7 @@
 #include <QSurfaceFormat>
 #include <QVector4D>
 #include <cmath>
+#include <string_view>
 
 // QMouseEvent::globalPos() was removed in Qt 6 in favor of
 // globalPosition().toPoint(). This helper keeps the code building on both
@@ -207,8 +208,8 @@ void ModelShaderWidget::initializeGL()
     }
 
     bool isCoreProfile = false;
-    const char* versionString = (const char*)glGetString(GL_VERSION);
-    if (nullptr != versionString && '\0' != versionString[0] && 0 == strstr(versionString, "Mesa")) {
+    const char* versionString = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    if (nullptr != versionString && '\0' != versionString[0] && !std::string_view(versionString).contains("Mesa")) {
         isCoreProfile = format().profile() == QSurfaceFormat::CoreProfile;
     }
     qDebug() << "isCoreProfile:" << isCoreProfile << "versionString:" << versionString;
@@ -258,7 +259,7 @@ void ModelShaderWidget::paintGL()
 
     if (m_mousePickingEnabled && !m_mousePickTargetPositionInModelSpace.isNull()) {
         m_program->setMousePickEnabledValue(1);
-        m_program->setMousePickTargetPositionValue(m_world * m_mousePickTargetPositionInModelSpace);
+        m_program->setMousePickTargetPositionValue(m_world.map(m_mousePickTargetPositionInModelSpace));
     } else {
         m_program->setMousePickEnabledValue(0);
         m_program->setMousePickTargetPositionValue(QVector3D());
@@ -412,8 +413,8 @@ bool ModelShaderWidget::inputMouseMoveEventFromOtherWidget(QMouseEvent* event)
                     rect.translate(posInParent.x() - m_moveStartPos.x(), posInParent.y() - m_moveStartPos.y());
                     setGeometry(rect);
                 } else {
-                    m_moveToPosition.setX(m_moveToPosition.x() + (float)2 * dx / width());
-                    m_moveToPosition.setY(m_moveToPosition.y() + (float)2 * -dy / height());
+                    m_moveToPosition.setX(m_moveToPosition.x() + static_cast<float>(2) * dx / width());
+                    m_moveToPosition.setY(m_moveToPosition.y() + static_cast<float>(2) * -dy / height());
                     if (m_moveToPosition.x() < -1.5)
                         m_moveToPosition.setX(-1.5);
                     if (m_moveToPosition.x() > 1.5)
@@ -473,7 +474,7 @@ bool ModelShaderWidget::inputNativeGestureEventFromOtherWidget(QNativeGestureEve
     if (m_moveStarted || !m_zoomEnabled)
         return false;
 
-    zoomBySteps((float)event->value() * m_zoomStepsPerMagnification);
+    zoomBySteps(static_cast<float>(event->value()) * m_zoomStepsPerMagnification);
 
     event->accept();
     return true;
@@ -486,7 +487,7 @@ void ModelShaderWidget::zoom(float delta)
         if (0 == m_modelInitialHeight) {
             m_modelInitialHeight = height();
         } else {
-            float ratio = (float)height() / m_modelInitialHeight;
+            float ratio = static_cast<float>(height()) / m_modelInitialHeight;
             if (ratio <= m_minZoomRatio) {
                 if (delta < 0)
                     return;
@@ -529,7 +530,7 @@ void ModelShaderWidget::zoomBySteps(float steps)
 
 float ModelShaderWidget::zoomStepInPixels()
 {
-    return std::max(1.0f, (float)geometry().height() * 0.1f);
+    return std::max(1.0f, static_cast<float>(geometry().height()) * 0.1f);
 }
 
 void ModelShaderWidget::setMousePickTargetPositionInModelSpace(QVector3D position)
