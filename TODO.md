@@ -126,7 +126,7 @@ bit-identical counts), and new code adds zero new warnings.
 - [x] Zip install path verified (`package_install_files`) end to end
       in an isolated config (0.2.0)
 - [ ] Release packaging (signed zip? extensions.blender.org listing?) —
-      needs the owner's signing identity + publishing decisions
+      DEFERRED by owner 2026-09-30: no Apple $99 fee, no listing for now
 - [x] Iterate loop: per-object settings recall (last-used params
       auto-restore per object with an INFO note, so do-overs are one
       click, not retyping)
