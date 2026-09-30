@@ -6,7 +6,7 @@ tracks the original repo for merging future fixes.
 
 ## Standing rules
 
-- Commit and push to `origin/master` on your own after each completed chunk
+- Commit and push to `origin/main` on your own after each completed chunk
   of work. Do not wait for the user to approve commits or pushes.
   (Explicit standing authorization from the project owner.)
 - Never force-push, rebase, amend published commits, or otherwise rewrite
