@@ -51,3 +51,46 @@ jobs:
         run: ./bench/fetch_models.sh
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+
+  macos-bundle:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt
+        run: |
+          brew install qtbase
+      - name: Install LLVM and Ninja
+        run: |
+          brew install llvm ninja
+      - name: Install TBB
+        run: |
+          brew install tbb
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Bundle unsigned app (deploy Qt + vendor dylibs + ad-hoc sign)
+        run: |
+          export PATH="$(brew --prefix qtbase)/bin:$PATH"
+          ./ci/macos_bundle.sh "${GITHUB_WORKSPACE}/build/app/retopoforge.app"
+      - name: Verify bundle is self-contained
+        run: |
+          EXE="${GITHUB_WORKSPACE}/build/app/retopoforge.app/Contents/MacOS/retopoforge"
+          test -x "$EXE"
+          leftovers=$(otool -L "$EXE" | grep -E '/opt/homebrew/|/usr/local/' || true)
+          test -z "$leftovers"
+          codesign --verify --deep "${GITHUB_WORKSPACE}/build/app/retopoforge.app"
+      # Signing stub: intentionally skipped. No Apple signing identity
+      # exists in CI, so the bundle above stays ad-hoc signed (dev only).
+      # Owner: to enable release signing, provision an
+      # APPLE_DEVELOPER_IDENTITY secret (Developer ID Application identity
+      # + certificate) and flip this step's `if:` to true.
+      - name: "SKIPPED: Developer-ID signing (needs APPLE_DEVELOPER_IDENTITY secret)"
+        if: false
+        run: |
+          codesign --force --deep --options runtime \
+            --sign "${{ secrets.APPLE_DEVELOPER_IDENTITY }}" \
+            "${GITHUB_WORKSPACE}/build/app/retopoforge.app"
+          codesign --verify --deep "${GITHUB_WORKSPACE}/build/app/retopoforge.app"

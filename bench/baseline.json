@@ -135,6 +135,40 @@
       "non_quads": 6,
       "errors": [],
       "error_count": 0
+    },
+    {
+      "model": "xyzrgb_dragon.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.521,
+      "input_verts": 125066,
+      "input_faces": 249882,
+      "verts": 618,
+      "quads": 587,
+      "non_quads": 26,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "xyzrgb_dragon.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 1.582,
+      "input_verts": 125066,
+      "input_faces": 249882,
+      "verts": 4216,
+      "quads": 4153,
+      "non_quads": 50,
+      "errors": [],
+      "error_count": 0
     }
   ]
 }
