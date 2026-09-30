@@ -87,7 +87,7 @@ int main(int argc, char** argv)
     QCoreApplication::setOrganizationDomain(APP_HOMEPAGE_URL);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("AutoRemesher - Automatic quad remeshing tool");
+    parser.setApplicationDescription("retopoforge - Automatic quad remeshing tool");
     parser.addHelpOption();
     parser.addVersionOption();
 
@@ -181,7 +181,7 @@ int main(int argc, char** argv)
 
         QObject::connect(mainWindow, &MainWindow::headlessFinished,
             [&](size_t quadCount, size_t nonQuadCount, size_t vertexCount, double elapsedSeconds) {
-                std::cout << "=== AutoRemesher Report ===" << '\n';
+                std::cout << "=== retopoforge Report ===" << '\n';
                 std::cout << "Input: " << params.inputPath.toStdString() << '\n';
                 std::cout << "Output: " << params.outputPath.toStdString() << '\n';
                 std::cout << "Quads: " << quadCount << '\n';
@@ -195,7 +195,7 @@ int main(int argc, char** argv)
                     QFile reportFile(params.reportPath);
                     if (reportFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
                         QTextStream out(&reportFile);
-                        out << "AutoRemesher Report\n";
+                        out << "retopoforge Report\n";
                         out << "===================\n\n";
                         out << "Input file: " << params.inputPath << "\n";
                         out << "Output file: " << params.outputPath << "\n";

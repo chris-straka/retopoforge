@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=AutoRemesher
-Icon=autoremesher
-Exec=autoremesher
+Name=retopoforge
+Icon=retopoforge
+Exec=retopoforge
 Categories=Graphics;
 Comment=Automatic quad remeshing tool

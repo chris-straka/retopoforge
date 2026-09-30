@@ -39,11 +39,11 @@ LogBrowser::LogBrowser(QObject* parent)
     connect(this, &LogBrowser::sendMessage, m_browserDialog, &LogBrowserDialog::outputMessage, Qt::QueuedConnection);
 
     if (m_enableOutputToFile) {
-        QString filePath = "autoremesher.log";
+        QString filePath = "retopoforge.log";
         m_outputTo = fopen(filePath.toUtf8().constData(), "w");
 
-        freopen("autoremesher-stderr.log", "w", stderr);
-        freopen("autoremesher-stdout.log", "w", stdout);
+        freopen("retopoforge-stderr.log", "w", stderr);
+        freopen("retopoforge-stdout.log", "w", stdout);
     }
 }
 

@@ -1,6 +1,5 @@
 # Qt desktop app (Qt6). Replaces autoremesher.pro (qmake).
-# Binary keeps the upstream `autoremesher` name; product renaming is a
-# separate branding step.
+# Binary and macOS bundle are named `retopoforge`.
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -55,12 +54,12 @@ set(APP_SOURCES
     spinnerwidget.h
 )
 
-add_executable(autoremesher ${APP_SOURCES})
+add_executable(retopoforge ${APP_SOURCES})
 
 # App-side named modules, one per converted plain component. Q_OBJECT
 # widgets stay in headers: moc generates member definitions plus Qt
 # includes that cannot coexist inside module purview (proven by pilot).
-target_sources(autoremesher PRIVATE FILE_SET CXX_MODULES FILES
+target_sources(retopoforge PRIVATE FILE_SET CXX_MODULES FILES
     modelshadervertex.cppm
     monochromeopenglvertex.cppm
     openglbufferutil.cppm
@@ -73,24 +72,28 @@ target_sources(autoremesher PRIVATE FILE_SET CXX_MODULES FILES
     theme.cppm
     spinnableawesomebutton.cppm
 )
-set_target_properties(autoremesher PROPERTIES CXX_SCAN_FOR_MODULES ON)
+set_target_properties(retopoforge PROPERTIES CXX_SCAN_FOR_MODULES ON)
 
-set_target_properties(autoremesher PROPERTIES
+set_target_properties(retopoforge PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
-    MACOSX_BUNDLE_BUNDLE_NAME "AutoRemesher"
-    MACOSX_BUNDLE_ICON_FILE "autoremesher.icns"
+    MACOSX_BUNDLE_BUNDLE_NAME "retopoforge"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.chris-straka.retopoforge"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_ICON_FILE "retopoforge.icns"
 )
 
 if(APPLE)
-    target_sources(autoremesher PRIVATE autoremesher.icns)
-    set_source_files_properties(autoremesher.icns PROPERTIES
+    target_sources(retopoforge PRIVATE retopoforge.icns)
+    set_source_files_properties(retopoforge.icns PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources")
 endif()
 
 # Version/identity defines (were qmake DEFINES in autoremesher.pro).
-# Fork restarts versioning at 0.1.0; support URLs point at the fork,
-# while product/company display names keep upstream values for now.
+# Fork restarts versioning at 0.1.0; support URLs point at the fork.
+# APP_NAME is the fork product name; APP_COMPANY keeps the upstream
+# Dust3D credit.
 if(APPLE)
     set(RETOPO_PLATFORM "MacOS")
 elseif(WIN32)
@@ -98,9 +101,9 @@ elseif(WIN32)
 else()
     set(RETOPO_PLATFORM "Linux")
 endif()
-target_compile_definitions(autoremesher PRIVATE
+target_compile_definitions(retopoforge PRIVATE
     PROJECT_DEFINED_APP_COMPANY="Dust3D"
-    PROJECT_DEFINED_APP_NAME="AutoRemesher"
+    PROJECT_DEFINED_APP_NAME="retopoforge"
     PROJECT_DEFINED_APP_VER="0.1.0.0"
     PROJECT_DEFINED_APP_HUMAN_VER="0.1.0"
     PROJECT_DEFINED_APP_HOMEPAGE_URL="https://github.com/chris-straka/retopoforge"
@@ -110,18 +113,18 @@ target_compile_definitions(autoremesher PRIVATE
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(autoremesher PRIVATE $<$<CONFIG:Release>:-O3 -funroll-loops>)
+    target_compile_options(retopoforge PRIVATE $<$<CONFIG:Release>:-O3 -funroll-loops>)
 elseif(MSVC)
-    target_compile_options(autoremesher PRIVATE $<$<CONFIG:Release>:/O2 /fp:fast> /bigobj)
-    target_compile_definitions(autoremesher PRIVATE _USE_MATH_DEFINES NOMINMAX)
+    target_compile_options(retopoforge PRIVATE $<$<CONFIG:Release>:/O2 /fp:fast> /bigobj)
+    target_compile_definitions(retopoforge PRIVATE _USE_MATH_DEFINES NOMINMAX)
 endif()
 
-target_include_directories(autoremesher PRIVATE
+target_include_directories(retopoforge PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/QtAwesome/QtAwesome
 )
 
-target_link_libraries(autoremesher PRIVATE
+target_link_libraries(retopoforge PRIVATE
     retopo_core
     Qt6::Core
     Qt6::Widgets

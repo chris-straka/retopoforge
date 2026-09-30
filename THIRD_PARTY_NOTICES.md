@@ -21,7 +21,7 @@ explicitly permits distribution in larger MIT-licensed works; keep its
 `COPYING.*` notices with any binary distribution, plus TBB's Apache-2.0
 `NOTICE` attribution.
 
-## Qt desktop app (`autoremesher.pro` build only)
+## Qt desktop app (`retopoforge` target only)
 
 Everything above, plus:
 
