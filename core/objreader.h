@@ -39,6 +39,18 @@ bool loadObjPositionsAndTriangles(const char* filename,
     std::string* warn,
     std::string* err);
 
+// Weld coincident vertices and drop degenerate triangles in place.
+// AI exporters emit non-indexed triangle soup (one vertex copy per face
+// corner); without welding, the island splitter sees thousands of islands
+// and the remesh degrades. Vertices are merged by bitwise position
+// equality via meshopt_generateVertexRemap; a triangle is degenerate when
+// two of its corners share an index, checked both before and after the
+// remap (welding can collapse distinct-but-coincident corners).
+// Already-welded input is left untouched (identity fast path), unreferenced
+// vertices are removed, and non-triangle faces pass through unchanged.
+void weldPositionsAndTriangles(std::vector<float>* positions,
+    std::vector<std::vector<size_t>>* triangles);
+
 }
 
 #endif

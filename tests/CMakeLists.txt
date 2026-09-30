@@ -18,6 +18,7 @@ retopo_add_test(test_vector3 test_vector3.cpp)
 retopo_add_test(test_positionkey test_positionkey.cpp)
 retopo_add_test(test_objreader test_objreader.cpp)
 retopo_add_test(test_surfacemesh test_surfacemesh.cpp)
+retopo_add_test(test_weld test_weld.cpp)
 
 # CLI round-trip: runs the built retopo binary on bench/models/armadillo.obj.
 # Needs the model file (bench/fetch_models.sh, gitignored) and the retopo
@@ -29,3 +30,12 @@ target_compile_definitions(test_cli_roundtrip PRIVATE
 )
 add_dependencies(test_cli_roundtrip retopo)
 set_tests_properties(test_cli_roundtrip PROPERTIES TIMEOUT 600)
+
+# CLI --quiet: same binary + model, asserts the silence contract.
+retopo_add_test(test_cli_quiet test_cli_quiet.cpp)
+target_compile_definitions(test_cli_quiet PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_ARMADDILLO=\"${CMAKE_SOURCE_DIR}/bench/models/armadillo.obj\""
+)
+add_dependencies(test_cli_quiet retopo)
+set_tests_properties(test_cli_quiet PROPERTIES TIMEOUT 600)
