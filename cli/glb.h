@@ -71,4 +71,13 @@ bool saveGlb(const char* filename,
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& faces);
 
+// --uvs on twin: same mesh plus a TEXCOORD_0 accessor (one VEC2 per
+// vertex; uvs.size() must equal vertices.size()). The 4-arg overload is
+// untouched so default output stays byte-identical.
+bool saveGlb(const char* filename,
+    const char* generator,
+    const std::vector<AutoRemesher::Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& faces,
+    const std::vector<AutoRemesher::Vector2>& uvs);
+
 }

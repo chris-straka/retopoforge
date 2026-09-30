@@ -156,6 +156,22 @@ public:
         return m_remeshedQuads;
     }
 
+    // Per-output-vertex UVs interpolated from each island's internal
+    // parameterization, normalized to 0..1 per island. Only populated when
+    // setComputeRemeshedUvs(true) was called before remesh(); otherwise
+    // empty. When populated, size always matches remeshedVertices().
+    // Computing them never alters geometry (pure post-pass in the quad
+    // extractor), so the default-off path is byte-identical.
+    const std::vector<Vector2>& remeshedVertexUvs()
+    {
+        return m_remeshedVertexUvs;
+    }
+
+    void setComputeRemeshedUvs(bool compute)
+    {
+        m_computeRemeshedUvs = compute;
+    }
+
     const std::vector<Vector3>& decimatedVertices()
     {
         return m_decimatedVertices;
@@ -249,6 +265,8 @@ private:
     std::vector<std::vector<size_t>> m_triangles;
     std::vector<Vector3> m_remeshedVertices;
     std::vector<std::vector<size_t>> m_remeshedQuads;
+    std::vector<Vector2> m_remeshedVertexUvs;
+    bool m_computeRemeshedUvs = false;
     std::vector<Vector3> m_decimatedVertices;
     std::vector<std::vector<size_t>> m_decimatedTriangles;
     bool m_decimated = false;

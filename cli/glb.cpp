@@ -240,10 +240,11 @@ static void writeU32(std::vector<char>* out, uint32_t value)
     out->push_back(static_cast<char>((value >> 24) & 0xff));
 }
 
-bool saveGlb(const char* filename,
+static bool writeGlb(const char* filename,
     const char* generator,
     const std::vector<AutoRemesher::Vector3>& vertices,
-    const std::vector<std::vector<size_t>>& faces)
+    const std::vector<std::vector<size_t>>& faces,
+    const std::vector<AutoRemesher::Vector2>* uvs)
 {
     // Fan-triangulate: quads become (0,1,2)+(0,2,3), matching the winding the
     // OBJ writer emits. Out-of-range indices fail loudly instead of writing
@@ -265,6 +266,7 @@ bool saveGlb(const char* filename,
     }
     if (vertices.empty() || indices.empty())
         return false;
+    const bool haveUvs = nullptr != uvs && uvs->size() == vertices.size();
 
     float minPos[3] = {
         static_cast<float>(vertices[0].x()),
@@ -289,8 +291,10 @@ bool saveGlb(const char* filename,
 
     const size_t vertBytes = vertices.size() * 3 * sizeof(float);
     const size_t indexBytes = indices.size() * sizeof(uint32_t);
-    // Both sections are multiples of 4 by construction (3 floats, uint32).
-    const size_t binLength = vertBytes + indexBytes;
+    const size_t uvBytes = haveUvs ? vertices.size() * 2 * sizeof(float) : 0;
+    // All sections are multiples of 4 by construction (3 floats, uint32,
+    // 2 floats), so no inter-section padding is needed.
+    const size_t binLength = vertBytes + indexBytes + uvBytes;
 
     std::ostringstream json;
     json << "{\"asset\":{\"version\":\"2.0\",\"generator\":\"" << generator << "\"}"
@@ -298,16 +302,27 @@ bool saveGlb(const char* filename,
          << ",\"scenes\":[{\"nodes\":[0]}]"
          << ",\"nodes\":[{\"mesh\":0,\"name\":\"retopoforge\"}]"
          << ",\"meshes\":[{\"name\":\"retopoforge\",\"primitives\":["
-         << "{\"attributes\":{\"POSITION\":0},\"indices\":1,\"mode\":4}]}]"
+         << "{\"attributes\":{\"POSITION\":0";
+    if (haveUvs)
+        json << ",\"TEXCOORD_0\":2";
+    json << "},\"indices\":1,\"mode\":4}]}]"
          << ",\"accessors\":["
          << "{\"bufferView\":0,\"componentType\":5126,\"count\":" << vertices.size()
          << ",\"type\":\"VEC3\",\"min\":[" << minPos[0] << "," << minPos[1] << "," << minPos[2]
          << "],\"max\":[" << maxPos[0] << "," << maxPos[1] << "," << maxPos[2] << "]}"
          << ",{\"bufferView\":1,\"componentType\":5125,\"count\":" << indices.size()
-         << ",\"type\":\"SCALAR\"}]"
+         << ",\"type\":\"SCALAR\"}";
+    if (haveUvs)
+        json << ",{\"bufferView\":2,\"componentType\":5126,\"count\":" << vertices.size()
+             << ",\"type\":\"VEC2\"}";
+    json << "]"
          << ",\"bufferViews\":["
          << "{\"buffer\":0,\"byteOffset\":0,\"byteLength\":" << vertBytes << "}"
-         << ",{\"buffer\":0,\"byteOffset\":" << vertBytes << ",\"byteLength\":" << indexBytes << "}]"
+         << ",{\"buffer\":0,\"byteOffset\":" << vertBytes << ",\"byteLength\":" << indexBytes << "}";
+    if (haveUvs)
+        json << ",{\"buffer\":0,\"byteOffset\":" << (vertBytes + indexBytes)
+             << ",\"byteLength\":" << uvBytes << "}";
+    json << "]"
          << ",\"buffers\":[{\"byteLength\":" << binLength << "}]}";
     std::string jsonText = json.str();
     while (jsonText.size() % 4 != 0)
@@ -326,12 +341,14 @@ bool saveGlb(const char* filename,
     writeU32(&blob, static_cast<uint32_t>(jsonText.size()));
     writeU32(&blob, 0x4E4F534Au);
     blob.insert(blob.end(), jsonText.begin(), jsonText.end());
-    // BIN chunk (type 0x004E4942 "BIN\0").
+    // BIN chunk (type 0x004E4942 "BIN\0"). UVs append after indices, so the
+    // UV-less prefix (positions + indices) keeps identical bytes and offsets.
     writeU32(&blob, static_cast<uint32_t>(binLength));
     writeU32(&blob, 0x004E4942u);
     const size_t vertFloats = vertices.size() * 3;
-    blob.resize(blob.size() + vertFloats * sizeof(float) + indexBytes);
-    char* bin = blob.data() + blob.size() - vertFloats * sizeof(float) - indexBytes;
+    const size_t uvFloats = haveUvs ? vertices.size() * 2 : 0;
+    blob.resize(blob.size() + vertFloats * sizeof(float) + indexBytes + uvFloats * sizeof(float));
+    char* bin = blob.data() + blob.size() - vertFloats * sizeof(float) - indexBytes - uvFloats * sizeof(float);
     float* posOut = reinterpret_cast<float*>(bin);
     for (const auto& v : vertices) {
         *posOut++ = v.x();
@@ -339,6 +356,13 @@ bool saveGlb(const char* filename,
         *posOut++ = v.z();
     }
     std::memcpy(posOut, indices.data(), indexBytes);
+    if (haveUvs) {
+        float* uvOut = reinterpret_cast<float*>(reinterpret_cast<char*>(posOut) + indexBytes);
+        for (const auto& uv : *uvs) {
+            *uvOut++ = static_cast<float>(uv.x());
+            *uvOut++ = static_cast<float>(uv.y());
+        }
+    }
 
     FILE* file = std::fopen(filename, "wb");
     if (nullptr == file)
@@ -346,6 +370,25 @@ bool saveGlb(const char* filename,
     const size_t written = std::fwrite(blob.data(), 1, blob.size(), file);
     const int closeResult = std::fclose(file);
     return written == blob.size() && closeResult == 0;
+}
+
+bool saveGlb(const char* filename,
+    const char* generator,
+    const std::vector<AutoRemesher::Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& faces)
+{
+    return writeGlb(filename, generator, vertices, faces, nullptr);
+}
+
+bool saveGlb(const char* filename,
+    const char* generator,
+    const std::vector<AutoRemesher::Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& faces,
+    const std::vector<AutoRemesher::Vector2>& uvs)
+{
+    if (uvs.size() != vertices.size())
+        return false;
+    return writeGlb(filename, generator, vertices, faces, &uvs);
 }
 
 }
