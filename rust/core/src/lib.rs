@@ -8,4 +8,4 @@
 // pub mod double_utils;
 // pub mod progress;
 // pub mod obj_reader;
-// pub mod mesh_separator;
+pub mod mesh_separator;
