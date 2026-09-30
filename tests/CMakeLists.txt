@@ -74,3 +74,12 @@ target_compile_definitions(test_cli_symmetry PRIVATE
 )
 add_dependencies(test_cli_symmetry retopo)
 set_tests_properties(test_cli_symmetry PROPERTIES TIMEOUT 600)
+
+# CLI --guides: guide-file wiring end to end (help text, missing/bad
+# files, batch rejection, guided output differs from unguided).
+retopo_add_test(test_cli_guides test_cli_guides.cpp)
+target_compile_definitions(test_cli_guides PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+)
+add_dependencies(test_cli_guides retopo)
+set_tests_properties(test_cli_guides PROPERTIES TIMEOUT 600)

@@ -61,6 +61,7 @@ struct Params {
     AutoRemesher::ModelType modelType = AutoRemesher::ModelType::Organic;
     bool symmetryEnabled = false;
     int symmetryAxis = -1; // -1 = auto-detect, 0/1/2 = X/Y/Z
+    std::string guidesPath;
     bool quiet = false;
 };
 
@@ -101,6 +102,13 @@ static void printUsage(const char* argv0)
               << "                              plane; x/y/z pin it. Falls back to\n"
               << "                              unconstrained output when the input scores\n"
               << "                              below threshold on the chosen plane\n"
+              << "  --guides <file>             Guide-curve constraints: quad edge flow\n"
+              << "                              follows the polylines (eye/mouth loops).\n"
+              << "                              File format: one 'x y z' point per line,\n"
+              << "                              blank lines separate polylines, '#' starts\n"
+              << "                              a comment. Points live in input-mesh\n"
+              << "                              coordinates. Single-file and --lods runs\n"
+              << "                              only (rejected in batch mode)\n"
               << "  --quiet                     Silence progress and info output; only\n"
               << "                              warnings, errors and the report print\n"
               << "  -h, --help                  Show this help\n"
@@ -172,6 +180,61 @@ static bool parseLods(const std::string& text, std::vector<int>* out)
     }
     if (out->empty()) {
         std::cerr << "Error: --lods expects a comma-separated list, got '" << text << "'" << '\n';
+        return false;
+    }
+    return true;
+}
+
+// Guide file: one "x y z" point per line, blank lines separate polylines,
+// "#" starts a comment. Single-point chains are dropped (the engine
+// ignores them); a file with no usable polyline is an error, since an
+// explicitly passed --guides that silently does nothing hides mistakes.
+static bool parseGuidesFile(const std::string& path,
+    std::vector<std::vector<AutoRemesher::Vector3>>* guides)
+{
+    guides->clear();
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        std::cerr << "Error: cannot open --guides file '" << path << "'" << '\n';
+        return false;
+    }
+    std::vector<AutoRemesher::Vector3> current;
+    auto flushCurrent = [&]() {
+        if (current.size() >= 2)
+            guides->push_back(current);
+        current.clear();
+    };
+    std::string line;
+    long lineNo = 0;
+    while (std::getline(in, line)) {
+        ++lineNo;
+        const size_t hash = line.find('#');
+        if (hash != std::string::npos)
+            line.erase(hash);
+        const size_t first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos) {
+            flushCurrent();
+            continue;
+        }
+        double x = 0.0, y = 0.0, z = 0.0;
+        int endPos = 0;
+        if (3 != std::sscanf(line.c_str() + first, "%lf %lf %lf %n", &x, &y, &z, &endPos)
+            || line.find_first_not_of(" \t\r", first + static_cast<size_t>(endPos))
+                != std::string::npos) {
+            std::cerr << "Error: --guides file '" << path << "' line " << lineNo
+                      << " expects 'x y z', got '" << line << "'" << '\n';
+            return false;
+        }
+        AutoRemesher::Vector3 point;
+        point.setX(x);
+        point.setY(y);
+        point.setZ(z);
+        current.push_back(point);
+    }
+    flushCurrent();
+    if (guides->empty()) {
+        std::cerr << "Error: --guides file '" << path << "' holds no usable polyline"
+                  << " (need 2+ points per polyline)" << '\n';
         return false;
     }
     return true;
@@ -273,6 +336,10 @@ static bool parseArgs(int argc, char** argv, Params* params)
                           << value << "'" << '\n';
                 return false;
             }
+        } else if (matches(arg, "--guides", '\0')) {
+            if (!takeValue(argc, argv, i, "--guides", &value))
+                return false;
+            params->guidesPath = value;
         } else if (matches(arg, "--model-type", '\0')) {
             if (!takeValue(argc, argv, i, "--model-type", &value))
                 return false;
@@ -474,6 +541,7 @@ struct RungResult {
 static RungResult remeshLoadedMesh(const Params& params,
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
+    const std::vector<std::vector<AutoRemesher::Vector3>>& guides,
     int targetQuads,
     const std::string& outputPath)
 {
@@ -485,6 +553,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     remesher.setTargetTriangleCount(static_cast<size_t>(targetQuads) * 2);
     remesher.setSymmetryEnabled(params.symmetryEnabled);
     remesher.setSymmetryPlane(params.symmetryAxis);
+    remesher.setGuidePolylines(guides);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);
@@ -543,6 +612,15 @@ static void printRungLine(const std::string& label, const std::string& outputPat
 
 static int runMultiMode(const Params& params, bool batch)
 {
+    // Guides live in input-mesh coordinates, so one file cannot span a
+    // batch of different meshes; --lods over a single mesh is fine.
+    if (batch && !params.guidesPath.empty()) {
+        std::cerr << "Error: --guides needs a single input mesh, not a batch directory" << '\n';
+        return 1;
+    }
+    std::vector<std::vector<AutoRemesher::Vector3>> guides;
+    if (!params.guidesPath.empty() && !parseGuidesFile(params.guidesPath, &guides))
+        return 1;
     std::vector<std::string> inputs;
     if (batch) {
         std::error_code ec;
@@ -649,7 +727,7 @@ static int runMultiMode(const Params& params, bool batch)
             if (lodMode)
                 label += "LOD " + std::to_string(rung) + ": ";
 
-            RungResult result = remeshLoadedMesh(params, vertices, triangles, targets[rung], outputPath);
+            RungResult result = remeshLoadedMesh(params, vertices, triangles, guides, targets[rung], outputPath);
             if (!result.ok) {
                 std::cerr << "Error: " << result.error << " (" << outputPath << ")" << '\n';
                 std::cout << label << "FAILED " << result.error << '\n';
@@ -786,11 +864,20 @@ int main(int argc, char** argv)
         }
     }
 
+    std::vector<std::vector<AutoRemesher::Vector3>> guides;
+    if (!params.guidesPath.empty()) {
+        if (!parseGuidesFile(params.guidesPath, &guides))
+            return 1;
+        if (!params.quiet)
+            std::cerr << "Guide polylines: " << guides.size() << '\n';
+    }
+
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
     remesher.setTargetTriangleCount(static_cast<size_t>(params.targetQuads) * 2);
     remesher.setSymmetryEnabled(params.symmetryEnabled);
     remesher.setSymmetryPlane(params.symmetryAxis);
+    remesher.setGuidePolylines(guides);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);
