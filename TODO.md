@@ -47,10 +47,14 @@ new warnings.
 - [x] Batch mode: remesh a whole asset folder in one CLI invocation
       (`--input` dir + `--output` dir, per-file report, failed-files
       list, exit 1 on partial failure)
-- [ ] Robustness pass over the owner's AI corpus (holes proven OK;
-      still to probe: non-manifold soup, floating parts, multi-component
-      meshes, 1M-tri scale perf). Record results as local-only notes,
-      never asset names in tracked files.
+- [x] Robustness pass over the owner's AI corpus: holes, non-manifold
+      soup, floating parts, multi-component meshes all probed via a
+      committed synthetic nasty-corpus (11 fixtures) + procedural
+      scale inputs; loader OOB/NaN validation, engine entry guards,
+      multi-mode island accounting, honest exit codes. 1M-tri scale
+      covered by the dragon profile (`docs/perf.md`). A sweep over the
+      owner's real corpus stays a manual step (local-only, never asset
+      names in tracked files).
 
 ## LOD chains (desktop + mobile from one chain)
 

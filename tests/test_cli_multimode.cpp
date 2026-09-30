@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
+#include <unistd.h>
 
 static int g_failures = 0;
 
@@ -136,7 +137,11 @@ int main()
     }
 
     std::error_code ec;
-    const std::filesystem::path tmpdir = std::filesystem::temp_directory_path() / "retopo_cli_multimode";
+    // PID-suffixed: parallel lanes run the same suite from sibling checkouts,
+    // and a fixed tmpdir name lets them clobber each other's files (observed
+    // test_cli_glb flake: two writers racing one fixed path).
+    const std::filesystem::path tmpdir = std::filesystem::temp_directory_path()
+        / ("retopo_cli_multimode_" + std::to_string(::getpid()));
     std::filesystem::remove_all(tmpdir, ec);
     std::filesystem::create_directories(tmpdir, ec);
 

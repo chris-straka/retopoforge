@@ -24,6 +24,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 static int g_failures = 0;
 
@@ -150,11 +151,14 @@ int main()
         return 1;
     }
 
-    const std::filesystem::path outputPath = std::filesystem::temp_directory_path()
-        / "retopo_cli_quiet_out.obj";
-    const std::filesystem::path stdoutPath = std::filesystem::temp_directory_path()
-        / "retopo_cli_quiet_stdout.txt";
+    // PID-suffixed subdir: parallel lanes run the same suite from sibling
+    // checkouts, and fixed tmp names let them clobber each other's files.
+    const std::filesystem::path tmp = std::filesystem::temp_directory_path()
+        / ("retopo_cli_quiet_" + std::to_string(::getpid()));
     std::error_code ec;
+    std::filesystem::create_directories(tmp, ec);
+    const std::filesystem::path outputPath = tmp / "retopo_cli_quiet_out.obj";
+    const std::filesystem::path stdoutPath = tmp / "retopo_cli_quiet_stdout.txt";
     std::filesystem::remove(outputPath, ec);
     std::filesystem::remove(stdoutPath, ec);
 

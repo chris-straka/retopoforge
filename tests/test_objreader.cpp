@@ -9,6 +9,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 static int g_failures = 0;
 
@@ -33,7 +34,8 @@ bool loadString(const std::string& objText,
     std::string* err)
 {
     const std::filesystem::path path = std::filesystem::temp_directory_path()
-        / ("retopo_unit_test_" + std::to_string(g_tempCounter++) + ".obj");
+        / ("retopo_unit_test_" + std::to_string(::getpid()) + "_"
+            + std::to_string(g_tempCounter++) + ".obj");
     {
         std::ofstream out(path, std::ios::out | std::ios::binary);
         out << objText;
