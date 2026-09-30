@@ -81,13 +81,12 @@ new warnings.
 ## Character quality (engine work that serves the game)
 
 - [ ] Face animation flow (owner's top quality complaint): engine +
-      CLI guide mechanism DONE (`setGuidePolylines` frame-field locks,
-      CLI `--guides` polyline file); still open: draw flow lines in
-      Blender and export them to the guide file, plus the iterate-loop
-      doc (preset, sharp angle, adaptivity, head-only passes) and the
-      manual-cleanup workflow. Honest scope: no automatic remesher
-      emits animator-grade face topology; the goal is 80% + fast
-      cleanup.
+      CLI + Blender guide mechanism DONE (frame-field locks, `--guides`
+      file, edge-selection stroke export with recall); still open: the
+      iterate-loop doc (preset, sharp angle, adaptivity, head-only
+      passes) and the manual-cleanup workflow. Honest scope: no
+      automatic remesher emits animator-grade face topology; the goal
+      is 80% + fast cleanup.
 - [x] Symmetry constraints (characters are the main subject):
       vote-based plane detection + frame-field/vertex symmetrization,
       default off, CLI `--symmetry off|auto|x|y|z`; positional only
@@ -184,9 +183,9 @@ new warnings.
       user polylines as frame-field hard constraints end to end
       (engine setter + CLI `--guides`); Blender-side drawing is
       phase 2
-- [ ] Density painting (0.25x–4x local density): engine + CLI mask
-      file done (see above); still open: paint in Blender, export the
-      weight group as the mask
+- [x] Density painting (0.25x–4x local density): engine + CLI mask
+      file + Blender vertex-group export with min/max mapping and
+      recall all done
 - [x] Perf at scale: profiled (`docs/perf.md`, dragon 50k: ~23s,
       ~1.5 GiB); TBB scaling checked — no thread knob exists, batch
       mode is the parallelism story
