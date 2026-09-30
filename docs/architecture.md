@@ -3,7 +3,8 @@
 Date: 2026-09-30. Sources: `CMakeLists.txt`, `cli/CMakeLists.txt`,
 `app/CMakeLists.txt`, `tests/CMakeLists.txt`, `cli/main.cpp`,
 `core/*.cppm`, `app/*.cppm`, `blender/retopoforge/__init__.py`,
-`blender/retopoforge/blender_manifest.toml`, `bench/run.py`.
+`blender/retopoforge/blender_manifest.toml`, `bench/run.py`,
+`bench/profile.py`.
 
 ## The four pieces
 
@@ -26,8 +27,9 @@ Dependency rules:
   binary as a subprocess over OBJ files. That subprocess boundary is
   also the license boundary — the GPL extension never links or imports
   the MIT engine.
-- `bench/run.py` and `tests/test_cli_roundtrip` treat the built CLI as
-  a black box (binary path in, OBJ out, exit code + report parsed).
+- `bench/run.py`, `bench/profile.py`, and the five `tests/test_cli_*`
+  suites treat the built CLI as a black box (binary path in, mesh out,
+  exit code + report parsed).
 
 Data flow:
 
@@ -36,7 +38,7 @@ Blender mesh --wm.obj_export--> in_N.obj --retopo--> out_N.obj --wm.obj_import--
 bench/models/*.obj --retopo--> results JSON --check--> baseline verdict
 ```
 
-## The `retopo.core.*` module graph (15 modules)
+## The `retopo.core.*` module graph (16 modules)
 
 One named module per converted component. The interface lives in
 `core/<name>.cppm`: copyright header, then `module;` plus third-party
@@ -75,8 +77,12 @@ Leaf-first, with interface-level imports:
   `surface_mesh`, `vector3`.
 - `retopo.core.singularity_simplifier` (`singularitysimplifier.cppm`) —
   imports `surface_mesh`, `vector3`.
+- `retopo.core.symmetry` (`symmetry.cppm`) — imports `vector3`:
+  mirror-plane detection/scoring plus frame-field and vertex
+  symmetrization. Imported by the `parameterizer` interface and by the
+  (unconverted) `autoremesher.h` orchestrator header.
 - `retopo.core.parameterizer` (`parameterizer.cppm`) — imports
-  `progress`, `vector2`, `vector3`.
+  `progress`, `symmetry`, `vector2`, `vector3`.
 - `retopo.core.quad_parameterizer` (`quadparameterizer.cppm`) —
   imports `progress`, `vector2`, `vector3`.
 - `retopo.core.quad_extractor` (`quadextractor.cppm`) — imports
@@ -89,9 +95,10 @@ the `<AutoRemesher/...>` forwarders in `core/include/`):
 
 - `core/autoremesher.h` / `core/autoremesher.cpp` — the pipeline
   orchestrator (`AutoRemesher::AutoRemesher`: target counts, model
-  type, adaptivity/anisotropy, sharp/smooth angles, `remesh()`). It
-  already imports `isotropic_remesher`, `mesh_separator`,
-  `parameterizer`, and `quad_extractor`.
+  type, adaptivity/anisotropy, sharp/smooth angles, symmetry, `remesh()`).
+  The header imports `progress`, `symmetry`, `vector2`, and `vector3`;
+  the implementation unit imports `isotropic_remesher`,
+  `mesh_separator`, `parameterizer`, `quad_extractor`, and `symmetry`.
 - `core/objreader.h` / `core/objreader.cpp` — the OBJ loader
   (`loadObjPositionsAndTriangles`, with ear-clip triangulation of
   polygonal faces).
@@ -181,7 +188,26 @@ Binary resolution (`find_retopo_binary`): the explicit *Retopo CLI*
 path in the add-on preferences first, then `PATH`, then
 `build/cli/retopo` relative to a retopoforge checkout. The sidebar
 panel (`VIEW_3D` / `UI` region, *RetopoForge* tab) shows a
-found/missing status box, the **Remesh Selected** button, the nine
-parameters, the last report, a UV/vertex-color-loss notice, and a
+found/missing status box, the **Remesh Selected** button, the ten
+parameters (seven CLI flags plus *Apply Modifiers*, *Keep Original*,
+and the LOD rung field), the **Generate LODs** button, the Bake Assist
+box, the last report, a UV/vertex-color-loss notice, and a
 **Reload Scripts** button (the stock `script.reload` operator) so
 extension updates apply without restarting Blender.
+
+Two more operators share the temp-OBJ subprocess pattern.
+`retopoforge.generate_lods` is synchronous (no modal loop): per
+selected object it exports the identity OBJ, runs the CLI once with
+`--lods` from the comma-separated rung field, and adopts each rung as
+a `<object>_lod<N>` sibling in the source's collections with the
+source's world matrix. Per-rung quad counts are parsed from the CLI's
+`LOD N: ... quads=K non-quads=M` lines into the last-report string.
+`retopoforge.bake_textures` (the Bake Assist box: size, extrusion,
+margin, normal-map toggle) bakes high-to-low textures with the active
+object as HIGH and the selected object as LOW.
+
+Settings recall is a per-object JSON blob in the scene's
+`retopoforge_recall` string, keyed by object name. Every successful
+remesh or LOD run snapshots the panel parameters; the next run on the
+same object restores them first (multi-object remesh recalls the
+active object's entry), with an INFO report confirming the recall.

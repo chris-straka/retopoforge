@@ -36,18 +36,22 @@ Qt installed, add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to the configure line.
 Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--target-quads` (default 50000), `--edge-scaling` (1.0–4.0),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
-`--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`, `--lods <q0,q1,...>`, `--quiet`,
-`--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is welded on
-load; `--quiet` silences progress output (warnings, errors, and the
-report still print). `--input`/`--output` accept `.glb` as well as
-`.obj` (positions + faces; batch dirs and `--lods` chains keep each
+`--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
+`--symmetry off|auto|x|y|z` (default `off`), `--lods <q0,q1,...>`,
+`--quiet`, `--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is
+welded on load; `--quiet` silences progress output (warnings, errors, and
+the report still print). `--symmetry auto` detects the dominant mirror
+plane (x/y/z pin it) and falls back to unconstrained output when the
+input scores below threshold. `--input`/`--output` accept `.glb` as well
+as `.obj` (positions + faces; batch dirs and `--lods` chains keep each
 file's extension). The input model comes from
 `bench/fetch_models.sh` (see Benchmarks).
 
 Multi-output: `--lods 10000,5000,2000` emits a full LOD chain in one run
 (`<stem>_lod0.obj`, `<stem>_lod1.obj`, ... next to `--output`, overriding
-`--target-quads`); pointing `--input` at a directory remeshes every `.obj`
-in it (non-recursive) with `--output` as the directory:
+`--target-quads`); pointing `--input` at a directory remeshes every
+`.obj` and `.glb` in it (non-recursive) with `--output` as the
+directory:
 
 ```bash
 ./build/cli/retopo --input bench/models/armadillo.obj --output /tmp/hero.obj --lods 10000,5000,2000
@@ -67,9 +71,11 @@ otool -L build/cli/retopo | grep -i qt || echo "Qt-free: OK"
 ctest --test-dir build --output-on-failure
 ```
 
-Unit tests cover the converted core modules; `test_cli_roundtrip`
-remeshes `bench/models/armadillo.obj`, so fetch the models first (see
-Benchmarks).
+Ten unit tests cover engine components (vectors, mesh container,
+solvers, OBJ reader, welding, symmetry); five CLI tests drive the built
+binary end to end (round-trip, `--lods`/batch multi-output, `--quiet`,
+GLB input/output, symmetry). The CLI tests remesh `bench/models/`
+fixtures, so fetch the models first (see Benchmarks).
 
 ## Benchmarks
 
@@ -77,13 +83,18 @@ Benchmarks).
 bench/fetch_models.sh          # one-time download of test models (gitignored)
 bench/run.py                   # run suite, validate meshes, save results JSON
 bench/run.py --check bench/baseline.json   # fail on regression vs baseline
+bench/profile.py               # profile one production-size mesh (docs/perf.md)
 ```
 
-The suite runs `build/cli/retopo` over four models × two presets
+The suite runs `build/cli/retopo` over five models × two presets
 (`--target-quads` 1000/5000), validates every output mesh, and records
 timings plus quad counts. A run regresses when it exits non-zero, its
 mesh fails validation, its quad count drops >5% below baseline, or its
 non-quad share rises >2pp; wall time is recorded but never gates.
+`bench/profile.py` profiles a single mesh instead: wall time, peak RSS,
+and the engine's per-phase breakdown — see
+[docs/perf.md](docs/perf.md). The shipped LOD rung strategy is
+[docs/lod-strategy.md](docs/lod-strategy.md).
 
 ## Blender extension
 
@@ -93,7 +104,12 @@ mesh objects, open the *RetopoForge* tab in the 3D Viewport sidebar
 exported to a temp OBJ under the identity transform, the CLI remeshes
 it, and the result lands back on the original object in a single undo
 step; temp files are removed afterwards. New topology cannot carry UVs
-or vertex colors — the panel says so.
+or vertex colors — the panel says so. The panel also offers **Generate
+LODs** (one `--lods` chain per selected object from the comma-separated
+rung field, each rung imported as a `<object>_lod<N>` sibling), per-object
+settings recall (each remesh saves its parameters; the next run on the
+same object restores them), and a Bake Assist box (high-to-low texture
+bake from the active object to the selected one).
 
 Install:
 
@@ -133,8 +149,9 @@ files. See [docs/architecture.md](docs/architecture.md) and
 ## Layout
 
 - `core/` — Qt-free engine, built as the `retopo_core` static library:
-  15 C++23 named modules `retopo.core.*` (interface in `core/*.cppm`,
-  implementation in `core/*.cpp`), plus the two components not yet
+  16 C++23 named modules `retopo.core.*` (interface in `core/*.cppm`,
+  implementation in `core/*.cpp`, including the `symmetry`
+  mirror-constraint module), plus the two components not yet
   converted: `core/autoremesher.h/.cpp` (pipeline orchestrator) and
   `core/objreader.h/.cpp` (OBJ loader), reached via the
   `<AutoRemesher/...>` forwarders in `core/include/`.
@@ -145,7 +162,9 @@ files. See [docs/architecture.md](docs/architecture.md) and
   CLI over a temp-OBJ round-trip, with a headless test in
   `blender/tests/`.
 - `bench/` — harness (`bench/run.py`, models/results gitignored,
-  `bench/baseline.json` committed).
+  `bench/baseline.json` committed) plus the `bench/profile.py` profiler.
+- `docs/` — architecture, engine-vs-Exoside gap, perf profile, and LOD
+  strategy notes.
 - `tests/` — unit tests plus the CLI round-trip test.
 - `thirdparty/` — vendored Eigen, isotropicremesher, meshoptimizer
   (TBB comes from the system install).
