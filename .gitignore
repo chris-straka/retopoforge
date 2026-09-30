@@ -51,3 +51,5 @@ qrc_*.cpp
 .DS_Store
 
 moc/
+# clangd LSP database (generated; re-run cmake with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
+compile_commands.json
