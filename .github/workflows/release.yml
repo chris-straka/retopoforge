@@ -13,20 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  appimage-upload:
-    # Linux CI: GitHub-hosted ubuntu with a distro LLVM/Clang toolchain
-    # (stock ubuntu-22.04 GCC cannot compile C++ modules).
+  linux-build-test:
+    # Linux CI is compile + test validation only (the shipped product is
+    # macOS-only): no Qt install, no AppImage packaging. Qt 6.5.3's
+    # binaries need libicu56, which Ubuntu 24.04 does not ship, so a Qt
+    # app build cannot run on this runner at all.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          aqtversion: '==3.3.*'
-          version: '6.5.3'
-          host: 'linux'
-          target: 'desktop'
-          archives: 'qtbase qttools qtsvg qtimageformats'
       - name: Install LLVM, CMake and Ninja
         run: |
           sudo apt-get update
@@ -34,13 +28,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtbb-dev libgl1-mesa-dev libfuse2 libfontconfig1
-      - name: Build application
+          sudo apt-get install -y libtbb-dev
+      - name: Build engine and CLI (no Qt app)
         env:
           CC: clang
           CXX: clang++
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRETOPOFORGE_BUILD_QT_APP=OFF
           cmake --build build -j`nproc`
       - name: Fetch benchmark models
         run: ./bench/fetch_models.sh
@@ -48,216 +42,14 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline.json
-      - name: Generate AppImage
-        run: |
-          set -e
-          # Download AppImage tools from official upstream releases
-          LINUXDEPLOYQT_URL="https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
-          APPIMAGETOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
-          wget --no-verbose -O ./ci/linuxdeployqt.AppImage "$LINUXDEPLOYQT_URL"
-          wget --no-verbose -O ./ci/appimagetool.AppImage "$APPIMAGETOOL_URL"
-
-          # Create directories
-          mkdir -p appdir/usr/share/metainfo
-          mkdir -p appdir/usr/share/applications
-          mkdir -p appdir/usr/share/icons/hicolor/256x256/apps
-          mkdir -p appdir/usr/bin
-          mkdir -p appdir/usr/optional/libstdc++
-
-          # Copy libstdc++
-          cp /usr/lib/x86_64-linux-gnu/libstdc++.so.6 appdir/usr/optional/libstdc++/libstdc++.so.6
-
-          # Copy fontconfig (required for Qt xcb plugin)
-          if [ -f /usr/lib/x86_64-linux-gnu/libfontconfig.so.1 ]; then
-            mkdir -p appdir/usr/lib
-            cp /usr/lib/x86_64-linux-gnu/libfontconfig.so.1 appdir/usr/lib/
-            cp /usr/lib/x86_64-linux-gnu/libfreetype.so.6 appdir/usr/lib/ 2>/dev/null || true
-          fi
-
-          # Copy application related files
-          cp ${GITHUB_WORKSPACE}/ci/retopoforge.png appdir/usr/share/icons/hicolor/256x256/apps/retopoforge.png
-          cp ${GITHUB_WORKSPACE}/ci/retopoforge.appdata.xml appdir/usr/share/metainfo/retopoforge.appdata.xml
-          cp ${GITHUB_WORKSPACE}/ci/retopoforge.desktop appdir/usr/share/applications/retopoforge.desktop
-          cp ${GITHUB_WORKSPACE}/build/app/retopoforge appdir/usr/bin/retopoforge
-          chmod a+x appdir/usr/bin/retopoforge
-
-          # Verify binary was copied
-          if [ ! -f appdir/usr/bin/retopoforge ]; then
-            echo "ERROR: Binary not found at appdir/usr/bin/retopoforge"
-            exit 1
-          fi
-          if [ ! -x appdir/usr/bin/retopoforge ]; then
-            echo "ERROR: Binary is not executable at appdir/usr/bin/retopoforge"
-            exit 1
-          fi
-          echo "✓ Binary found at appdir/usr/bin/retopoforge"
-          ls -lh appdir/usr/bin/retopoforge
-
-          # Make bundle
-          chmod a+x ./ci/linuxdeployqt.AppImage
-          chmod a+x ./ci/appimagetool.AppImage
-          unset QTDIR; unset QT_PLUGIN_PATH
-
-          # Run linuxdeployqt on the desktop file to bundle non-Qt libs
-          ./ci/linuxdeployqt.AppImage appdir/usr/share/applications/retopoforge.desktop -bundle-non-qt-libs -verbose=2
-
-          # Verify binary still exists after linuxdeployqt
-          if [ ! -f appdir/usr/bin/retopoforge ]; then
-            echo "ERROR: Binary was removed by linuxdeployqt"
-            find appdir -type f -name "retopoforge*" | head -20
-            exit 1
-          fi
-          echo "✓ Binary still present after linuxdeployqt at appdir/usr/bin/retopoforge"
-
-          # Verify desktop file and icon are in place
-          if [ ! -f appdir/usr/share/applications/retopoforge.desktop ]; then
-            echo "ERROR: Desktop file missing"
-            exit 1
-          fi
-          echo "✓ Desktop file present"
-
-          if [ ! -f appdir/usr/share/icons/hicolor/256x256/apps/retopoforge.png ]; then
-            echo "ERROR: Icon missing"
-            exit 1
-          fi
-          echo "✓ Icon present"
-
-          # Verify no duplicate paths
-          if find appdir -path "*/usr/bin/usr/bin/*" 2>/dev/null | grep -q .; then
-            echo "ERROR: Duplicate path structure detected (usr/bin/usr/bin/)"
-            find appdir -path "*/usr/bin/usr/bin/*"
-            exit 1
-          fi
-          echo "✓ No duplicate paths detected"
-
-          # Verify AppRun created by linuxdeployqt
-          if [ ! -x appdir/AppRun ]; then
-            echo "ERROR: AppRun missing or not executable after linuxdeployqt"
-            exit 1
-          fi
-          echo "✓ AppRun present"
-
-          # Remove problematic DRI libs that can cause graphics conflicts
-          rm -f "./appdir/usr/lib/libxcb-dri2.so" "./appdir/usr/lib/libxcb-dri3.so"
-
-          # Create AppImage with appimagetool
-          echo "Creating AppImage..."
-          export ARCH=x86_64
-          export VERSION="${VERSION:-debug}"
-          ./ci/appimagetool.AppImage -g ./appdir/ retopoforge-x86_64.AppImage
-
-          # Verify AppImage was created
-          if [ ! -f retopoforge-x86_64.AppImage ]; then
-            echo "ERROR: AppImage creation failed"
-            exit 1
-          fi
-          echo "✓ AppImage created successfully"
-          file retopoforge-x86_64.AppImage
-
-          mv retopoforge-x86_64.AppImage retopoforge-${{ github.ref_name }}.AppImage
-      - name: Checkout test models
-        uses: actions/checkout@v4
-        with:
-          repository: alecjacobson/common-3d-test-models
-          path: test-models
-      - name: Install test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb imagemagick
-      - name: Run CLI test with armadillo.obj
-        run: |
-          set -e
-          chmod +x retopoforge-${{ github.ref_name }}.AppImage
-          export DISPLAY=:99
-          export XDG_RUNTIME_DIR=/tmp/runtime-root
-          mkdir -p "$XDG_RUNTIME_DIR"
-          chmod 700 "$XDG_RUNTIME_DIR"
-
-          Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
-          XVFB_PID=$!
-          sleep 2
-
-          echo "Running CLI test..."
-          ./retopoforge-${{ github.ref_name }}.AppImage \
-            --input test-models/data/armadillo.obj \
-            --output retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj \
-            --report retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt \
-            --target-quads 50000 \
-            --edge-scaling 1.0 \
-            --sharp-edge 90.0 \
-            --smooth-normal 0.0 \
-            --adaptivity 1.0 \
-            > cli-test-output.txt 2>&1
-
-          APP_EXIT_CODE=$?
-          echo "--- CLI Test Output ---"
-          cat cli-test-output.txt
-          echo "---"
-
-          if [ $APP_EXIT_CODE -ne 0 ]; then
-            echo "ERROR: CLI test failed with exit code $APP_EXIT_CODE"
-            exit 1
-          fi
-
-          if [ ! -f retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj ]; then
-            echo "ERROR: Output file retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj was not created"
-            exit 1
-          fi
-
-          echo "✓ CLI test passed: remeshed .obj created"
-          ls -lh retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj
-
-          kill $XVFB_PID 2>/dev/null || true
-      - name: Upload CLI test result
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj
-          path: retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed.obj
-      - name: Upload CLI test report
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt
-          path: retopoforge-${{ github.ref_name }}-ubuntu-22.04-remeshed_report.txt
-      - name: Test headless retopo CLI
+      - name: Headless CLI smoke test
         run: |
           set -e
           ./build/cli/retopo \
-            --input test-models/data/armadillo.obj \
-            --output retopo-cli-test.obj \
+            --input bench/models/armadillo.obj \
+            --output /tmp/retopo-linux-smoke.obj \
             --target-quads 2000
-          test -f retopo-cli-test.obj
-      - name: Run AppImage and capture screenshot
-        run: |
-          set +e
-          chmod +x retopoforge-${{ github.ref_name }}.AppImage
-          export DISPLAY=:99
-          export XDG_RUNTIME_DIR=/tmp/runtime-root
-          mkdir -p "$XDG_RUNTIME_DIR"
-          chmod 700 "$XDG_RUNTIME_DIR"
-
-          Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
-          XVFB_PID=$!
-          sleep 2
-
-          timeout 12s ./retopoforge-${{ github.ref_name }}.AppImage > app-run-ubuntu.log 2>&1 &
-          APP_PID=$!
-          sleep 8
-
-          import -display :99 -window root retopoforge-${{ github.ref_name }}-ubuntu-22.04.png || true
-
-          wait $APP_PID || true
-          kill $APP_PID 2>/dev/null || true
-          kill $XVFB_PID 2>/dev/null || true
-      - name: Upload AppImage screenshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}-ubuntu-22.04.png
-          path: retopoforge-${{ github.ref_name }}-ubuntu-22.04.png
-      - name: Upload Linux AppImage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: retopoforge-${{ github.ref_name }}.AppImage
-          path: retopoforge-${{ github.ref_name }}.AppImage
+          test -f /tmp/retopo-linux-smoke.obj
 
   win32-msvc-upload:
     # Parked: macOS-only for now. Re-enable with a oneTBB source
@@ -579,4 +371,3 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: retopoforge-${{ github.ref_name }}.dmg
-          path: retopoforge-${{ github.ref_name }}.dmg
