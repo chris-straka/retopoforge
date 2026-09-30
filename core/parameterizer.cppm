@@ -109,6 +109,15 @@ public:
         m_guidePolylines = guides;
     }
 
+    // Local density control: per-vertex multipliers on this parameterizer's
+    // input mesh (the resampled island mesh), 1.0 = unchanged. Values clamp
+    // to [0.25, 4.0]; an empty, uniform, or wrong-sized field disables the
+    // modulation and leaves the scaling field untouched.
+    void setDensityField(std::vector<double> field)
+    {
+        m_densityField = std::move(field);
+    }
+
     void setProgressHandler(ProgressHandler progressHandler)
     {
         m_progressHandler = std::move(progressHandler);
@@ -133,6 +142,7 @@ private:
     size_t m_maximumSingularityPairDistance = 6;
     SymmetryPlane m_symmetryPlane;
     const std::vector<std::vector<Vector3>>* m_guidePolylines = nullptr;
+    std::vector<double> m_densityField;
     ProgressHandler m_progressHandler;
 
     std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,

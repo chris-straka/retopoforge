@@ -36,6 +36,7 @@ module;
 module retopo.core.parameterizer;
 
 import retopo.core.constrained_least_squares;
+import retopo.core.density;
 import retopo.core.frame_field;
 import retopo.core.progress;
 import retopo.core.quad_parameterizer;
@@ -390,6 +391,14 @@ bool Parameterizer::parameterize()
 
     std::vector<double> faceScalingField = computeFaceScalingField(*m_vertices,
         *m_triangles, vertexNormals, faceAroundVertexMap);
+
+    // Local density control, default off: an empty field skips everything so
+    // the scaling field stays bit-identical to a run without any mask.
+    if (!m_densityField.empty()) {
+        const std::vector<double> density = Density::normalizeField(m_densityField);
+        if (!density.empty())
+            Density::applyToScalingField(*m_vertices, *m_triangles, density, faceScalingField);
+    }
 
     report(0.02f, "Building surface topology");
     // The parameterization pipeline uses the triangle/corner mesh;

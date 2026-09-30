@@ -25,6 +25,8 @@ retopo_add_test(test_symmetry test_symmetry.cpp)
 set_tests_properties(test_symmetry PROPERTIES TIMEOUT 600)
 retopo_add_test(test_guides test_guides.cpp)
 set_tests_properties(test_guides PROPERTIES TIMEOUT 600)
+retopo_add_test(test_density test_density.cpp)
+set_tests_properties(test_density PROPERTIES TIMEOUT 600)
 
 # CLI round-trip: runs the built retopo binary on bench/models/armadillo.obj.
 # Needs the model file (bench/fetch_models.sh, gitignored) and the retopo

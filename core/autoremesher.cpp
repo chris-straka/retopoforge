@@ -20,6 +20,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/AutoRemesher>
+import retopo.core.density;
 import retopo.core.isotropic_remesher;
 import retopo.core.mesh_separator;
 import retopo.core.parameterizer;
@@ -142,6 +143,15 @@ namespace {
 }
 
 const double AutoRemesher::m_defaultSharpEdgeDegrees = 90;
+
+void AutoRemesher::setDensityMultipliers(const std::vector<double>& multipliers)
+{
+    if (multipliers.size() != m_vertices.size()) {
+        m_densityMultipliers.clear();
+        return;
+    }
+    m_densityMultipliers = Density::normalizeField(multipliers);
+}
 
 double AutoRemesher::calculateAverageEdgeLength(const std::vector<Vector3>& vertices,
     const std::vector<std::vector<size_t>>& faces)
@@ -318,10 +328,31 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
     std::atomic<long long>* adaptiveFieldTimeUs,
     const ProgressHandler* progressHandler,
     std::vector<Vector3>* decimatedVerticesOut,
-    std::vector<std::vector<size_t>>* decimatedTrianglesOut)
+    std::vector<std::vector<size_t>>* decimatedTrianglesOut,
+    const std::vector<double>* densityIn,
+    std::vector<double>* densityOut)
 {
+    // Local density control, default off: every block below is guarded on
+    // densityActive, so a run without a mask executes the exact same
+    // statements (and floating-point ops) as before.
+    std::vector<double> islandDensity;
+    if (nullptr != densityIn && densityIn->size() == vertices.size() && !vertices.empty())
+        islandDensity = Density::normalizeField(*densityIn);
+    bool densityActive = !islandDensity.empty();
+    std::vector<Vector3> positionsBeforeDecimate;
+    if (densityActive)
+        positionsBeforeDecimate = vertices;
+
     auto t_decimateStart = std::chrono::high_resolution_clock::now();
-    decimateIfTooDense(vertices, triangles, voxelSize, sharpEdgeDegrees, islandIndex, decimationStats);
+    const bool decimated = decimateIfTooDense(vertices, triangles, voxelSize, sharpEdgeDegrees, islandIndex, decimationStats);
+    if (densityActive && decimated) {
+        // Decimation retopologized the island: carry the mask across by
+        // nearest position, then re-normalize (a degenerate map falls back
+        // to uniform, which normalizes back to OFF).
+        islandDensity = Density::normalizeField(
+            Density::resampleNearest(positionsBeforeDecimate, islandDensity, vertices));
+        densityActive = !islandDensity.empty();
+    }
     if (nullptr != decimationStats) {
         decimationStats->timeUs += std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - t_decimateStart)
@@ -335,7 +366,8 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
 
     auto t_fieldStart = std::chrono::high_resolution_clock::now();
     std::vector<double> vertexTargetLengths;
-    if (adaptivity > 0.0 && !vertices.empty()) {
+    const bool densityUsable = densityActive && islandDensity.size() == vertices.size();
+    if ((adaptivity > 0.0 || densityUsable) && !vertices.empty()) {
         // A target-length field redistributes the uniform triangle budget.  The
         // field is deliberately computed on the input mesh: IsotropicRemesher
         // propagates it to vertices created by edge splits.
@@ -416,22 +448,36 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
             if (curvature > epsilon)
                 nonZeroCurvatures.push_back(curvature);
         }
-        if (!nonZeroCurvatures.empty()) {
-            const size_t referenceIndex = (nonZeroCurvatures.size() - 1) * 3 / 4;
-            std::nth_element(nonZeroCurvatures.begin(),
-                nonZeroCurvatures.begin() + referenceIndex, nonZeroCurvatures.end());
-            const double curvatureReference = nonZeroCurvatures[referenceIndex];
+        const bool haveCurvatureReference = adaptivity > 0.0 && !nonZeroCurvatures.empty();
+        if (haveCurvatureReference || densityUsable) {
             vertexTargetLengths.resize(vertices.size());
             std::vector<double> importance(vertices.size(), 1.0);
-            const double strength = std::min(adaptivity, 2.0) * 7.0;
-            tbb::parallel_for(tbb::blocked_range<size_t>(0, vertices.size()),
-                [&](const tbb::blocked_range<size_t>& range) {
-                    for (size_t v = range.begin(); v != range.end(); ++v) {
-                        const double normalized = std::min(4.0,
-                            vertexCurvature[v] / std::max(curvatureReference, epsilon));
-                        importance[v] += strength * normalized * normalized;
-                    }
-                });
+            if (haveCurvatureReference) {
+                const size_t referenceIndex = (nonZeroCurvatures.size() - 1) * 3 / 4;
+                std::nth_element(nonZeroCurvatures.begin(),
+                    nonZeroCurvatures.begin() + referenceIndex, nonZeroCurvatures.end());
+                const double curvatureReference = nonZeroCurvatures[referenceIndex];
+                const double strength = std::min(adaptivity, 2.0) * 7.0;
+                tbb::parallel_for(tbb::blocked_range<size_t>(0, vertices.size()),
+                    [&](const tbb::blocked_range<size_t>& range) {
+                        for (size_t v = range.begin(); v != range.end(); ++v) {
+                            const double normalized = std::min(4.0,
+                                vertexCurvature[v] / std::max(curvatureReference, epsilon));
+                            importance[v] += strength * normalized * normalized;
+                        }
+                    });
+                if (densityUsable) {
+                    // Fold the mask in multiplicatively: local triangle
+                    // density scales by the mask while the average-importance
+                    // normalization below keeps the island budget fixed.
+                    for (size_t v = 0; v < vertices.size(); ++v)
+                        importance[v] *= islandDensity[v];
+                }
+            } else {
+                // Flat island under a mask (or adaptivity off): the mask
+                // alone drives the target-length field.
+                importance = islandDensity;
+            }
 
             // Keep integral(area / h^2) equal to the uniform field, which
             // preserves the budget implied by voxelSize while moving triangles
@@ -464,6 +510,9 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
 #if AUTO_REMESHER_DEBUG
     std::cerr << "Island[" << islandIndex << "]: Uniformly remeshing on target edge length: " << voxelSize << '\n';
 #endif
+    std::vector<Vector3> positionsBeforeRemesh;
+    if (densityUsable)
+        positionsBeforeRemesh = vertices;
     IsotropicRemesher isotropicRemesher(vertices, triangles);
     if (nullptr != progressHandler && *progressHandler)
         isotropicRemesher.setProgressHandler(*progressHandler);
@@ -475,6 +524,16 @@ void AutoRemesher::resample(std::vector<Vector3>& vertices,
     isotropicRemesher.remesh();
     vertices = isotropicRemesher.remeshedVertices();
     triangles = isotropicRemesher.remeshedTriangles();
+    if (nullptr != densityOut) {
+        densityOut->clear();
+        if (densityUsable) {
+            // Isotropic remeshing retopologized the island: carry the mask to
+            // the new vertices so the parameterizer can modulate its scaling
+            // field. A degenerate map normalizes back to OFF downstream.
+            *densityOut = Density::normalizeField(Density::resampleNearest(
+                positionsBeforeRemesh, islandDensity, vertices));
+        }
+    }
 #if AUTO_REMESHER_DEBUG
     std::cerr << "Island[" << islandIndex << "]: Uniformly remesh done, vertex count: " << vertices.size() << " triangle count: " << triangles.size() << '\n';
 #endif
@@ -625,6 +684,10 @@ bool AutoRemesher::remesh()
         double smoothNormalDegrees;
         SymmetryPlane symmetryPlane;
         const std::vector<std::vector<Vector3>>* guidePolylines = nullptr;
+        // Density mask slice on the island's input vertices (empty = off),
+        // plus the same mask carried onto the resampled island vertices.
+        std::vector<double> density;
+        std::vector<double> resampledDensity;
     };
 
     if (nullptr != m_progressHandler)
@@ -640,16 +703,25 @@ bool AutoRemesher::remesh()
                 context.triangles.reserve(island.size());
                 std::unordered_map<size_t, size_t> oldToNewVertexMap;
                 oldToNewVertexMap.reserve(island.size() * 2);
+                const bool useDensity = !m_densityMultipliers.empty();
                 for (const auto& face : island) {
                     std::vector<size_t> triangle;
                     triangle.reserve(3);
                     for (size_t i = 0; i < 3; ++i) {
                         auto insertResult = oldToNewVertexMap.insert({ face[i], context.vertices.size() });
-                        if (insertResult.second)
+                        if (insertResult.second) {
                             context.vertices.push_back(m_vertices[face[i]]);
+                            if (useDensity)
+                                context.density.push_back(m_densityMultipliers[face[i]]);
+                        }
                         triangle.push_back(insertResult.first->second);
                     }
                     context.triangles.push_back(std::move(triangle));
+                }
+                if (useDensity) {
+                    // Islands fully outside the mask normalize back to empty
+                    // and run the unmodified pipeline.
+                    context.density = Density::normalizeField(context.density);
                 }
 
                 context.scaling = m_scaling;
@@ -714,7 +786,8 @@ bool AutoRemesher::remesh()
                     auto t0 = std::chrono::high_resolution_clock::now();
                     resample(ctx.vertices, ctx.triangles, ctx.voxelSize, ctx.adaptivity, ctx.sharpEdgeDegrees, ctx.smoothNormalDegrees, i, m_decimationStats,
                         m_adaptiveFieldTime, &isotropicProgress,
-                        &(*m_decimatedIslandVertices)[i], &(*m_decimatedIslandTriangles)[i]);
+                        &(*m_decimatedIslandVertices)[i], &(*m_decimatedIslandTriangles)[i],
+                        &ctx.density, &ctx.resampledDensity);
                     auto t1 = std::chrono::high_resolution_clock::now();
                     *m_resampleTime += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 
@@ -849,6 +922,8 @@ bool AutoRemesher::remesh()
                 thread.parameterizer->setSharpEdgeDegrees(thread.island->sharpEdgeDegrees);
                 thread.parameterizer->setSymmetryPlane(thread.island->symmetryPlane);
                 thread.parameterizer->setGuidePolylines(thread.island->guidePolylines);
+                if (!thread.island->resampledDensity.empty())
+                    thread.parameterizer->setDensityField(thread.island->resampledDensity);
                 bool parameterizeSucceeded = true;
                 try {
                     parameterizeSucceeded = thread.parameterizer->parameterize();
