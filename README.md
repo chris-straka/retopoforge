@@ -10,19 +10,15 @@ relevant, never git-merged.
 
 ## Install (Homebrew)
 
-Homebrew only installs formulae from taps, so pour the in-repo formula
-into a local tap (one-time setup):
-
 ```bash
-brew tap-new local/retopoforge
-cp Formula/retopoforge.rb "$(brew --repository local/retopoforge)/Formula/"
-brew install local/retopoforge/retopoforge
+brew tap chris-straka/retopoforge https://github.com/chris-straka/retopoforge
+brew install chris-straka/retopoforge/retopoforge
 ```
 
-This builds the `retopo` CLI from source (cmake, ninja, llvm, tbb are
-pulled in automatically) and links it onto your PATH as `retopo`.
-(Publishing a `chris-straka/homebrew-retopoforge` tap repo would make
-this a one-line `brew tap` + `brew install`; not done yet.)
+This taps the repo itself (the formula lives in `Formula/`) and builds
+the `retopo` CLI from source (cmake, ninja, llvm, tbb are pulled in
+automatically), linking it onto your PATH as `retopo`. `brew update`
+keeps the tap current; `brew upgrade retopoforge` rebuilds on updates.
 
 ## Build from source (one CMake build for everything)
 
