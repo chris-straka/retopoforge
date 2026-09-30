@@ -71,5 +71,6 @@ hand when relevant, and only with `bench/run.py --check` green.
   `baseline.json` committed).
 - `app/` = Qt GUI shell (sources, `shaders/`, `resources/`, `resources.qrc`).
 - `thirdparty/` = vendored deps (Eigen, TBB, meshoptimizer,
-  isotropicremesher, QtAwesome). OBJ loading and the spinner are native
-  (`core/objreader.*`, `app/spinnerwidget.*`).
+  isotropicremesher). OBJ loading and the spinner are native
+  (`core/objreader.*`, `app/spinnerwidget.*`). QtAwesome was removed
+  (dead code, zero call sites).

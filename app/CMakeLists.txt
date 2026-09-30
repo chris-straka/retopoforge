@@ -11,7 +11,6 @@ set(APP_SOURCES
     main.cpp
     logbrowser.cpp
     logbrowserdialog.cpp
-    spinnableawesomebutton.cpp
     util.cpp
     mainwindow.cpp
     aboutwidget.cpp
@@ -45,11 +44,6 @@ set(APP_SOURCES
     floatnumberwidget.h
     intnumberwidget.h
     resources.qrc
-    ../thirdparty/QtAwesome/QtAwesome/QtAwesome.cpp
-    ../thirdparty/QtAwesome/QtAwesome/QtAwesomeAnim.cpp
-    ../thirdparty/QtAwesome/QtAwesome/QtAwesome.h
-    ../thirdparty/QtAwesome/QtAwesome/QtAwesomeAnim.h
-    ../thirdparty/QtAwesome/QtAwesome/QtAwesome.qrc
     spinnerwidget.cpp
     spinnerwidget.h
 )
@@ -70,7 +64,6 @@ target_sources(retopoforge PRIVATE FILE_SET CXX_MODULES FILES
     monochromeopenglobject.cppm
     modelshadermeshbinder.cppm
     theme.cppm
-    spinnableawesomebutton.cppm
 )
 set_target_properties(retopoforge PROPERTIES CXX_SCAN_FOR_MODULES ON)
 
@@ -121,7 +114,6 @@ endif()
 
 target_include_directories(retopoforge PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/QtAwesome/QtAwesome
 )
 
 target_link_libraries(retopoforge PRIVATE

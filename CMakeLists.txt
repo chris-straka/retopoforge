@@ -134,7 +134,6 @@ if(TARGET retopoforge)
         retopo.app.monochrome_opengl_object
         retopo.app.model_shader_mesh_binder
         retopo.app.theme
-        retopo.app.spinnable_awesome_button
     )
     set(_RETOPO_MMI_FLAGS "")
     foreach(_mod IN LISTS _RETOPO_PCM_NAMES)
@@ -146,7 +145,7 @@ if(TARGET retopoforge)
     endforeach()
     foreach(_stem IN ITEMS modelshadervertex monochromeopenglvertex openglbufferutil
             modelshaderprogram monochromeopenglprogram util modelshadermesh
-            monochromeopenglobject modelshadermeshbinder theme spinnableawesomebutton)
+            monochromeopenglobject modelshadermeshbinder theme)
         list(APPEND _RETOPO_MMI_OBJS "${_RETOPO_APP_PCM_DIR}/${_stem}.cppm.o")
     endforeach()
     set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY retopoforge

@@ -20,11 +20,9 @@
  *  SOFTWARE.
  */
 module;
-#include "QtAwesome.h"
 #include <QAbstractSpinBox>
 #include <QCheckBox>
 #include <QColor>
-#include <QLabel>
 #include <QPushButton>
 #include <QString>
 #include <map>
@@ -52,7 +50,6 @@ public:
     static QString tabButtonStylesheet;
     static std::map<QString, QString> nextSideColorNameMap;
     static std::map<QString, QColor> sideColorNameToColorMap;
-    static QtAwesome* awesome();
     static QWidget* createHorizontalLineWidget();
     static QWidget* createVerticalLineWidget();
     static int toolIconFontSize;
@@ -69,13 +66,6 @@ public:
     static int numberInputWidth;
 
 public:
-    static void initAwesomeButton(QPushButton* button);
-    static void initAwesomeLabel(QLabel* label);
-    static void initAwesomeSmallButton(QPushButton* button);
-    static void initAwesomeMiniButton(QPushButton* button);
-    static void updateAwesomeMiniButton(QPushButton* button, QChar icon, bool highlighted, bool enabled, bool unnormal = false);
-    static void initAwesomeToolButton(QPushButton* button);
-    static void initAwesomeToolButtonWithoutFont(QPushButton* button);
     static void initAwsomeBaseSizes();
     static void initToolButton(QPushButton* button);
     static void initCheckbox(QCheckBox* checkbox);

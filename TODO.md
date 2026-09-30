@@ -48,8 +48,10 @@ new warnings.
       cannot coexist inside module purview (pilot: one module warns,
       two modules hard-error). Revisit only if moc gains module support.
 - [ ] Macro-only `version.h` stays (macros don't export from modules)
-- [ ] (needs user decision) QtAwesome replacement: what replaces the
-      FontAwesome icons?
+- [x] QtAwesome replacement: dead code — zero live call sites, so
+      deleted outright (no SVG set needed): removed
+      `thirdparty/QtAwesome`, `SpinnableAwesomeButton`, and the
+      `Theme::initAwesome*` helpers.
 
 ## C++ follow-ups (after the idioms join)
 

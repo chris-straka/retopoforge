@@ -31,11 +31,9 @@
 // 0xf7, 0xd9, 0xc8
 
 module;
-#include "QtAwesome.h"
 #include <QAbstractSpinBox>
 #include <QCheckBox>
 #include <QColor>
-#include <QLabel>
 #include <QPushButton>
 #include <QString>
 #include <map>
@@ -93,20 +91,6 @@ void Theme::initAwsomeBaseSizes()
     Theme::normalButtonSize = Theme::toolIconSize * 2;
 }
 
-QtAwesome* Theme::awesome()
-{
-    static QtAwesome* s_awesome = nullptr;
-    if (nullptr == s_awesome) {
-        s_awesome = new QtAwesome();
-        s_awesome->initFontAwesome();
-        s_awesome->setDefaultOption("color", Theme::white);
-        s_awesome->setDefaultOption("color-disabled", QColor(0xcc, 0xcc, 0xcc));
-        s_awesome->setDefaultOption("color-active", Theme::white);
-        s_awesome->setDefaultOption("color-selected", Theme::white);
-    }
-    return s_awesome;
-}
-
 std::map<QString, QString> createSideColorNameMap()
 {
     std::map<QString, QString> map;
@@ -128,78 +112,6 @@ std::map<QString, QColor> Theme::sideColorNameToColorMap = createSideColorNameTo
 
 QString Theme::tabButtonSelectedStylesheet = "QPushButton { color: " + Theme::green.name() + "; background-color: #353535; border: 0px; padding-top: 2px; padding-bottom: 2px; padding-left: 25px; padding-right: 25px;}";
 QString Theme::tabButtonStylesheet = "QPushButton { color: " + Theme::white.name() + "; background-color: transparent; border: 0px; padding-top: 2px; padding-bottom: 2px; padding-left: 25px; padding-right: 25px;}";
-
-void Theme::initAwesomeButton(QPushButton* button)
-{
-    button->setFont(Theme::awesome()->font(Theme::toolIconFontSize));
-    button->setFixedSize(Theme::toolIconSize, Theme::toolIconSize);
-    button->setStyleSheet("QPushButton {color: " + Theme::white.name() + "}");
-    button->setFocusPolicy(Qt::NoFocus);
-}
-
-void Theme::initAwesomeSmallButton(QPushButton* button)
-{
-    button->setFont(Theme::awesome()->font(Theme::toolIconFontSize * 0.7));
-    button->setFixedSize(Theme::toolIconSize * 0.75, Theme::toolIconSize * 0.75);
-    button->setStyleSheet("QPushButton {color: " + Theme::white.name() + "}");
-    button->setFocusPolicy(Qt::NoFocus);
-}
-
-void Theme::initAwesomeLabel(QLabel* label)
-{
-    label->setFont(Theme::awesome()->font(Theme::toolIconFontSize));
-    label->setStyleSheet("QLabel {color: " + Theme::white.name() + "}");
-}
-
-void Theme::initAwesomeMiniButton(QPushButton* button)
-{
-    button->setFont(Theme::awesome()->font(Theme::miniIconFontSize));
-    button->setFixedSize(Theme::miniIconSize, Theme::miniIconSize);
-    button->setFocusPolicy(Qt::NoFocus);
-}
-
-void Theme::updateAwesomeMiniButton(QPushButton* button, QChar icon, bool highlighted, bool enabled, bool unnormal)
-{
-    button->setText(icon);
-    QColor color;
-    bool needDesaturation = true;
-
-    if (highlighted) {
-        if (unnormal) {
-            color = Theme::blue;
-            needDesaturation = false;
-        } else {
-            color = Theme::green;
-        }
-    } else {
-        color = QColor("#525252");
-    }
-
-    if (needDesaturation) {
-        color = color.toHsv();
-        color.setHsv(color.hue(), color.saturation() / 5, color.value() * 2 / 3);
-        color = color.toRgb();
-    }
-
-    if (!enabled) {
-        color = QColor(42, 42, 42);
-    }
-
-    button->setStyleSheet("QPushButton {border: none; background: none; color: " + color.name() + ";}");
-}
-
-void Theme::initAwesomeToolButtonWithoutFont(QPushButton* button)
-{
-    button->setFixedSize(Theme::toolIconSize / 2, Theme::toolIconSize / 2);
-    button->setStyleSheet("QPushButton {color: " + Theme::white.name() + "}");
-    button->setFocusPolicy(Qt::NoFocus);
-}
-
-void Theme::initAwesomeToolButton(QPushButton* button)
-{
-    button->setFont(Theme::awesome()->font(Theme::toolIconFontSize / 2));
-    Theme::initAwesomeToolButtonWithoutFont(button);
-}
 
 void Theme::initToolButton(QPushButton* button)
 {

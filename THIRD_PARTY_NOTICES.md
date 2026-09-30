@@ -28,7 +28,6 @@ Everything above, plus:
 | Dependency | License | How it is used |
 |---|---|---|
 | Qt 5 / Qt 6 | LGPLv3 (dynamically linked) | GUI, OpenGL widgets |
-| QtAwesome | MIT | Icon font helper (`thirdparty/QtAwesome`) |
 | QuantumCD dark Fusion palette | Credit (design reference) | Color values inspired by https://gist.github.com/QuantumCD/6245215 |
 
 Qt is used under the LGPL via dynamic linking; no GPL obligations arise from it.
