@@ -208,8 +208,9 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
         size_t rowIndex = 0;
         for (size_t f = 0; f < faces; ++f)
             if (certainty[f] > 0.0) {
-                system.setEnergyRightHandSide(certaintyRows[rowIndex].first, periodic[2 * f]);
-                system.setEnergyRightHandSide(certaintyRows[rowIndex].second, periodic[2 * f + 1]);
+                const auto& [rowU, rowV] = certaintyRows[rowIndex];
+                system.setEnergyRightHandSide(rowU, periodic[2 * f]);
+                system.setEnergyRightHandSide(rowV, periodic[2 * f + 1]);
                 ++rowIndex;
             }
         if (!system.solve(&solved))

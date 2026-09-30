@@ -48,11 +48,11 @@ namespace {
     // sorted array instead of a red black tree with a node per edge.  Vertex
     // indices above 2^32 cannot be packed, and the caller falls back to the tree
     // in that case.
-    const size_t maximumPackableVertexIndex = 0xffffffffu;
+    constexpr size_t maximumPackableVertexIndex = 0xffffffffu;
 
     inline uint64_t packDirectedEdge(size_t from, size_t to)
     {
-        return ((uint64_t)from << 32) | (uint64_t)to;
+        return (static_cast<uint64_t>(from) << 32) | static_cast<uint64_t>(to);
     }
 
     bool buildPackedEdgeToFaceTable(const std::vector<std::vector<size_t>>& faces,
