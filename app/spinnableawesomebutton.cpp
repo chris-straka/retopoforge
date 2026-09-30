@@ -19,9 +19,15 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "spinnableawesomebutton.h"
-#include "theme.h"
 
+module;
+#include "spinnerwidget.h"
+#include <QPushButton>
+#include <QWidget>
+
+module retopo.app.spinnable_awesome_button;
+
+import retopo.app.theme;
 SpinnableAwesomeButton::SpinnableAwesomeButton(QWidget* parent)
     : QWidget(parent)
 {

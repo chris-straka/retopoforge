@@ -1,8 +1,17 @@
-#include "monochromeopenglobject.h"
-#include "openglbufferutil.h"
+
+module;
+#include <QMutex>
+#include <QOpenGLBuffer>
+#include <QOpenGLVertexArrayObject>
+#include <cstdint>
+#include <memory>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 
+module retopo.app.monochrome_opengl_object;
+
+import retopo.app.monochrome_opengl_vertex;
+import retopo.app.opengl_buffer_util;
 void MonochromeOpenGLObject::update(const MonochromeOpenGLVertex* vertices, int vertexCount,
     const uint32_t* indices, int indexCount)
 {

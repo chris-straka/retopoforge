@@ -20,8 +20,8 @@
  *  SOFTWARE.
  */
 #include "graphicswidget.h"
-#include "theme.h"
 #include <QNativeGestureEvent>
+import retopo.app.theme;
 
 GraphicsWidget::GraphicsWidget()
 {

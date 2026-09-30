@@ -20,10 +20,10 @@
  *  SOFTWARE.
  */
 #include "intnumberwidget.h"
-#include "theme.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QtWidgets>
+import retopo.app.theme;
 
 IntNumberWidget::IntNumberWidget(QWidget* parent, bool singleLine)
     : QWidget(parent)

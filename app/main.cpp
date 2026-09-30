@@ -21,7 +21,6 @@
  */
 #include "mainwindow.h"
 #include "preferences.h"
-#include "theme.h"
 #include "version.h"
 #include <QApplication>
 #include <QCommandLineParser>
@@ -38,6 +37,7 @@
 #include <QTranslator>
 #include <QtGlobal>
 #include <iostream>
+import retopo.app.theme;
 
 struct HeadlessParams {
     QString inputPath;

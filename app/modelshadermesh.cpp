@@ -19,11 +19,21 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "modelshadermesh.h"
+
+module;
+#include <QColor>
+#include <QImage>
+#include <QObject>
+#include <cstdint>
+#include <vector>
 #include <QFile>
 #include <QTextStream>
 #include <algorithm>
 #include <cmath>
+
+module retopo.app.model_shader_mesh;
+
+import retopo.app.model_shader_vertex;
 
 float ModelShaderMesh::m_defaultMetalness = 0.0;
 float ModelShaderMesh::m_defaultRoughness = 1.0;

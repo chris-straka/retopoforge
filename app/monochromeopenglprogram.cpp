@@ -1,7 +1,13 @@
-#include "monochromeopenglprogram.h"
+
+module;
+#include <QOpenGLShader>
+#include <QOpenGLShaderProgram>
+#include <map>
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
+
+module retopo.app.monochrome_opengl_program;
 
 static const QString& loadShaderSource(const QString& name)
 {

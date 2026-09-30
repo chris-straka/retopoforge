@@ -21,7 +21,6 @@
  */
 #include "logbrowserdialog.h"
 #include "mainwindow.h"
-#include "util.h"
 #include "version.h"
 #include <QCloseEvent>
 #include <QDir>
@@ -34,6 +33,7 @@
 #include <QTextBrowser>
 #include <QTextStream>
 #include <QVBoxLayout>
+import retopo.app.util;
 
 LogBrowserDialog::LogBrowserDialog(QWidget* parent)
     : QDialog(parent)

@@ -19,8 +19,15 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "modelshadermeshbinder.h"
-#include "openglbufferutil.h"
+
+module;
+#include <QMutex>
+#include <QOpenGLBuffer>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
+#include <QOpenGLTexture>
+#include <QOpenGLVertexArrayObject>
+#include <QString>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -30,6 +37,11 @@
 #include <QTextStream>
 #include <map>
 
+module retopo.app.model_shader_mesh_binder;
+
+import retopo.app.model_shader_vertex;
+import retopo.app.monochrome_opengl_vertex;
+import retopo.app.opengl_buffer_util;
 ModelShaderMeshBinder::ModelShaderMeshBinder(bool toolEnabled)
     : m_toolEnabled(toolEnabled)
 {

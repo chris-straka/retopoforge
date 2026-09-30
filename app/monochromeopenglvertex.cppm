@@ -1,10 +1,11 @@
-#ifndef AUTO_REMESHER_MONOCHROME_OPENGL_VERTEX_H
-#define AUTO_REMESHER_MONOCHROME_OPENGL_VERTEX_H
+module;
 #include <QOpenGLFunctions>
+
+export module retopo.app.monochrome_opengl_vertex;
 
 #pragma pack(push)
 #pragma pack(1)
-struct MonochromeOpenGLVertex {
+export struct MonochromeOpenGLVertex {
     GLfloat posX;
     GLfloat posY;
     GLfloat posZ;
@@ -16,5 +17,3 @@ struct MonochromeOpenGLVertex {
     GLfloat alpha = 0.9f;
 };
 #pragma pack(pop)
-
-#endif

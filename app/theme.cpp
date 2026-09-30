@@ -19,11 +19,6 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "theme.h"
-#include <QApplication>
-#include <QDebug>
-#include <QFontMetrics>
-#include <QGuiApplication>
 
 // Green (primary accent)
 // 0xaa, 0xeb, 0xc4
@@ -34,6 +29,22 @@
 
 // White
 // 0xf7, 0xd9, 0xc8
+
+module;
+#include "QtAwesome.h"
+#include <QAbstractSpinBox>
+#include <QCheckBox>
+#include <QColor>
+#include <QLabel>
+#include <QPushButton>
+#include <QString>
+#include <map>
+#include <QApplication>
+#include <QDebug>
+#include <QFontMetrics>
+#include <QGuiApplication>
+
+module retopo.app.theme;
 
 QColor Theme::red = QColor(0xfc, 0x66, 0x21);
 QColor Theme::green = QColor(0xaa, 0xeb, 0xc4);

@@ -60,10 +60,10 @@
 #include "previewmeshgenerator.h"
 #include "quadmeshgenerator.h"
 #include "rendermeshgenerator.h"
-#include "theme.h"
-#include "util.h"
 #include "version.h"
 #include <AutoRemesher/ObjReader>
+import retopo.app.theme;
+import retopo.app.util;
 
 LogBrowser* g_logBrowser = nullptr;
 QTextBrowser* g_acknowlegementsWidget = nullptr;

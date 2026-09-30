@@ -19,31 +19,9 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_MODEL_SHADER_VERTEX_H
-#define AUTO_REMESHER_MODEL_SHADER_VERTEX_H
-#include <QOpenGLFunctions>
+module;
+#include <QString>
 
-#pragma pack(push)
-#pragma pack(1)
-struct ModelShaderVertex {
-    GLfloat posX;
-    GLfloat posY;
-    GLfloat posZ;
-    GLfloat normX;
-    GLfloat normY;
-    GLfloat normZ;
-    GLfloat colorR;
-    GLfloat colorG;
-    GLfloat colorB;
-    GLfloat texU;
-    GLfloat texV;
-    GLfloat metalness;
-    GLfloat roughness;
-    GLfloat tangentX;
-    GLfloat tangentY;
-    GLfloat tangentZ;
-    GLfloat alpha;
-};
-#pragma pack(pop)
+export module retopo.app.util;
 
-#endif
+export QString unifiedWindowTitle(const QString& text);

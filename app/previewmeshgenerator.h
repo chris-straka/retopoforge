@@ -21,7 +21,6 @@
  */
 #ifndef AUTO_REMESHER_PREVIEW_MESH_GENERATOR_H
 #define AUTO_REMESHER_PREVIEW_MESH_GENERATOR_H
-#include "modelshadermesh.h"
 import retopo.core.vector2;
 import retopo.core.vector3;
 #include <QObject>
@@ -29,6 +28,7 @@ import retopo.core.vector3;
 #include <memory>
 #include <utility>
 #include <vector>
+import retopo.app.model_shader_mesh;
 
 class PreviewMeshGenerator : public QObject {
     Q_OBJECT

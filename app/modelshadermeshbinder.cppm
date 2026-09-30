@@ -19,19 +19,21 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_MODEL_SHADER_MESH_BINDER_H
-#define AUTO_REMESHER_MODEL_SHADER_MESH_BINDER_H
-#include "modelshadermesh.h"
-#include "modelshaderprogram.h"
-#include "monochromeopenglobject.h"
-#include "monochromeopenglprogram.h"
+module;
 #include <QMutex>
 #include <QOpenGLBuffer>
 #include <QOpenGLTexture>
 #include <QOpenGLVertexArrayObject>
 #include <QString>
 
-class ModelShaderMeshBinder {
+export module retopo.app.model_shader_mesh_binder;
+
+import retopo.app.model_shader_mesh;
+import retopo.app.model_shader_program;
+import retopo.app.monochrome_opengl_object;
+import retopo.app.monochrome_opengl_program;
+
+export class ModelShaderMeshBinder {
 public:
     ModelShaderMeshBinder(bool toolEnabled = false);
     ~ModelShaderMeshBinder();
@@ -84,5 +86,3 @@ private:
     QMutex m_newMeshMutex;
     QMutex m_toonNormalAndDepthMapMutex;
 };
-
-#endif

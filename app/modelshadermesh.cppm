@@ -19,10 +19,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_MODEL_SHADER_MESH_H
-#define AUTO_REMESHER_MODEL_SHADER_MESH_H
-#include "modelshadervertex.h"
-import retopo.core.vector3;
+module;
 #include <QColor>
 #include <QImage>
 #include <QObject>
@@ -30,7 +27,12 @@ import retopo.core.vector3;
 #include <cstdint>
 #include <vector>
 
-class ModelShaderMesh {
+export module retopo.app.model_shader_mesh;
+
+import retopo.app.model_shader_vertex;
+import retopo.core.vector3;
+
+export class ModelShaderMesh {
 public:
     ModelShaderMesh(const std::vector<AutoRemesher::Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
         const std::vector<std::vector<AutoRemesher::Vector3>>& triangleVertexNormals,
@@ -107,5 +109,3 @@ private:
     bool m_hasAmbientOcclusionInImage = false;
     quint64 m_meshId = 0;
 };
-
-#endif

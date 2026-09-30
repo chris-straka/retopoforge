@@ -21,10 +21,6 @@
  */
 #ifndef AUTO_REMESHER_MODEL_SHADER_WIDGET_H
 #define AUTO_REMESHER_MODEL_SHADER_WIDGET_H
-#include "modelshadermesh.h"
-#include "modelshadermeshbinder.h"
-#include "modelshaderprogram.h"
-#include "monochromeopenglprogram.h"
 #include <QMatrix4x4>
 #include <QMutex>
 #include <QOpenGLBuffer>
@@ -33,6 +29,10 @@
 #include <QOpenGLWidget>
 #include <QTimer>
 #include <QVector2D>
+import retopo.app.model_shader_mesh;
+import retopo.app.model_shader_mesh_binder;
+import retopo.app.model_shader_program;
+import retopo.app.monochrome_opengl_program;
 
 QT_FORWARD_DECLARE_CLASS(QNativeGestureEvent)
 

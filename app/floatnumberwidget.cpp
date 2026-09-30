@@ -20,11 +20,11 @@
  *  SOFTWARE.
  */
 #include "floatnumberwidget.h"
-#include "theme.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QtWidgets>
 #include <cmath>
+import retopo.app.theme;
 
 FloatNumberWidget::FloatNumberWidget(QWidget* parent, bool singleLine)
     : QWidget(parent)

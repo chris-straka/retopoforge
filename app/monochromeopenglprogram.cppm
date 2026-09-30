@@ -1,10 +1,12 @@
-#ifndef AUTO_REMESHER_MONOCHROME_OPENGL_PROGRAM_H
-#define AUTO_REMESHER_MONOCHROME_OPENGL_PROGRAM_H
+module;
 #include <QOpenGLShader>
 #include <QOpenGLShaderProgram>
 #include <map>
+#include <string>
 
-class MonochromeOpenGLProgram : public QOpenGLShaderProgram {
+export module retopo.app.monochrome_opengl_program;
+
+export class MonochromeOpenGLProgram : public QOpenGLShaderProgram {
 public:
     void load(bool isCoreProfile = false);
     int getUniformLocationByName(const std::string& name);
@@ -15,5 +17,3 @@ private:
     bool m_isCoreProfile = false;
     std::map<std::string, int> m_uniformLocationMap;
 };
-
-#endif

@@ -19,8 +19,7 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_THEME_H
-#define AUTO_REMESHER_THEME_H
+module;
 #include "QtAwesome.h"
 #include <QAbstractSpinBox>
 #include <QCheckBox>
@@ -30,7 +29,9 @@
 #include <QString>
 #include <map>
 
-class Theme {
+export module retopo.app.theme;
+
+export class Theme {
 public:
     static QColor red;
     static QColor green;
@@ -81,5 +82,3 @@ public:
     static void initNumberInput(QAbstractSpinBox* spinBox);
     static QString compactStylesheet();
 };
-
-#endif

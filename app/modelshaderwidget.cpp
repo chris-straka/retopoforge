@@ -23,6 +23,8 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QMouseEvent>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QSurfaceFormat>
 #include <QVector4D>

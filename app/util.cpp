@@ -19,9 +19,13 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "util.h"
+
+module;
+#include <QString>
 #include "version.h"
 #include <QObject>
+
+module retopo.app.util;
 
 QString unifiedWindowTitle(const QString& text)
 {

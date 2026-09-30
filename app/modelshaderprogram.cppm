@@ -19,12 +19,13 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_MODEL_SHADER_PROGRAM_H
-#define AUTO_REMESHER_MODEL_SHADER_PROGRAM_H
+module;
 #include <QOpenGLShaderProgram>
 #include <QString>
 
-class ModelShaderProgram : public QOpenGLShaderProgram {
+export module retopo.app.model_shader_program;
+
+export class ModelShaderProgram : public QOpenGLShaderProgram {
 public:
     ModelShaderProgram(bool isCoreProfile);
     int projectionMatrixLoc();
@@ -97,5 +98,3 @@ private:
     QVector3D m_mousePickTargetPositionValue;
     float m_mousePickRadiusValue = 0.0;
 };
-
-#endif

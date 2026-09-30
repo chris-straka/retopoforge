@@ -19,19 +19,20 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_OPENGL_BUFFER_UTIL_H
-#define AUTO_REMESHER_OPENGL_BUFFER_UTIL_H
+module;
 #include <QDebug>
 #include <QOpenGLBuffer>
 #include <cstddef>
 #include <limits>
+
+export module retopo.app.opengl_buffer_util;
 
 // QOpenGLBuffer::allocate() describes the upload with an int, so a request of
 // INT_MAX bytes or more wraps around to a negative size. glBufferData then
 // fails with GL_INVALID_VALUE and leaves the buffer without any storage, and
 // the later draw call dereferences a null base pointer inside the driver.
 // Refuse the upload instead, and report whether the buffer is safe to draw.
-inline bool allocateOpenGLBuffer(QOpenGLBuffer& buffer, const void* data, size_t bytes)
+export inline bool allocateOpenGLBuffer(QOpenGLBuffer& buffer, const void* data, size_t bytes)
 {
     if (bytes > static_cast<size_t>(std::numeric_limits<int>::max())) {
         qWarning() << "Refusing to upload" << bytes << "bytes, buffer size limit is"
@@ -41,5 +42,3 @@ inline bool allocateOpenGLBuffer(QOpenGLBuffer& buffer, const void* data, size_t
     buffer.allocate(data, static_cast<int>(bytes));
     return buffer.size() == static_cast<int>(bytes);
 }
-
-#endif

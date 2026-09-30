@@ -1,13 +1,15 @@
-#ifndef AUTO_REMESHER_MONOCHROME_OPENGL_OBJECT_H
-#define AUTO_REMESHER_MONOCHROME_OPENGL_OBJECT_H
-#include "monochromeopenglvertex.h"
+module;
 #include <QMutex>
 #include <QOpenGLBuffer>
 #include <QOpenGLVertexArrayObject>
 #include <cstdint>
 #include <memory>
 
-class MonochromeOpenGLObject {
+export module retopo.app.monochrome_opengl_object;
+
+import retopo.app.monochrome_opengl_vertex;
+
+export class MonochromeOpenGLObject {
 public:
     // Pass indices to draw shared vertices with glDrawElements, which is what
     // large models need: expanding every line into its own pair of vertices
@@ -31,5 +33,3 @@ private:
     bool m_meshIsDirty = false;
     QMutex m_meshMutex;
 };
-
-#endif

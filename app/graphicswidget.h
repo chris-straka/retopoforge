@@ -22,8 +22,8 @@
 #ifndef AUTO_REMESHER_GRAPHICS_WIDGET_H
 #define AUTO_REMESHER_GRAPHICS_WIDGET_H
 #include "modelshaderwidget.h"
-#include "theme.h"
 #include <QGraphicsView>
+import retopo.app.theme;
 
 class GraphicsWidget : public QGraphicsView {
     Q_OBJECT

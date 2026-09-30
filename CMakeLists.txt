@@ -103,15 +103,16 @@ if(RETOPOFORGE_BUILD_QT_APP)
     add_subdirectory(app)
 endif()
 if(TARGET autoremesher)
-    # AUTOMOC's unity file includes moc outputs for app headers that now import
-    # retopo.core modules, but CMake compiles autogen sources with the unscanned
-    # rule (no dyndep BMI flags), so hand the unity file the module files it
-    # needs. Ordering comes from the finished static lib: the .pcm files have
-    # no static ninja rule (dyndep produces them), so a static edge on them
-    # fails fresh-build planning -- the lib archive instead completes only
-    # after every module compile, hence after every .pcm exists. Revisit if
-    # CMake starts scanning autogen sources or if more lane modules land
-    # (extend the module list; the lib edge already covers them).
+    # AUTOMOC's unity file includes moc outputs for app headers that import
+    # retopo.core and retopo.app modules, but CMake compiles autogen sources
+    # with the unscanned rule (no dyndep BMI flags), so hand the unity file
+    # the module files it needs. Ordering uses only statically-known rules:
+    # the finished static lib (completes after every core module compile)
+    # and the app modules' own object files (each completes after its .pcm
+    # exists). Never edge on a .pcm path directly: dyndep produces .pcms
+    # with no static ninja rule, which fails fresh-build planning. Revisit
+    # if CMake starts scanning autogen sources; extend both lists when new
+    # app modules land.
     set(_RETOPO_MMI ${CMAKE_BINARY_DIR}/app/autoremesher_autogen/mocs_compilation.cpp)
     set(_RETOPO_PCM_DIR ${CMAKE_BINARY_DIR}/CMakeFiles/retopo_core.dir)
     set(_RETOPO_PCM_NAMES
@@ -121,19 +122,46 @@ if(TARGET autoremesher)
         retopo.core.vector3
         retopo.core.quad_extractor
     )
+    set(_RETOPO_APP_PCM_DIR ${CMAKE_BINARY_DIR}/app/CMakeFiles/autoremesher.dir)
+    set(_RETOPO_APP_PCM_NAMES
+        retopo.app.model_shader_vertex
+        retopo.app.monochrome_opengl_vertex
+        retopo.app.opengl_buffer_util
+        retopo.app.model_shader_program
+        retopo.app.monochrome_opengl_program
+        retopo.app.util
+        retopo.app.model_shader_mesh
+        retopo.app.monochrome_opengl_object
+        retopo.app.model_shader_mesh_binder
+        retopo.app.theme
+        retopo.app.spinnable_awesome_button
+    )
     set(_RETOPO_MMI_FLAGS "")
     foreach(_mod IN LISTS _RETOPO_PCM_NAMES)
         list(APPEND _RETOPO_MMI_FLAGS "-fmodule-file=${_mod}=${_RETOPO_PCM_DIR}/${_mod}.pcm")
     endforeach()
+    set(_RETOPO_MMI_OBJS ${CMAKE_BINARY_DIR}/libretopo_core.a)
+    foreach(_mod IN LISTS _RETOPO_APP_PCM_NAMES)
+        list(APPEND _RETOPO_MMI_FLAGS "-fmodule-file=${_mod}=${_RETOPO_APP_PCM_DIR}/${_mod}.pcm")
+    endforeach()
+    foreach(_stem IN ITEMS modelshadervertex monochromeopenglvertex openglbufferutil
+            modelshaderprogram monochromeopenglprogram util modelshadermesh
+            monochromeopenglobject modelshadermeshbinder theme spinnableawesomebutton)
+        list(APPEND _RETOPO_MMI_OBJS "${_RETOPO_APP_PCM_DIR}/${_stem}.cppm.o")
+    endforeach()
     set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
         APPEND PROPERTY COMPILE_OPTIONS ${_RETOPO_MMI_FLAGS})
     set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
-        APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/libretopo_core.a)
+        APPEND PROPERTY OBJECT_DEPENDS ${_RETOPO_MMI_OBJS})
     unset(_RETOPO_MMI)
     unset(_RETOPO_PCM_DIR)
     unset(_RETOPO_PCM_NAMES)
+    unset(_RETOPO_APP_PCM_DIR)
+    unset(_RETOPO_APP_PCM_NAMES)
     unset(_RETOPO_MMI_FLAGS)
+    unset(_RETOPO_MMI_OBJS)
     unset(_mod)
+    unset(_stem)
 endif()
 
 enable_testing()

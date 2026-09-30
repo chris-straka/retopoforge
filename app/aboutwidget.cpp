@@ -20,11 +20,11 @@
  *  SOFTWARE.
  */
 #include "aboutwidget.h"
-#include "util.h"
 #include "version.h"
 #include <QOpenGLFunctions>
 #include <QTextEdit>
 #include <QVBoxLayout>
+import retopo.app.util;
 
 AboutWidget::AboutWidget()
 {

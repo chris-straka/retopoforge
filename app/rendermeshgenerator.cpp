@@ -26,6 +26,8 @@
 #include <cstring>
 #include <limits>
 
+import retopo.app.model_shader_vertex;
+
 void RenderMeshGenerator::process()
 {
     generate();

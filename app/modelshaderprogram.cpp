@@ -19,9 +19,14 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include "modelshaderprogram.h"
+
+module;
+#include <QOpenGLShaderProgram>
+#include <QString>
 #include <QFile>
 #include <map>
+
+module retopo.app.model_shader_program;
 
 const QString& ModelShaderProgram::loadShaderSource(const QString& name)
 {

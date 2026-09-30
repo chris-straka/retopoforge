@@ -33,22 +33,11 @@ set(APP_SOURCES
     intnumberwidget.cpp
     logbrowser.h
     logbrowserdialog.h
-    spinnableawesomebutton.h
-    util.h
     version.h
     mainwindow.h
     aboutwidget.h
-    theme.h
     graphicscontainerwidget.h
     graphicswidget.h
-    modelshadermesh.h
-    modelshadermeshbinder.h
-    modelshaderprogram.h
-    modelshadervertex.h
-    monochromeopenglprogram.h
-    monochromeopenglobject.h
-    openglbufferutil.h
-    monochromeopenglvertex.h
     modelshaderwidget.h
     rendermeshgenerator.h
     previewmeshgenerator.h
@@ -67,6 +56,24 @@ set(APP_SOURCES
 )
 
 add_executable(autoremesher ${APP_SOURCES})
+
+# App-side named modules, one per converted plain component. Q_OBJECT
+# widgets stay in headers: moc generates member definitions plus Qt
+# includes that cannot coexist inside module purview (proven by pilot).
+target_sources(autoremesher PRIVATE FILE_SET CXX_MODULES FILES
+    modelshadervertex.cppm
+    monochromeopenglvertex.cppm
+    openglbufferutil.cppm
+    modelshaderprogram.cppm
+    monochromeopenglprogram.cppm
+    util.cppm
+    modelshadermesh.cppm
+    monochromeopenglobject.cppm
+    modelshadermeshbinder.cppm
+    theme.cppm
+    spinnableawesomebutton.cppm
+)
+set_target_properties(autoremesher PROPERTIES CXX_SCAN_FOR_MODULES ON)
 
 set_target_properties(autoremesher PROPERTIES
     WIN32_EXECUTABLE TRUE
