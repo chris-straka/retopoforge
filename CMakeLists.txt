@@ -3,7 +3,7 @@ project(retopoforge VERSION 0.1.0 LANGUAGES C CXX)
 
 # retopoforge: fork of huxingyi/autoremesher (MIT), restructured around a
 # Qt-free headless engine + CLI + Qt6 desktop app. One CMake build covers
-# everything: retopo_core, the retopo CLI, and the autoremesher app.
+# everything: retopo_core, the retopo CLI, and the retopoforge app.
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -102,7 +102,7 @@ option(RETOPOFORGE_BUILD_QT_APP "Build the Qt6 desktop app" ON)
 if(RETOPOFORGE_BUILD_QT_APP)
     add_subdirectory(app)
 endif()
-if(TARGET autoremesher)
+if(TARGET retopoforge)
     # AUTOMOC's unity file includes moc outputs for app headers that import
     # retopo.core and retopo.app modules, but CMake compiles autogen sources
     # with the unscanned rule (no dyndep BMI flags), so hand the unity file
@@ -113,7 +113,7 @@ if(TARGET autoremesher)
     # with no static ninja rule, which fails fresh-build planning. Revisit
     # if CMake starts scanning autogen sources; extend both lists when new
     # app modules land.
-    set(_RETOPO_MMI ${CMAKE_BINARY_DIR}/app/autoremesher_autogen/mocs_compilation.cpp)
+    set(_RETOPO_MMI ${CMAKE_BINARY_DIR}/app/retopoforge_autogen/mocs_compilation.cpp)
     set(_RETOPO_PCM_DIR ${CMAKE_BINARY_DIR}/CMakeFiles/retopo_core.dir)
     set(_RETOPO_PCM_NAMES
         retopo.core.double_utils
@@ -122,7 +122,7 @@ if(TARGET autoremesher)
         retopo.core.vector3
         retopo.core.quad_extractor
     )
-    set(_RETOPO_APP_PCM_DIR ${CMAKE_BINARY_DIR}/app/CMakeFiles/autoremesher.dir)
+    set(_RETOPO_APP_PCM_DIR ${CMAKE_BINARY_DIR}/app/CMakeFiles/retopoforge.dir)
     set(_RETOPO_APP_PCM_NAMES
         retopo.app.model_shader_vertex
         retopo.app.monochrome_opengl_vertex
@@ -149,9 +149,9 @@ if(TARGET autoremesher)
             monochromeopenglobject modelshadermeshbinder theme spinnableawesomebutton)
         list(APPEND _RETOPO_MMI_OBJS "${_RETOPO_APP_PCM_DIR}/${_stem}.cppm.o")
     endforeach()
-    set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
+    set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY retopoforge
         APPEND PROPERTY COMPILE_OPTIONS ${_RETOPO_MMI_FLAGS})
-    set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
+    set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY retopoforge
         APPEND PROPERTY OBJECT_DEPENDS ${_RETOPO_MMI_OBJS})
     unset(_RETOPO_MMI)
     unset(_RETOPO_PCM_DIR)

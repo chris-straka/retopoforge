@@ -21,7 +21,7 @@ cmake --build build
 ```
 
 This builds the `retopo` CLI (`build/cli/retopo`) and the Qt6 desktop app
-(`build/app/autoremesher.app` on macOS). For a headless-only build without
+(`build/app/retopoforge.app` on macOS). For a headless-only build without
 Qt installed: `cmake -S . -B build -DRETOPOFORGE_BUILD_QT_APP=OFF`.
 
 ## CLI usage

@@ -57,7 +57,7 @@ new warnings.
       `string_view` params, `std::span`, `std::expected` returns
 - [ ] Expand `tests/`: solver golden tests, CLI round-trip tests;
       wire `ctest` into CI
-- [ ] Binary rename `autoremesher` → `retopoforge` (binaries, bundle, docs)
+- [x] Binary rename `autoremesher` → `retopoforge` (binaries, bundle, docs)
 - [ ] Upstream watch: evaluate the Sept-2026 Kwizatz PRs for porting —
       input validation (#58), parameterizer success flag (#57), dense
       face map (#56); unique_ptr (#60) and Qt6/MinGW (#59) already covered
