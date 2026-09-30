@@ -624,6 +624,7 @@ bool AutoRemesher::remesh()
         double sharpEdgeDegrees;
         double smoothNormalDegrees;
         SymmetryPlane symmetryPlane;
+        const std::vector<std::vector<Vector3>>* guidePolylines = nullptr;
     };
 
     if (nullptr != m_progressHandler)
@@ -658,6 +659,7 @@ bool AutoRemesher::remesh()
                 context.sharpEdgeDegrees = m_sharpEdgeDegrees;
                 context.smoothNormalDegrees = m_smoothNormalDegrees;
                 context.symmetryPlane = m_symmetryPlane;
+                context.guidePolylines = &m_guidePolylines;
             }
         });
     auto t_buildEnd = std::chrono::high_resolution_clock::now();
@@ -841,6 +843,7 @@ bool AutoRemesher::remesh()
                 thread.parameterizer->setAnisotropy(thread.island->anisotropy);
                 thread.parameterizer->setSharpEdgeDegrees(thread.island->sharpEdgeDegrees);
                 thread.parameterizer->setSymmetryPlane(thread.island->symmetryPlane);
+                thread.parameterizer->setGuidePolylines(thread.island->guidePolylines);
                 bool parameterizeSucceeded = true;
                 try {
                     parameterizeSucceeded = thread.parameterizer->parameterize();

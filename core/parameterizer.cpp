@@ -49,6 +49,8 @@ namespace AutoRemesher {
 
 namespace {
 
+    const std::vector<std::vector<Vector3>> emptyGuides;
+
     std::vector<double> computeConformalScaling(const SurfaceMesh& mesh,
         const std::vector<int>& vertexCharges,
         const std::vector<double>& desiredFaceScaling,
@@ -404,7 +406,8 @@ bool Parameterizer::parameterize()
     if (nullptr != m_triangleFieldVectors) {
         field = *m_triangleFieldVectors;
     } else if (!FrameField::create(topology, m_sharpEdgeDegrees,
-                   &field)) {
+                   &field,
+                   nullptr != m_guidePolylines ? *m_guidePolylines : emptyGuides)) {
         std::cerr << "Frame field solve failed\n";
         return false;
     }

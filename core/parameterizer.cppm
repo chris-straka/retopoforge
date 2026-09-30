@@ -101,6 +101,14 @@ public:
         m_symmetryPlane = plane;
     }
 
+    // User guide polylines for the frame field: ordered point chains in mesh
+    // coordinates (see FrameField::create). Null (the default) disables the
+    // guide pass; the caller keeps the pointee alive through parameterize().
+    void setGuidePolylines(const std::vector<std::vector<Vector3>>* guides)
+    {
+        m_guidePolylines = guides;
+    }
+
     void setProgressHandler(ProgressHandler progressHandler)
     {
         m_progressHandler = std::move(progressHandler);
@@ -124,6 +132,7 @@ private:
     bool m_singularitySimplification = true;
     size_t m_maximumSingularityPairDistance = 6;
     SymmetryPlane m_symmetryPlane;
+    const std::vector<std::vector<Vector3>>* m_guidePolylines = nullptr;
     ProgressHandler m_progressHandler;
 
     std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,
