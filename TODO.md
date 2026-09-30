@@ -79,6 +79,15 @@ bit-identical counts), and new code adds zero new warnings.
 - [x] GLB input (and ideally output) for the CLI to cut the manual
       GLB→OBJ conversion out of the loop (cgltf input + hand-written
       writer; batch and `--lods` keep the extension)
+- [ ] Full PBR bake: bake every map the source has (albedo, roughness,
+      metallic, AO, emissive), not just diffuse + normal; cage support
+- [ ] One-click end-to-end: remesh → UV → bake all maps in one action
+- [ ] Better low-poly UVs: proper unwrap + pack with texel-density
+      control (replacing Smart UV), or the engine-side global atlas
+      (see Engine backlog)
+- [ ] Direct UV projection: nearest-point UV copy where the remesh hugs
+      the source (keeps original seams, skips re-bake)
+- [ ] Vertex-color / attribute transfer for non-textured AI outputs
 
 ## Character quality (engine work that serves the game)
 
