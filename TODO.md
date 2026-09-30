@@ -203,8 +203,8 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Global UV atlas: `--uvs on` normalizes 0..1 per island, so
       multi-island UVs overlap. Pack islands into one atlas (or emit
       per-island UDIM offsets).
-- [ ] Blender sharp-marks export: `--features` is CLI-only; add
-      Blender-side marking (sharp edges → feature file) with recall.
+- [x] Blender sharp-marks export: sharp-marked edges → `--features`
+      file with recall, shared chain tracer with guides (byte-identical)
 - [ ] Engine island drop counter: replace the CLI's bbox island
       attribution heuristic with a real per-island output/empty count
       from the engine.
