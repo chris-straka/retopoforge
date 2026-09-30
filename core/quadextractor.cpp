@@ -18,7 +18,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/Double>
-#include <AutoRemesher/MeshSeparator>
+import retopo.core.mesh_separator;
 import retopo.core.position_key;
 #include <AutoRemesher/QuadExtractor>
 #include <algorithm>

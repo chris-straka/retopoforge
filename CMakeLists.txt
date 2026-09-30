@@ -36,9 +36,15 @@ add_library(retopo_core STATIC ${CORE_SOURCES})
 # C++ named modules, one per converted component (importable by dependents).
 target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
     core/constrainedleastsquares.cppm
+    core/framefield.cppm
+    core/isotropicremesher.cppm
+    core/meshseparator.cppm
     core/mixedintegerleastsquares.cppm
+    core/parameterizer.cppm
     core/positionkey.cppm
+    core/quadparameterizer.cppm
     core/singularitysimplifier.cppm
+    core/surfacemesh.cppm
 )
 # Scan every source for module use: without this, plain .cpp importers are
 # compiled unscanned (no BMI flags, no ordering after the module build).

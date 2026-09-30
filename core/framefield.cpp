@@ -19,16 +19,21 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#include <AutoRemesher/FrameField>
-
-#include <AutoRemesher/SurfaceMesh>
-import retopo.core.constrained_least_squares;
+module;
+#include <AutoRemesher/Vector3>
 #include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <utility>
+#include <vector>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
+module retopo.core.frame_field;
+
+import retopo.core.constrained_least_squares;
+import retopo.core.surface_mesh;
 
 namespace AutoRemesher {
 namespace {
