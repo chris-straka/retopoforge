@@ -10,6 +10,7 @@
 # The engine stays MIT-licensed: this GPL extension talks to it only as a
 # subprocess over OBJ files, never linked, never imported.
 
+import json
 import os
 import re
 import shutil
@@ -35,6 +36,14 @@ ADDON_ID = __package__
 _SUMMARY_RE = re.compile(
     r"Quads:\s*(\d+).*?Non-quads:\s*(\d+).*?Vertices:\s*(\d+).*?Time:\s*([\d.]+)",
     re.DOTALL,
+)
+
+# One line per rung in the CLI's multimode stdout, e.g.
+# "LOD 0: target-quads=10000 output=/tmp/x_lod0.obj quads=9051 non-quads=3 ...".
+_LOD_RUNG_RE = re.compile(
+    # The space before quads= skips the "target-quads=" field earlier on
+    # the same line (its prefix is '-', not whitespace).
+    r"LOD\s+(\d+):.*?\squads=(\d+).*?non-quads=(\d+)",
 )
 
 
@@ -67,6 +76,112 @@ def parse_summary(stdout_text):
         return None
     quads, non_quads, verts, seconds = match.groups()
     return int(quads), int(non_quads), int(verts), float(seconds)
+
+
+def parse_lod_targets(text):
+    """Parse a comma-separated LOD target string into a list of positive
+    ints. Raises ValueError with a user-facing message on bad input."""
+    parts = [p.strip() for p in (text or "").split(",")]
+    targets = []
+    for part in parts:
+        if not part.isdigit() or int(part) <= 0:
+            raise ValueError(
+                f"LOD targets must be positive integers, got '{part}' "
+                f"in '{text}'")
+        targets.append(int(part))
+    if not targets:
+        raise ValueError("LOD targets must list at least one quad count")
+    return targets
+
+
+# Scene params snapshotted into the recall blob, grouped by Blender type.
+_RECALL_INT_KEYS = ("target_quads",)
+_RECALL_FLOAT_KEYS = ("sharp_edge", "smooth_normal", "edge_scaling",
+                      "adaptivity", "anisotropy")
+_RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original")
+_RECALL_STR_KEYS = ("lod_targets",)
+_RECALL_MODEL_TYPES = ("ORGANIC", "HARDSURFACE")
+
+
+def _params_snapshot(params):
+    snap = {k: int(getattr(params, k)) for k in _RECALL_INT_KEYS}
+    snap.update({k: float(getattr(params, k)) for k in _RECALL_FLOAT_KEYS})
+    snap.update({k: bool(getattr(params, k)) for k in _RECALL_BOOL_KEYS})
+    snap.update({k: str(getattr(params, k)) for k in _RECALL_STR_KEYS})
+    snap["model_type"] = str(params.model_type)
+    return snap
+
+
+def _read_recall_blob(context):
+    try:
+        blob = json.loads(context.scene.retopoforge_recall or "{}")
+    except (ValueError, TypeError):
+        return {}
+    return blob if isinstance(blob, dict) else {}
+
+
+def save_recall_entry(context, obj_name, params):
+    """Remember the params just used for obj_name. A corrupt blob is
+    discarded, never merged with: the fresh snapshot wins outright."""
+    blob = _read_recall_blob(context)
+    blob[obj_name] = _params_snapshot(params)
+    context.scene.retopoforge_recall = json.dumps(blob, sort_keys=True)
+
+
+def load_recall_entry(context, obj_name):
+    """Copy the saved params for obj_name into the scene params. Returns
+    True when an entry existed (even if some keys were invalid and
+    skipped); unknown keys and mistyped values never raise."""
+    blob = _read_recall_blob(context)
+    entry = blob.get(obj_name)
+    if not isinstance(entry, dict):
+        return False
+    params = context.scene.retopoforge_params
+    for key in _RECALL_INT_KEYS:
+        value = entry.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            try:
+                setattr(params, key, value)
+            except (ValueError, TypeError):
+                pass
+    for key in _RECALL_FLOAT_KEYS:
+        value = entry.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            try:
+                setattr(params, key, float(value))
+            except (ValueError, TypeError):
+                pass
+    for key in _RECALL_BOOL_KEYS:
+        value = entry.get(key)
+        if isinstance(value, bool):
+            try:
+                setattr(params, key, value)
+            except (ValueError, TypeError):
+                pass
+    for key in _RECALL_STR_KEYS:
+        value = entry.get(key)
+        if isinstance(value, str):
+            try:
+                setattr(params, key, value)
+            except (ValueError, TypeError):
+                pass
+    if entry.get("model_type") in _RECALL_MODEL_TYPES:
+        try:
+            params.model_type = entry["model_type"]
+        except (ValueError, TypeError):
+            pass
+    return True
+
+
+def _recall_target_name(context, targets):
+    # Multi-object remesh recalls the active object's entry (the one the
+    # user most likely tuned for); a non-mesh active object falls back to
+    # the first target so single-object runs always recall themselves.
+    active = context.view_layer.objects.active
+    if (active is not None and active.type == "MESH"
+            and any(o.name == active.name for o in targets)):
+        return active.name
+    return targets[0].name
 
 
 class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
@@ -122,6 +237,11 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         name="Keep Original",
         description="Spawn a remeshed copy and hide the original instead of replacing its mesh",
         default=False,
+    )
+    lod_targets: StringProperty(
+        name="LOD Targets",
+        description="Comma-separated quad counts for Generate LODs (one rung per value)",
+        default="10000,5000,2000",
     )
 
     def cli_args(self, binary, input_path, output_path):
@@ -246,6 +366,9 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         else:
             line = f"{job['obj'].name}: done (no summary parsed)"
         context.scene.retopoforge_last_report += line + "\n"
+        # Both execute and modal paths funnel through here, so one save
+        # covers every successful remesh; failures raise before this line.
+        save_recall_entry(context, job["obj"].name, self._params)
         return line
 
     def _cleanup(self, context):
@@ -283,6 +406,13 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         if not targets:
             self.report({"ERROR"}, "Select at least one mesh object")
             return {"CANCELLED"}
+        # Do-overs are one click: a previous remesh of this object restores
+        # its exact params (same recall point as the modal invoke below, so
+        # headless runs behave identically). self._params aliases the scene
+        # group, so the loaded values flow straight into the CLI call.
+        recall_name = _recall_target_name(context, targets)
+        if load_recall_entry(context, recall_name):
+            self.report({"INFO"}, f"Recalled last settings for '{recall_name}'")
         self._tmpdir = tempfile.mkdtemp(prefix="retopoforge_")
         context.scene.retopoforge_last_report = ""
         try:
@@ -327,6 +457,11 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         if not targets:
             self.report({"ERROR"}, "Select at least one mesh object")
             return {"CANCELLED"}
+        # Recall before queueing: at invoke, an entry for this object
+        # restores its last-used params so a do-over is one click.
+        recall_name = _recall_target_name(context, targets)
+        if load_recall_entry(context, recall_name):
+            self.report({"INFO"}, f"Recalled last settings for '{recall_name}'")
         self._tmpdir = tempfile.mkdtemp(prefix="retopoforge_")
         self._queue = [{"obj": o, "matrix": o.matrix_world.copy()} for o in targets]
         self._total = len(self._queue)
@@ -416,6 +551,139 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         return {"CANCELLED"}
 
 
+class RETOPOFORGE_OT_generate_lods(bpy.types.Operator):
+    """Generate LOD rungs for the selection as <name>_lodN siblings.
+
+    Design: rungs become SIBLING objects, not mesh swaps on the source
+    (unlike Remesh) and not hidden backups. The source stays the full-res
+    reference, each rung is independently visible/toggleable in the
+    outliner, and game-engine LOD tooling expects sibling objects. The
+    source mesh and transform are never touched, so keep_original does
+    not apply here; on name clashes (re-runs) Blender's usual .001
+    suffixing keeps every rung. One CLI invocation emits the whole chain
+    (--lods), so this operator stays synchronous: no modal loop needed
+    for a single subprocess call.
+    """
+
+    bl_idname = "retopoforge.generate_lods"
+    bl_label = "Generate LODs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def _export_identity(self, context, obj, filepath, apply_modifiers):
+        _ensure_object_mode()
+        context.view_layer.update()
+        for o in context.selected_objects:
+            o.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        # Same identity-transform export as Remesh: local == world, so the
+        # round-trip cannot scale, rotate, or move the mesh by accident.
+        saved_matrix = obj.matrix_world.copy()
+        obj.matrix_world = Matrix()
+        context.view_layer.update()
+        _export_selection(context, filepath, apply_modifiers)
+        obj.matrix_world = saved_matrix
+
+    def _adopt_rung(self, obj, rung_path, rung_index):
+        imported = _import_result(rung_path)
+        if not imported:
+            raise RuntimeError(f"CLI output {rung_path} imported no mesh objects")
+        rung = imported[0]
+        rung.name = f"{obj.name}_lod{rung_index}"
+        rung.data.name = rung.name
+        # True siblings: link the source's collections first, then drop any
+        # others the importer linked (the active one), so the rung is never
+        # momentarily collection-less.
+        obj_colls = set(obj.users_collection)
+        for coll in obj_colls:
+            if rung.name not in coll.objects:
+                coll.objects.link(rung)
+        for coll in list(rung.users_collection):
+            if coll not in obj_colls:
+                coll.objects.unlink(rung)
+        rung.matrix_world = obj.matrix_world
+        rung.select_set(False)
+        for temp in imported[1:]:
+            bpy.data.objects.remove(temp, do_unlink=True)
+        return rung
+
+    def execute(self, context):
+        params = context.scene.retopoforge_params
+        prefs = context.preferences.addons[ADDON_ID].preferences
+        binary = find_retopo_binary(prefs.retopo_binary)
+        if not binary:
+            self.report({"ERROR"}, "retopo binary not found (see add-on preferences)")
+            return {"CANCELLED"}
+        targets = _mesh_objects(context)
+        if not targets:
+            self.report({"ERROR"}, "Select at least one mesh object")
+            return {"CANCELLED"}
+        try:
+            rung_targets = parse_lod_targets(params.lod_targets)
+        except ValueError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        tmpdir = tempfile.mkdtemp(prefix="retopoforge_lods_")
+        context.scene.retopoforge_last_report = ""
+        try:
+            for index, obj in enumerate(targets):
+                matrix = obj.matrix_world.copy()
+                try:
+                    input_path = os.path.join(tmpdir, f"in_{index}.obj")
+                    self._export_identity(
+                        context, obj, input_path, params.apply_modifiers)
+                    # --lods overrides --target-quads; the CLI writes
+                    # <stem>_lodN.obj next to --output for each rung.
+                    output_base = os.path.join(tmpdir, f"out_{index}.obj")
+                    args = params.cli_args(binary, input_path, output_base)
+                    args += ["--lods", ",".join(str(t) for t in rung_targets)]
+                    proc = subprocess.run(args, capture_output=True, text=True)
+                    if proc.returncode != 0:
+                        tail = (proc.stderr or "").strip().splitlines()
+                        detail = tail[-1] if tail else "unknown error"
+                        raise RuntimeError(f"retopo failed: {detail}")
+                    stem = os.path.splitext(os.path.basename(output_base))[0]
+                    rung_paths = [os.path.join(tmpdir, f"{stem}_lod{r}.obj")
+                                  for r in range(len(rung_targets))]
+                    missing = [p for p in rung_paths if not os.path.isfile(p)]
+                    if missing:
+                        raise RuntimeError(
+                            "retopo produced no output for "
+                            + ", ".join(os.path.basename(p) for p in missing))
+                    names = [self._adopt_rung(obj, p, r).name
+                             for r, p in enumerate(rung_paths)]
+                    obj.matrix_world = matrix
+                    # Per-rung counts come from the CLI's "LOD N: ... quads=K
+                    # non-quads=M" lines; a parse miss still reports success
+                    # with names only (the meshes themselves are the proof).
+                    counts = {int(r): (int(q), int(nq)) for r, q, nq
+                              in _LOD_RUNG_RE.findall(proc.stdout or "")}
+                    bits = []
+                    for r, name in enumerate(names):
+                        if r in counts:
+                            quads, non_quads = counts[r]
+                            bits.append(f"{name}={quads}q+{non_quads}nq")
+                        else:
+                            bits.append(name)
+                    line = f"{obj.name}: " + ", ".join(bits)
+                    context.scene.retopoforge_last_report += line + "\n"
+                    save_recall_entry(context, obj.name, params)
+                    self.report({"INFO"}, line)
+                except RuntimeError as exc:
+                    obj.matrix_world = matrix
+                    self.report({"ERROR"}, str(exc))
+                    return {"CANCELLED"}
+            for o in context.selected_objects:
+                o.select_set(False)
+            for obj in targets:
+                obj.select_set(True)
+            context.view_layer.objects.active = targets[0]
+        finally:
+            if os.path.isdir(tmpdir):
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_OT_reload(bpy.types.Operator):
     """Reload all scripts (picks up extension updates), then confirm"""
 
@@ -458,6 +726,9 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         col.prop(params, "anisotropy")
         col.prop(params, "apply_modifiers")
         col.prop(params, "keep_original")
+        col.prop(params, "lod_targets")
+        layout.operator("retopoforge.generate_lods", text="Generate LODs",
+                        icon="MOD_DECIM")
         report = context.scene.retopoforge_last_report
         if report:
             box = layout.box()
@@ -475,6 +746,7 @@ _CLASSES = (
     RetopoForgePreferences,
     RETOPOFORGE_PG_params,
     RETOPOFORGE_OT_remesh,
+    RETOPOFORGE_OT_generate_lods,
     RETOPOFORGE_OT_reload,
     RETOPOFORGE_PT_panel,
 )
@@ -490,9 +762,15 @@ def register():
         description="Stats from the most recent retopoforge remesh",
         default="",
     )
+    bpy.types.Scene.retopoforge_recall = StringProperty(
+        name="Settings Recall",
+        description="Per-object last-used remesh parameters as a JSON blob",
+        default="",
+    )
 
 
 def unregister():
+    del bpy.types.Scene.retopoforge_recall
     del bpy.types.Scene.retopoforge_last_report
     del bpy.types.Scene.retopoforge_params
     for cls in reversed(_CLASSES):
