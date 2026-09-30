@@ -19,16 +19,19 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_ISOTROPIC_REMESHER_H
-#define AUTO_REMESHER_ISOTROPIC_REMESHER_H
+module;
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector3>
+#include <cstddef>
 #include <unordered_set>
 #include <utility>
+#include <vector>
+
+export module retopo.core.isotropic_remesher;
 
 namespace AutoRemesher {
 
-class IsotropicRemesher {
+export class IsotropicRemesher {
 public:
     IsotropicRemesher(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& triangles)
@@ -96,5 +99,3 @@ private:
 };
 
 }
-
-#endif

@@ -20,6 +20,7 @@
  *  SOFTWARE.
  */
 #include <AutoRemesher/SingularitySimplifier>
+import retopo.core.surface_mesh;
 
 #include <algorithm>
 #include <cmath>

@@ -17,19 +17,21 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_PARAMETERIZER_H
-#define AUTO_REMESHER_PARAMETERIZER_H
+module;
 #include <AutoRemesher/Progress>
 #include <AutoRemesher/Vector2>
 #include <AutoRemesher/Vector3>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <utility>
 #include <vector>
 
+export module retopo.core.parameterizer;
+
 namespace AutoRemesher {
 
-class Parameterizer {
+export class Parameterizer {
 public:
     Parameterizer(const std::vector<Vector3>* vertices,
         const std::vector<std::vector<size_t>>* triangles,
@@ -121,5 +123,3 @@ private:
 };
 
 }
-
-#endif

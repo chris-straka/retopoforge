@@ -22,11 +22,13 @@
 #ifndef AUTO_REMESHER_SINGULARITY_SIMPLIFIER_H
 #define AUTO_REMESHER_SINGULARITY_SIMPLIFIER_H
 
-#include <AutoRemesher/SurfaceMesh>
+#include <AutoRemesher/Vector3>
 #include <cstddef>
 #include <vector>
 
 namespace AutoRemesher {
+
+class SurfaceMesh;
 
 class SingularitySimplifier {
 public:

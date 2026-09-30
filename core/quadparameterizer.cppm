@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2020 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved. 
+ *  Copyright (c) 2026 Jeremy HU <jeremy-at-dust3d dot org>. All rights reserved.
  *
  *  Permission is hereby granted, free of charge, to any person obtaining a copy
  *  of this software and associated documentation files (the "Software"), to deal
@@ -7,10 +7,10 @@
  *  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  *  copies of the Software, and to permit persons to whom the Software is
  *  furnished to do so, subject to the following conditions:
-
+ *
  *  The above copyright notice and this permission notice shall be included in all
  *  copies or substantial portions of the Software.
-
+ *
  *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -19,22 +19,35 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  */
-#ifndef AUTO_REMESHER_MESH_SEPARATOR_H
-#define AUTO_REMESHER_MESH_SEPARATOR_H
+module;
+#include <AutoRemesher/Progress>
+#include <AutoRemesher/Vector2>
+#include <AutoRemesher/Vector3>
 #include <cstddef>
-#include <map>
 #include <vector>
+
+export module retopo.core.quad_parameterizer;
 
 namespace AutoRemesher {
 
-class MeshSeparator {
+export class QuadParameterizer {
 public:
-    static void splitToIslands(const std::vector<std::vector<size_t>>& faces,
-        std::vector<std::vector<std::vector<size_t>>>& islands);
-    static void buildEdgeToFaceMap(const std::vector<std::vector<size_t>>& faces,
-        std::map<std::pair<size_t, size_t>, size_t>& edgeToFaceMap);
+    struct Result {
+        std::vector<std::vector<Vector2>> triangleUvs;
+        std::vector<Vector3> field;
+        std::vector<int> cornerRotations;
+        std::vector<size_t> singularVertices;
+    };
+    static bool parameterize(const std::vector<Vector3>& vertices,
+        const std::vector<std::vector<size_t>>& triangles,
+        const std::vector<Vector3>* guidance, double scaling,
+        double hardEdgeDegrees, Result* result,
+        const std::vector<double>* faceScaling = nullptr,
+        const std::vector<double>* faceScalingU = nullptr,
+        const std::vector<double>* faceScalingV = nullptr,
+        // Reports 0..1 across the quad cover solve, which is the single longest
+        // step of the whole pipeline and would otherwise be one silent block.
+        const ProgressHandler* progressHandler = nullptr);
 };
 
 }
-
-#endif
