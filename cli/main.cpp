@@ -407,6 +407,11 @@ static bool saveMesh(const std::string& filename,
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& quads)
 {
+    // An empty result is a failure in every format: writing a 0-vertex file
+    // that claims success is exactly the silent-failure class the island
+    // accounting exists to kill. Fail here so OBJ and GLB agree.
+    if (vertices.empty())
+        return false;
     if (GlbIo::hasGlbExtension(filename)) {
         std::string generator = std::string("retopoforge ") + RETOPO_VERSION;
         return GlbIo::saveGlb(filename.c_str(), generator.c_str(), vertices, quads);

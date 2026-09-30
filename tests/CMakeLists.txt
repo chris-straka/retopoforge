@@ -50,3 +50,13 @@ target_compile_definitions(test_cli_quiet PRIVATE
 )
 add_dependencies(test_cli_quiet retopo)
 set_tests_properties(test_cli_quiet PROPERTIES TIMEOUT 600)
+
+# CLI GLB: round-trips, batch/LOD emission, truncated-input failure.
+retopo_add_test(test_cli_glb test_cli_glb.cpp)
+target_compile_definitions(test_cli_glb PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_TETRA=\"${CMAKE_SOURCE_DIR}/tests/fixtures/tetra.glb\""
+    "RETOPO_MODEL_FANDISK=\"${CMAKE_SOURCE_DIR}/bench/models/fandisk.obj\""
+)
+add_dependencies(test_cli_glb retopo)
+set_tests_properties(test_cli_glb PROPERTIES TIMEOUT 600)

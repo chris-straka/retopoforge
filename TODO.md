@@ -77,8 +77,9 @@ new warnings.
 - [ ] Blender bake assist: automate the standard high→low bake
       (import high-poly source + remeshed low, Smart UV Project the low,
       bake diffuse/normal from high) as a one-click addon step
-- [ ] GLB input (and ideally output) for the CLI to cut the manual
-      GLB→OBJ conversion out of the loop
+- [x] GLB input (and ideally output) for the CLI to cut the manual
+      GLB→OBJ conversion out of the loop (cgltf input + hand-written
+      writer; batch and `--lods` keep the extension)
 
 ## Character quality (engine work that serves the game)
 

@@ -39,7 +39,9 @@ Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`, `--lods <q0,q1,...>`, `--quiet`,
 `--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is welded on
 load; `--quiet` silences progress output (warnings, errors, and the
-report still print). The input model comes from
+report still print). `--input`/`--output` accept `.glb` as well as
+`.obj` (positions + faces; batch dirs and `--lods` chains keep each
+file's extension). The input model comes from
 `bench/fetch_models.sh` (see Benchmarks).
 
 Multi-output: `--lods 10000,5000,2000` emits a full LOD chain in one run
