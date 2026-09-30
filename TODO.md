@@ -189,9 +189,9 @@ and QtAwesome deleted as dead code before the removal.
 - [x] Perf at scale: profiled (`docs/perf.md`, dragon 50k: ~23s,
       ~1.5 GiB); TBB scaling checked — no thread knob exists, batch
       mode is the parallelism story
-- [ ] Measured black-box comparison vs QR (EULA-aware: their outputs
-      stay out of the repo and out of training data) — needs the
-      owner's QR license + inputs
+- [ ] Measured comparison vs Blender's native Quadriflow remesh
+      (owner-scratched the paid QR comparison): same inputs, quad
+      counts, timings, thin-feature behavior — all reproducible in-repo
 - [ ] UX polish in the addon (needs the owner's eyes on real meshes)
 - [ ] DCC breadth (other hosts) — last of last
 
