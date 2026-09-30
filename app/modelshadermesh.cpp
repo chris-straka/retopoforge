@@ -124,12 +124,12 @@ ModelShaderMesh::ModelShaderMesh(const std::vector<AutoRemesher::Vector3>& verti
     m_vertices = vertices;
     m_faces = triangles;
 
-    m_triangleVertexCount = (int)triangles.size() * 3;
+    m_triangleVertexCount = static_cast<int>(triangles.size()) * 3;
     m_triangleVertices = new ModelShaderVertex[m_triangleVertexCount];
     int destIndex = 0;
     for (size_t i = 0; i < triangles.size(); ++i) {
         for (auto j = 0; j < 3; j++) {
-            int vertexIndex = (int)triangles[i][j];
+            int vertexIndex = static_cast<int>(triangles[i][j]);
             const AutoRemesher::Vector3* srcVert = &vertices[vertexIndex];
             const AutoRemesher::Vector3* srcNormal = &(triangleVertexNormals)[i][j];
             ModelShaderVertex* dest = &m_triangleVertices[destIndex];

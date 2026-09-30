@@ -175,20 +175,20 @@ int main(int argc, char** argv)
     if (headlessMode) {
         HeadlessParams params = parseHeadlessArgs(parser);
         if (params.outputPath.isEmpty()) {
-            std::cerr << "Error: --output is required when --input is specified" << std::endl;
+            std::cerr << "Error: --output is required when --input is specified" << '\n';
             return 1;
         }
 
         QObject::connect(mainWindow, &MainWindow::headlessFinished,
             [&](size_t quadCount, size_t nonQuadCount, size_t vertexCount, double elapsedSeconds) {
-                std::cout << "=== AutoRemesher Report ===" << std::endl;
-                std::cout << "Input: " << params.inputPath.toStdString() << std::endl;
-                std::cout << "Output: " << params.outputPath.toStdString() << std::endl;
-                std::cout << "Quads: " << quadCount << std::endl;
-                std::cout << "Non-quads: " << nonQuadCount << std::endl;
-                std::cout << "Vertices: " << vertexCount << std::endl;
-                std::cout << "Time: " << elapsedSeconds << " seconds" << std::endl;
-                std::cout << "===========================" << std::endl;
+                std::cout << "=== AutoRemesher Report ===" << '\n';
+                std::cout << "Input: " << params.inputPath.toStdString() << '\n';
+                std::cout << "Output: " << params.outputPath.toStdString() << '\n';
+                std::cout << "Quads: " << quadCount << '\n';
+                std::cout << "Non-quads: " << nonQuadCount << '\n';
+                std::cout << "Vertices: " << vertexCount << '\n';
+                std::cout << "Time: " << elapsedSeconds << " seconds" << '\n';
+                std::cout << "===========================" << '\n';
 
                 // Write a report file if --report was specified
                 if (!params.reportPath.isEmpty()) {

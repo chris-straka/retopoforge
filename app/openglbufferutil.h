@@ -33,13 +33,13 @@
 // Refuse the upload instead, and report whether the buffer is safe to draw.
 inline bool allocateOpenGLBuffer(QOpenGLBuffer& buffer, const void* data, size_t bytes)
 {
-    if (bytes > (size_t)std::numeric_limits<int>::max()) {
+    if (bytes > static_cast<size_t>(std::numeric_limits<int>::max())) {
         qWarning() << "Refusing to upload" << bytes << "bytes, buffer size limit is"
                    << std::numeric_limits<int>::max();
         return false;
     }
-    buffer.allocate(data, (int)bytes);
-    return buffer.size() == (int)bytes;
+    buffer.allocate(data, static_cast<int>(bytes));
+    return buffer.size() == static_cast<int>(bytes);
 }
 
 #endif

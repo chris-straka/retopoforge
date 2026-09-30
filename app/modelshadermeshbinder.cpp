@@ -156,7 +156,7 @@ void ModelShaderMeshBinder::paint(ModelShaderProgram* program)
                     m_renderTriangleVertexCount = m_mesh->triangleVertexCount();
                     m_renderTriangleIndexCount = 0;
                     if (!allocateOpenGLBuffer(m_vboTriangle, m_mesh->triangleVertices(),
-                            (size_t)m_mesh->triangleVertexCount() * sizeof(ModelShaderVertex))) {
+                            static_cast<size_t>(m_mesh->triangleVertexCount()) * sizeof(ModelShaderVertex))) {
                         m_renderTriangleVertexCount = 0;
                     }
                     QOpenGLFunctions* f = QOpenGLContext::currentContext()->functions();
@@ -183,7 +183,7 @@ void ModelShaderMeshBinder::paint(ModelShaderProgram* program)
                         m_iboTriangle.create();
                         m_iboTriangle.bind();
                         if (allocateOpenGLBuffer(m_iboTriangle, m_mesh->triangleIndices(),
-                                (size_t)m_mesh->triangleIndexCount() * sizeof(uint32_t))) {
+                                static_cast<size_t>(m_mesh->triangleIndexCount()) * sizeof(uint32_t))) {
                             m_renderTriangleIndexCount = m_mesh->triangleIndexCount();
                         } else {
                             m_renderTriangleVertexCount = 0;
@@ -246,7 +246,7 @@ void ModelShaderMeshBinder::paint(ModelShaderProgram* program)
                     m_vboTool.bind();
                     m_renderToolVertexCount = m_mesh->toolVertexCount();
                     if (!allocateOpenGLBuffer(m_vboTool, m_mesh->toolVertices(),
-                            (size_t)m_mesh->toolVertexCount() * sizeof(ModelShaderVertex))) {
+                            static_cast<size_t>(m_mesh->toolVertexCount()) * sizeof(ModelShaderVertex))) {
                         m_renderToolVertexCount = 0;
                     }
                     QOpenGLFunctions* f = QOpenGLContext::currentContext()->functions();

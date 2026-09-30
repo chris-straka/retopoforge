@@ -43,7 +43,7 @@ enum class ModelType {
     HardSurface
 };
 
-typedef void (*AutoRemesherProgressHandler)(void* tag, float progress, const char* status);
+using AutoRemesherProgressHandler = void (*)(void* tag, float progress, const char* status);
 
 class AutoRemesher {
 public:

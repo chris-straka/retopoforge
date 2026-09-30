@@ -33,12 +33,12 @@ void PreviewMeshGenerator::process()
     emit finished();
 }
 
-static ModelShaderMesh* buildRenderMeshFromTriangles(
+static std::unique_ptr<ModelShaderMesh> buildRenderMeshFromTriangles(
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles)
 {
     if (vertices.empty() || triangles.empty())
-        return new ModelShaderMesh;
+        return std::make_unique<ModelShaderMesh>();
 
     double minX = std::numeric_limits<double>::max();
     double maxX = std::numeric_limits<double>::lowest();
@@ -82,12 +82,12 @@ static ModelShaderMesh* buildRenderMeshFromTriangles(
     for (auto& n : normals)
         n.normalize();
 
-    int vertexCount = (int)triangles.size() * 3;
-    int edgeVertexCount = (int)triangles.size() * 6;
-    ModelShaderVertex* vertData = new ModelShaderVertex[vertexCount];
-    ModelShaderVertex* edgeData = new ModelShaderVertex[edgeVertexCount];
-    memset(vertData, 0, sizeof(ModelShaderVertex) * vertexCount);
-    memset(edgeData, 0, sizeof(ModelShaderVertex) * edgeVertexCount);
+    int vertexCount = static_cast<int>(triangles.size()) * 3;
+    int edgeVertexCount = static_cast<int>(triangles.size()) * 6;
+    auto vertData = std::make_unique<ModelShaderVertex[]>(vertexCount);
+    auto edgeData = std::make_unique<ModelShaderVertex[]>(edgeVertexCount);
+    memset(vertData.get(), 0, sizeof(ModelShaderVertex) * vertexCount);
+    memset(edgeData.get(), 0, sizeof(ModelShaderVertex) * edgeVertexCount);
 
     int vi = 0;
     int ei = 0;
@@ -95,13 +95,13 @@ static ModelShaderMesh* buildRenderMeshFromTriangles(
         for (int j = 0; j < 3; ++j) {
             for (int e = 0; e < 2; ++e) {
                 auto& ev = edgeData[ei++];
-                int idx = (int)tri[(j + e) % 3];
-                ev.posX = (float)normalizedVerts[idx].x();
-                ev.posY = (float)normalizedVerts[idx].y();
-                ev.posZ = (float)normalizedVerts[idx].z();
-                ev.normX = (float)normals[idx].x();
-                ev.normY = (float)normals[idx].y();
-                ev.normZ = (float)normals[idx].z();
+                int idx = static_cast<int>(tri[(j + e) % 3]);
+                ev.posX = static_cast<float>(normalizedVerts[idx].x());
+                ev.posY = static_cast<float>(normalizedVerts[idx].y());
+                ev.posZ = static_cast<float>(normalizedVerts[idx].z());
+                ev.normX = static_cast<float>(normals[idx].x());
+                ev.normY = static_cast<float>(normals[idx].y());
+                ev.normZ = static_cast<float>(normals[idx].z());
                 ev.colorR = 0.0f;
                 ev.colorG = 0.0f;
                 ev.colorB = 0.0f;
@@ -110,13 +110,13 @@ static ModelShaderMesh* buildRenderMeshFromTriangles(
             }
 
             auto& tv = vertData[vi++];
-            int idx = (int)tri[j];
-            tv.posX = (float)normalizedVerts[idx].x();
-            tv.posY = (float)normalizedVerts[idx].y();
-            tv.posZ = (float)normalizedVerts[idx].z();
-            tv.normX = (float)normals[idx].x();
-            tv.normY = (float)normals[idx].y();
-            tv.normZ = (float)normals[idx].z();
+            int idx = static_cast<int>(tri[j]);
+            tv.posX = static_cast<float>(normalizedVerts[idx].x());
+            tv.posY = static_cast<float>(normalizedVerts[idx].y());
+            tv.posZ = static_cast<float>(normalizedVerts[idx].z());
+            tv.normX = static_cast<float>(normals[idx].x());
+            tv.normY = static_cast<float>(normals[idx].y());
+            tv.normZ = static_cast<float>(normals[idx].z());
             tv.colorR = 1.0f;
             tv.colorG = 0.996f;
             tv.colorB = 0.890f;
@@ -125,10 +125,10 @@ static ModelShaderMesh* buildRenderMeshFromTriangles(
         }
     }
 
-    return new ModelShaderMesh(vertData, vertexCount, edgeData, ei, &normalizedVerts, &triangles);
+    return std::make_unique<ModelShaderMesh>(vertData.release(), vertexCount, edgeData.release(), ei, &normalizedVerts, &triangles);
 }
 
-static ModelShaderMesh* buildUvRenderMesh(
+static std::unique_ptr<ModelShaderMesh> buildUvRenderMesh(
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<AutoRemesher::Vector2>>& triangleUvs,
@@ -138,7 +138,7 @@ static ModelShaderMesh* buildUvRenderMesh(
     const std::vector<uint8_t>& extractedConnectionMoved)
 {
     if (vertices.empty() || triangles.empty() || triangleUvs.empty())
-        return new ModelShaderMesh;
+        return std::make_unique<ModelShaderMesh>();
 
     double minX = std::numeric_limits<double>::max();
     double maxX = std::numeric_limits<double>::lowest();
@@ -186,12 +186,12 @@ static ModelShaderMesh* buildUvRenderMesh(
         return 0.5 + x * 0.5;
     };
 
-    int vertexCount = (int)triangles.size() * 3;
-    int edgeVertexCount = (int)triangles.size() * 6;
-    ModelShaderVertex* vertData = new ModelShaderVertex[vertexCount];
-    ModelShaderVertex* edgeData = new ModelShaderVertex[edgeVertexCount];
-    memset(vertData, 0, sizeof(ModelShaderVertex) * vertexCount);
-    memset(edgeData, 0, sizeof(ModelShaderVertex) * edgeVertexCount);
+    int vertexCount = static_cast<int>(triangles.size()) * 3;
+    int edgeVertexCount = static_cast<int>(triangles.size()) * 6;
+    auto vertData = std::make_unique<ModelShaderVertex[]>(vertexCount);
+    auto edgeData = std::make_unique<ModelShaderVertex[]>(edgeVertexCount);
+    memset(vertData.get(), 0, sizeof(ModelShaderVertex) * vertexCount);
+    memset(edgeData.get(), 0, sizeof(ModelShaderVertex) * edgeVertexCount);
 
     int vi = 0;
     int ei = 0;
@@ -204,13 +204,13 @@ static ModelShaderMesh* buildUvRenderMesh(
         for (int j = 0; j < 3; ++j) {
             for (int e = 0; e < 2; ++e) {
                 auto& ev = edgeData[ei++];
-                int idx = (int)tri[(j + e) % 3];
-                ev.posX = (float)normalizedVerts[idx].x();
-                ev.posY = (float)normalizedVerts[idx].y();
-                ev.posZ = (float)normalizedVerts[idx].z();
-                ev.normX = (float)normals[idx].x();
-                ev.normY = (float)normals[idx].y();
-                ev.normZ = (float)normals[idx].z();
+                int idx = static_cast<int>(tri[(j + e) % 3]);
+                ev.posX = static_cast<float>(normalizedVerts[idx].x());
+                ev.posY = static_cast<float>(normalizedVerts[idx].y());
+                ev.posZ = static_cast<float>(normalizedVerts[idx].z());
+                ev.normX = static_cast<float>(normals[idx].x());
+                ev.normY = static_cast<float>(normals[idx].y());
+                ev.normZ = static_cast<float>(normals[idx].z());
                 ev.colorR = 0.0f;
                 ev.colorG = 0.0f;
                 ev.colorB = 0.0f;
@@ -219,31 +219,31 @@ static ModelShaderMesh* buildUvRenderMesh(
             }
 
             auto& tv = vertData[vi++];
-            int idx = (int)tri[j];
-            tv.posX = (float)normalizedVerts[idx].x();
-            tv.posY = (float)normalizedVerts[idx].y();
-            tv.posZ = (float)normalizedVerts[idx].z();
-            tv.normX = (float)normals[idx].x();
-            tv.normY = (float)normals[idx].y();
-            tv.normZ = (float)normals[idx].z();
+            int idx = static_cast<int>(tri[j]);
+            tv.posX = static_cast<float>(normalizedVerts[idx].x());
+            tv.posY = static_cast<float>(normalizedVerts[idx].y());
+            tv.posZ = static_cast<float>(normalizedVerts[idx].z());
+            tv.normX = static_cast<float>(normals[idx].x());
+            tv.normY = static_cast<float>(normals[idx].y());
+            tv.normZ = static_cast<float>(normals[idx].z());
             tv.colorR = 1.0f;
             tv.colorG = 1.0f;
             tv.colorB = 1.0f;
-            tv.texU = (float)normalizeUv(uvTri[j].x());
-            tv.texV = (float)normalizeUv(uvTri[j].y());
+            tv.texU = static_cast<float>(normalizeUv(uvTri[j].x()));
+            tv.texV = static_cast<float>(normalizeUv(uvTri[j].y()));
             tv.roughness = 1.0f;
             tv.alpha = 1.0f;
         }
     }
 
-    ModelShaderMesh* mesh = new ModelShaderMesh(vertData, vertexCount, edgeData, ei, &normalizedVerts, &triangles);
+    auto mesh = std::make_unique<ModelShaderMesh>(vertData.release(), vertexCount, edgeData.release(), ei, &normalizedVerts, &triangles);
 
     QImage* textureImage = new QImage(":/resources/crossuv.png");
     mesh->setTextureImage(textureImage);
 
     if (!extractedConnections.empty()) {
-        auto* connectionVertices = new ModelShaderVertex[extractedConnections.size() * 2];
-        memset(connectionVertices, 0, sizeof(ModelShaderVertex) * extractedConnections.size() * 2);
+        auto connectionVertices = std::make_unique<ModelShaderVertex[]>(extractedConnections.size() * 2);
+        memset(connectionVertices.get(), 0, sizeof(ModelShaderVertex) * extractedConnections.size() * 2);
         size_t connectionVertexIndex = 0;
         for (size_t connectionIndex = 0; connectionIndex < extractedConnections.size();
             ++connectionIndex) {
@@ -253,7 +253,8 @@ static ModelShaderMesh* buildUvRenderMesh(
                 : 0;
             const bool moved = 1 == flag;
             const bool added = 2 == flag;
-            for (const auto& point : { connection.first, connection.second }) {
+            const auto& [from, to] = connection;
+            for (const auto& point : { from, to }) {
                 auto& vertex = connectionVertices[connectionVertexIndex++];
                 const AutoRemesher::Vector3 normalizedPoint = (point - origin) / maxLength;
                 vertex.posX = static_cast<float>(normalizedPoint.x());
@@ -265,7 +266,7 @@ static ModelShaderMesh* buildUvRenderMesh(
                 vertex.alpha = 1.0f;
             }
         }
-        mesh->updateConnectionEdges(connectionVertices, static_cast<int>(connectionVertexIndex));
+        mesh->updateConnectionEdges(connectionVertices.release(), static_cast<int>(connectionVertexIndex));
     }
 
     if (!singularVertices.empty()) {
@@ -309,7 +310,7 @@ static ModelShaderMesh* buildUvRenderMesh(
             AutoRemesher::Vector3 m01 = mid(v0, v1);
             AutoRemesher::Vector3 m12 = mid(v1, v2);
             AutoRemesher::Vector3 m20 = mid(v2, v0);
-            int bi = (int)subVerts.size();
+            int bi = static_cast<int>(subVerts.size());
             subVerts.push_back(v0);
             subVerts.push_back(v1);
             subVerts.push_back(v2);
@@ -334,10 +335,10 @@ static ModelShaderMesh* buildUvRenderMesh(
         if (sphereRadius < 0.0005)
             sphereRadius = 0.0005;
 
-        int sphereTriCount = (int)subIndices.size() / 3;
-        int totalToolVerts = (int)singularVertices.size() * sphereTriCount * 3;
-        ModelShaderVertex* toolVerts = new ModelShaderVertex[totalToolVerts];
-        memset(toolVerts, 0, sizeof(ModelShaderVertex) * totalToolVerts);
+        int sphereTriCount = static_cast<int>(subIndices.size()) / 3;
+        int totalToolVerts = static_cast<int>(singularVertices.size()) * sphereTriCount * 3;
+        auto toolVerts = std::make_unique<ModelShaderVertex[]>(totalToolVerts);
+        memset(toolVerts.get(), 0, sizeof(ModelShaderVertex) * totalToolVerts);
 
         int toolVi = 0;
         for (const auto& svPos : singularVertices) {
@@ -346,9 +347,9 @@ static ModelShaderMesh* buildUvRenderMesh(
                 for (int j = 0; j < 3; ++j) {
                     auto& tv = toolVerts[toolVi++];
                     int vi = subIndices[t * 3 + j];
-                    tv.posX = (float)(normalizedPos.x() + subVerts[vi].x() * sphereRadius);
-                    tv.posY = (float)(normalizedPos.y() + subVerts[vi].y() * sphereRadius);
-                    tv.posZ = (float)(normalizedPos.z() + subVerts[vi].z() * sphereRadius);
+                    tv.posX = static_cast<float>(normalizedPos.x() + subVerts[vi].x() * sphereRadius);
+                    tv.posY = static_cast<float>(normalizedPos.y() + subVerts[vi].y() * sphereRadius);
+                    tv.posZ = static_cast<float>(normalizedPos.z() + subVerts[vi].z() * sphereRadius);
                     tv.normX = subVerts[vi].x();
                     tv.normY = subVerts[vi].y();
                     tv.normZ = subVerts[vi].z();
@@ -361,7 +362,7 @@ static ModelShaderMesh* buildUvRenderMesh(
             }
         }
 
-        mesh->updateTool(toolVerts, totalToolVerts);
+        mesh->updateTool(toolVerts.release(), totalToolVerts);
     }
 
     return mesh;
@@ -369,15 +370,14 @@ static ModelShaderMesh* buildUvRenderMesh(
 
 void PreviewMeshGenerator::generate()
 {
-    delete m_decimatedMesh;
-    m_decimatedMesh = nullptr;
+    m_decimatedMesh.reset();
     if (!m_decimatedVertices.empty() && !m_decimatedTriangles.empty())
         m_decimatedMesh = buildRenderMeshFromTriangles(m_decimatedVertices, m_decimatedTriangles);
 
-    delete m_isotropicMesh;
+    m_isotropicMesh.reset();
     m_isotropicMesh = buildRenderMeshFromTriangles(m_isotropicVertices, m_isotropicTriangles);
 
-    delete m_paramMesh;
+    m_paramMesh.reset();
     if (!m_isotropicVertices.empty() && !m_isotropicTriangles.empty()
         && !m_isotropicTriangleUvs.empty()) {
         m_paramMesh = buildUvRenderMesh(
@@ -386,6 +386,6 @@ void PreviewMeshGenerator::generate()
             m_isotropicSingularVertices,
             m_isotropicExtractedConnections, m_isotropicExtractedConnectionMoved);
     } else {
-        m_paramMesh = new ModelShaderMesh;
+        m_paramMesh = std::make_unique<ModelShaderMesh>();
     }
 }
