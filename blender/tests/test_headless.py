@@ -28,18 +28,42 @@ def check(condition, message):
         raise SystemExit(1)
 
 
+def check_cancel(label, func):
+    """Negative-path operator call: passes on a cancel, whether Blender
+    hands back {'CANCELLED'} or raises RuntimeError (an ERROR-reporting
+    cancel raises through bpy.ops on Blender 5.x)."""
+    try:
+        result = func()
+    except RuntimeError as exc:
+        print(f"PASS: {label} cancels (raised: {exc})")
+        return
+    check("CANCELLED" in result, f"{label} cancels (got {result})")
+
+
 def main():
     bpy.ops.preferences.addon_enable(module="retopoforge")
     try:
         check(hasattr(bpy.ops.retopoforge, "remesh"), "operator registered")
         check(hasattr(bpy.ops.retopoforge, "generate_lods"), "lods operator registered")
         check(hasattr(bpy.ops.retopoforge, "bake_textures"), "bake operator registered")
+        check(hasattr(bpy.ops.retopoforge, "export_guides"),
+              "guides export operator registered")
+        check(hasattr(bpy.ops.retopoforge, "export_density"),
+              "density export operator registered")
         check(hasattr(bpy.ops.retopoforge, "reload_scripts"), "reload operator registered")
         check(hasattr(bpy.types, "RETOPOFORGE_PT_panel"), "panel registered")
         check(hasattr(bpy.context.scene, "retopoforge_recall"),
               "recall blob property registered")
         check(bpy.context.scene.retopoforge_params.lod_targets == "10000,5000,2000",
               "lod targets default")
+        check(bpy.context.scene.retopoforge_params.guides_enabled is False,
+              "guides default off")
+        check(bpy.context.scene.retopoforge_params.density_enabled is False,
+              "density default off")
+        check(abs(bpy.context.scene.retopoforge_params.density_min - 0.25) < 1e-9,
+              "density min default")
+        check(abs(bpy.context.scene.retopoforge_params.density_max - 4.0) < 1e-9,
+              "density max default")
 
         binary = retopoforge.find_retopo_binary(
             bpy.context.preferences.addons["retopoforge"].preferences.retopo_binary)
@@ -189,6 +213,219 @@ def main():
         # exactly as before this toggle existed.
         params.symmetry_enabled = False
         params.symmetry_plane = "AUTO"
+
+        # --- Guide-stroke export: an edge ring on a fresh cube is traced
+        # into polylines by the export operator; a remesh with guides on
+        # passes --guides through (the CLI rejects malformed guides
+        # files, so FINISHED proves both the flag and the format).
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        guide_obj = bpy.context.active_object
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.subdivide(number_cuts=2)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        guide_mesh = guide_obj.data
+        top_z = max(v.co.z for v in guide_mesh.vertices)
+        for e in guide_mesh.edges:
+            e.select = all(guide_mesh.vertices[i].co.z > top_z - 1e-6
+                           for i in e.vertices)
+        n_sel = sum(1 for e in guide_mesh.edges if e.select)
+        check(n_sel >= 4, f"guide ring selection ({n_sel} edges)")
+        guides_path = "/tmp/retopoforge_test_guides.txt"
+        if os.path.exists(guides_path):
+            os.remove(guides_path)
+        result = bpy.ops.retopoforge.export_guides(filepath=guides_path)
+        check("FINISHED" in result, f"export_guides finished (got {result})")
+        check(os.path.isfile(guides_path),
+              f"guides file written ({guides_path})")
+        polylines = [[]]
+        bad_lines = []
+        with open(guides_path, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.split("#", 1)[0].strip()
+                if not stripped:
+                    if polylines[-1]:
+                        polylines.append([])
+                    continue
+                parts = stripped.split()
+                try:
+                    point = [float(p) for p in parts]
+                except ValueError:
+                    point = []
+                if len(point) != 3:
+                    bad_lines.append(line.rstrip())
+                else:
+                    polylines[-1].append(point)
+        polylines = [p for p in polylines if p]
+        check(not bad_lines,
+              f"every guide line parses as 'x y z' ({bad_lines[:2]})")
+        check(len(polylines) >= 1,
+              f"guides hold polylines ({len(polylines)})")
+        check(all(len(p) >= 2 for p in polylines),
+              "every guide polyline has 2+ points")
+        n_points = sum(len(p) for p in polylines)
+        check(n_points >= n_sel, "guide points cover the selection")
+        vert_coords = {(v.co.x, v.co.y, v.co.z)
+                       for v in guide_mesh.vertices}
+        check(all(tuple(p) in vert_coords
+                  for poly in polylines for p in poly),
+              "guide points sit on mesh verts")
+        print(f"guides: {len(polylines)} polylines, {n_points} points")
+
+        params.target_quads = 200
+        params.guides_enabled = True
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"guides remesh finished (got {result})")
+        check(len(guide_obj.data.polygons) > 0, "guides result has polygons")
+        blob = json.loads(bpy.context.scene.retopoforge_recall or "{}")
+        guide_entry = blob.get(guide_obj.name)
+        check(isinstance(guide_entry, dict), "recall blob has guides entry")
+        check(guide_entry.get("guides_enabled") is True,
+              "recall blob guides_enabled")
+        params.guides_enabled = False
+        guide_obj.select_set(True)
+        bpy.context.view_layer.objects.active = guide_obj
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"guides do-over finished (got {result})")
+        check(params.guides_enabled is True,
+              "recall restored guides_enabled")
+        params.guides_enabled = False
+        os.remove(guides_path)
+
+        # Exporting with no edge selection cancels cleanly (the do-over
+        # above replaced the mesh, so this object now has no selection).
+        bpy.ops.object.select_all(action="DESELECT")
+        guide_obj.select_set(True)
+        bpy.context.view_layer.objects.active = guide_obj
+        empty_path = "/tmp/retopoforge_test_guides_empty.txt"
+        if os.path.exists(empty_path):
+            os.remove(empty_path)
+        check_cancel("guides export without selection",
+                     lambda: bpy.ops.retopoforge.export_guides(
+                         filepath=empty_path))
+        check(not os.path.exists(empty_path), "no guides file on cancel")
+
+        # --- Density export: painted halves map onto min..max, one
+        # unassigned vertex stays neutral, and the remesh passes
+        # --density through (the CLI rejects count mismatches, so
+        # FINISHED proves the mask lines up with the export).
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        dens_obj = bpy.context.active_object
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.subdivide(number_cuts=1)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        dens_mesh = dens_obj.data
+        n_verts = len(dens_mesh.vertices)
+        dens_vg = dens_obj.vertex_groups.new(name="DensityTest")
+        for v in dens_mesh.vertices:
+            if v.index == 0:
+                continue  # unassigned: must stay neutral 1.0
+            dens_vg.add([v.index], 1.0 if v.co.z > 0.0 else 0.0, "REPLACE")
+        params.density_enabled = True
+        params.density_vertex_group = "DensityTest"
+        params.density_min = 0.25
+        params.density_max = 4.0
+        dens_path = "/tmp/retopoforge_test_density.txt"
+        if os.path.exists(dens_path):
+            os.remove(dens_path)
+        result = bpy.ops.retopoforge.export_density(filepath=dens_path)
+        check("FINISHED" in result, f"export_density finished (got {result})")
+        check(os.path.isfile(dens_path),
+              f"density file written ({dens_path})")
+        values = []
+        bad_values = []
+        with open(dens_path, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.split("#", 1)[0].strip()
+                if stripped:
+                    try:
+                        values.append(float(stripped))
+                    except ValueError:
+                        bad_values.append(line.rstrip())
+        check(not bad_values,
+              f"every density line parses as a number ({bad_values[:2]})")
+        check(len(values) == n_verts,
+              f"density count matches verts ({len(values)}/{n_verts})")
+        check(abs(values[0] - 1.0) < 1e-9, "unassigned vert stays neutral")
+        check(all(abs(val - (4.0 if dens_mesh.vertices[i].co.z > 0.0
+                             else 0.25)) < 1e-9
+                  for i, val in enumerate(values) if i),
+              "weights linear-map onto 0.25..4.0")
+
+        params.target_quads = 200
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"density remesh finished (got {result})")
+        blob = json.loads(bpy.context.scene.retopoforge_recall or "{}")
+        dens_entry = blob.get(dens_obj.name)
+        check(isinstance(dens_entry, dict), "recall blob has density entry")
+        check(dens_entry.get("density_enabled") is True,
+              "recall blob density_enabled")
+        check(dens_entry.get("density_vertex_group") == "DensityTest",
+              "recall blob density group")
+        check(abs(dens_entry.get("density_min", -1) - 0.25) < 1e-9,
+              "recall blob density_min")
+        check(abs(dens_entry.get("density_max", -1) - 4.0) < 1e-9,
+              "recall blob density_max")
+        params.density_enabled = False
+        params.density_vertex_group = ""
+        # The mesh swap drops vertex groups (weights lived on the old
+        # topology); remove any survivor so the do-over deterministically
+        # takes the missing-group skip path on every Blender version.
+        stale = dens_obj.vertex_groups.get("DensityTest")
+        if stale is not None:
+            dens_obj.vertex_groups.remove(stale)
+        dens_obj.select_set(True)
+        bpy.context.view_layer.objects.active = dens_obj
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"density do-over finished (got {result})")
+        check(params.density_enabled is True,
+              "recall restored density_enabled")
+        check(params.density_vertex_group == "DensityTest",
+              "recall restored density group")
+        params.density_enabled = False
+        params.density_vertex_group = ""
+        os.remove(dens_path)
+
+        # --- Authoring negatives: a missing group cancels the export; a
+        # topology-changing modifier under Apply Modifiers cancels the
+        # remesh instead of sending a misaligned mask.
+        bpy.ops.object.select_all(action="DESELECT")
+        dens_obj.select_set(True)
+        bpy.context.view_layer.objects.active = dens_obj
+        params.density_vertex_group = "NoSuchGroup"
+        missing_path = "/tmp/retopoforge_test_density_missing.txt"
+        if os.path.exists(missing_path):
+            os.remove(missing_path)
+        check_cancel("density export with missing group",
+                     lambda: bpy.ops.retopoforge.export_density(
+                         filepath=missing_path))
+        check(not os.path.exists(missing_path), "no density file on cancel")
+        params.density_vertex_group = ""
+
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        mod_obj = bpy.context.active_object
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.subdivide(number_cuts=1)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        mod_vg = mod_obj.vertex_groups.new(name="DensityMod")
+        for v in mod_obj.data.vertices:
+            mod_vg.add([v.index], 0.5, "REPLACE")
+        mod_obj.modifiers.new("SubsurfGuard", "SUBSURF")
+        mod_mesh_before = mod_obj.data
+        params.target_quads = 200
+        params.apply_modifiers = True
+        params.density_enabled = True
+        params.density_vertex_group = "DensityMod"
+        check_cancel("density+subsurf remesh",
+                     lambda: bpy.ops.retopoforge.remesh())
+        check(mod_obj.data is mod_mesh_before, "cancelled remesh keeps mesh")
+        params.apply_modifiers = False
+        params.density_enabled = False
+        params.density_vertex_group = ""
 
         # --- Generate LODs: fresh object so rung counts are unaffected by
         # the remeshes above; only it may be selected (the operator runs on
