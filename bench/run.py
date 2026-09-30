@@ -26,7 +26,8 @@ MODELS_DIR = os.path.join(ROOT, "bench", "models")
 RESULTS_DIR = os.path.join(ROOT, "bench", "results")
 DEFAULT_BINARY = os.path.join(ROOT, "build", "cli", "retopo")
 
-MODELS = ["armadillo.obj", "beast.obj", "nefertiti.obj", "fandisk.obj"]
+MODELS = ["armadillo.obj", "beast.obj", "nefertiti.obj", "fandisk.obj",
+          "xyzrgb_dragon.obj"]
 PRESETS = {
     "tiny": ["--target-quads", "1000"],
     "small": ["--target-quads", "5000"],
