@@ -1,9 +1,8 @@
 # Face-flow iterate loop (animation-grade topology workflow)
 
-Date: 2026-09-30. Honest scope, repeated from TODO: no automatic
-remesher emits animator-grade face topology. The engine gets you ~80%
-of the way; this loop plus fast manual cleanup covers the rest. The
-goal is clean eye/mouth loops that deform well, not a one-click face.
+Date: 2026-09-30. Current state, repeated from TODO: the automatic
+pass plus this loop's fast manual cleanup. One-click animator-grade
+faces remain the goal: clean eye/mouth loops that deform well.
 
 ## The loop (all in the Blender panel)
 

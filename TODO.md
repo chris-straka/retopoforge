@@ -86,8 +86,9 @@ new warnings.
       CLI + Blender guide mechanism done (frame-field locks, `--guides`
       file, edge-selection stroke export with recall) + iterate-loop
       doc (`docs/face-flow-iterate.md`: preset/sharp/adaptivity passes,
-      guides, density masks, symmetry, RetopoFlow cleanup). Honest
-      scope stands: 80% automatic + fast cleanup, not one-click faces.
+      guides, density masks, symmetry, RetopoFlow cleanup). Current
+      state is an automatic pass plus fast cleanup; one-click faces
+      remain the goal.
 - [x] Symmetry constraints (characters are the main subject):
       vote-based plane detection + frame-field/vertex symmetrization,
       default off, CLI `--symmetry off|auto|x|y|z`; positional only
