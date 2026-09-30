@@ -30,10 +30,12 @@
 #include <AutoRemesher/ObjReader>
 import retopo.core.vector3;
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -46,6 +48,7 @@ struct Params {
     std::string inputPath;
     std::string outputPath;
     std::string reportPath;
+    std::vector<int> lodTargets;
     int targetQuads = 50000;
     double edgeScaling = 1.0;
     double sharpEdgeDegrees = 90.0;
@@ -57,13 +60,23 @@ struct Params {
 
 static void printUsage(const char* argv0)
 {
-    std::cout << "Usage: " << argv0 << " --input file.obj --output output.obj [options]\n"
+    std::cout << "Usage: " << argv0 << " --input <file.obj|dir> --output <output.obj|dir> [options]\n"
               << "\n"
               << "Options:\n"
-              << "  -i, --input <file.obj>      Input .obj file to remesh (required)\n"
-              << "  -o, --output <output.obj>   Output .obj file path (required)\n"
+              << "  -i, --input <file.obj|dir>  Input .obj file to remesh (required).\n"
+              << "                              A directory remeshes every .obj in it\n"
+              << "                              (non-recursive); --output is then a directory\n"
+              << "                              (created if missing) and each input foo.obj\n"
+              << "                              is written as <dir>/foo.obj.\n"
+              << "  -o, --output <path>         Output .obj file path (required).\n"
+              << "                              A directory in batch mode (see --input).\n"
               << "  --report <report.txt>       Write a stats report file (optional)\n"
-              << "  --target-quads <count>      Target quad count (default: 50000)\n"
+              << "  --target-quads <count>      Target quad count (default: 50000,\n"
+              << "                              ignored when --lods is given)\n"
+              << "  --lods <q0,q1,...>          Emit a full LOD chain in one run, e.g.\n"
+              << "                              --lods 10000,5000,2000 writes\n"
+              << "                              <stem>_lod0.obj, <stem>_lod1.obj, ...\n"
+              << "                              next to --output (overrides --target-quads)\n"
               << "  --edge-scaling <factor>     Edge scaling factor (default: 1.0, range: 1.0-4.0)\n"
               << "  --sharp-edge <degrees>      Sharp edge dihedral angle threshold\n"
               << "                              (default: 90.0, range: 30.0-180.0)\n"
@@ -119,6 +132,36 @@ static bool parseInt(const std::string& text, const char* flag, int* out)
     return true;
 }
 
+static bool parseLods(const std::string& text, std::vector<int>* out)
+{
+    out->clear();
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find(',', start);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string token = text.substr(start, end - start);
+        // Trim surrounding whitespace so "10000, 5000" works.
+        const size_t first = token.find_first_not_of(" \t");
+        const size_t last = token.find_last_not_of(" \t");
+        token = (first == std::string::npos) ? "" : token.substr(first, last - first + 1);
+        int value = 0;
+        if (!parseInt(token, "--lods", &value))
+            return false;
+        if (value <= 0) {
+            std::cerr << "Error: --lods expects positive integers, got '" << token << "'" << '\n';
+            return false;
+        }
+        out->push_back(value);
+        start = end + 1;
+    }
+    if (out->empty()) {
+        std::cerr << "Error: --lods expects a comma-separated list, got '" << text << "'" << '\n';
+        return false;
+    }
+    return true;
+}
+
 static bool matches(const char* arg, const char* longFlag, char shortFlag)
 {
     if (0 != shortFlag) {
@@ -159,6 +202,11 @@ static bool parseArgs(int argc, char** argv, Params* params)
             if (!takeValue(argc, argv, i, "--target-quads", &value))
                 return false;
             if (!parseInt(value, "--target-quads", &params->targetQuads))
+                return false;
+        } else if (matches(arg, "--lods", '\0')) {
+            if (!takeValue(argc, argv, i, "--lods", &value))
+                return false;
+            if (!parseLods(value, &params->lodTargets))
                 return false;
         } else if (matches(arg, "--edge-scaling", '\0')) {
             if (!takeValue(argc, argv, i, "--edge-scaling", &value))
@@ -284,11 +332,242 @@ static bool saveObj(const std::string& filename,
     return !file.fail();
 }
 
+static std::string lodOutputPath(const std::string& baseOutput, size_t lodIndex)
+{
+    const std::filesystem::path base(baseOutput);
+    const std::string name = base.stem().string() + "_lod" + std::to_string(lodIndex) + ".obj";
+    return (base.parent_path() / name).string();
+}
+
+struct RungResult {
+    bool ok = false;
+    size_t quadCount = 0;
+    size_t nonQuadCount = 0;
+    size_t vertexCount = 0;
+    double elapsedSeconds = 0.0;
+    std::string error;
+};
+
+// Same remesher setup as single-file mode, parameterized by target count.
+// Used by --lods and batch runs; single-file mode keeps its inline copy so
+// its stdout/stderr bytes stay exactly as before.
+static RungResult remeshLoadedMesh(const Params& params,
+    const std::vector<AutoRemesher::Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& triangles,
+    int targetQuads,
+    const std::string& outputPath)
+{
+    RungResult result;
+    auto startTime = std::chrono::steady_clock::now();
+
+    AutoRemesher::AutoRemesher remesher(vertices, triangles);
+    // Same derivation as the Qt app: one quad ~= two triangles.
+    remesher.setTargetTriangleCount(static_cast<size_t>(targetQuads) * 2);
+    if (params.edgeScaling > 0)
+        remesher.setScaling(params.edgeScaling);
+    remesher.setModelType(params.modelType);
+    remesher.setGradientAdaptivity(params.adaptivity);
+    remesher.setAnisotropy(params.anisotropy);
+    remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
+    remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
+    ProgressState progressState;
+    remesher.setTag(&progressState);
+    remesher.setProgressHandler(reportProgress);
+
+    if (!remesher.remesh()) {
+        result.error = "remeshing produced no result";
+        return result;
+    }
+
+    for (const auto& line : remesher.phaseReport())
+        std::cerr << "  " << line << '\n';
+
+    const auto& remeshedVertices = remesher.remeshedVertices();
+    const auto& remeshedQuads = remesher.remeshedQuads();
+
+    for (const auto& face : remeshedQuads) {
+        if (face.size() == 4)
+            ++result.quadCount;
+        else
+            ++result.nonQuadCount;
+    }
+    result.vertexCount = remeshedVertices.size();
+
+    if (!saveObj(outputPath, remeshedVertices, remeshedQuads)) {
+        result.error = "failed to write " + outputPath;
+        return result;
+    }
+
+    auto endTime = std::chrono::steady_clock::now();
+    result.elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
+    result.ok = true;
+    return result;
+}
+
+static void printRungLine(const std::string& label, const std::string& outputPath,
+    int targetQuads, const RungResult& result)
+{
+    std::cout << label << "target-quads=" << targetQuads
+              << " output=" << outputPath
+              << " quads=" << result.quadCount
+              << " non-quads=" << result.nonQuadCount
+              << " vertices=" << result.vertexCount
+              << " time=" << result.elapsedSeconds << " seconds" << '\n';
+}
+
+static int runMultiMode(const Params& params, bool batch)
+{
+    std::vector<std::string> inputs;
+    if (batch) {
+        std::error_code ec;
+        std::filesystem::directory_iterator it(params.inputPath, ec);
+        if (ec) {
+            std::cerr << "Error: cannot read directory " << params.inputPath << '\n';
+            return 1;
+        }
+        for (; it != std::filesystem::directory_iterator(); it.increment(ec)) {
+            if (ec) {
+                std::cerr << "Error: cannot read directory " << params.inputPath << '\n';
+                return 1;
+            }
+            std::error_code fileEc;
+            if (!it->is_regular_file(fileEc) || fileEc)
+                continue;
+            if (it->path().extension() == ".obj")
+                inputs.push_back(it->path().string());
+        }
+        std::sort(inputs.begin(), inputs.end());
+        if (inputs.empty()) {
+            std::cerr << "Error: no .obj files in " << params.inputPath << '\n';
+            return 1;
+        }
+        if (std::filesystem::exists(params.outputPath, ec) && !std::filesystem::is_directory(params.outputPath, ec)) {
+            std::cerr << "Error: --output must be a directory when --input is a directory" << '\n';
+            return 1;
+        }
+        std::filesystem::create_directories(params.outputPath, ec);
+        if (ec) {
+            std::cerr << "Error: cannot create output directory " << params.outputPath << '\n';
+            return 1;
+        }
+    } else {
+        inputs.push_back(params.inputPath);
+    }
+
+    const std::vector<int> targets = params.lodTargets.empty()
+        ? std::vector<int>{ params.targetQuads }
+        : params.lodTargets;
+    const bool lodMode = !params.lodTargets.empty();
+
+    std::ofstream report;
+    if (!params.reportPath.empty()) {
+        report.open(params.reportPath.c_str(), std::ios::out | std::ios::trunc);
+        if (!report.is_open()) {
+            std::cerr << "Error: failed to write " << params.reportPath << '\n';
+            return 1;
+        }
+        report << "retopoforge Report\n";
+        report << "==================\n\n";
+        report << "Edge scaling: " << params.edgeScaling << "\n";
+        report << "Sharp edge degrees: " << params.sharpEdgeDegrees << "\n";
+        report << "Smooth normal degrees: " << params.smoothNormalDegrees << "\n";
+        report << "Adaptivity: " << params.adaptivity << "\n";
+        report << "Anisotropy: " << params.anisotropy << "\n";
+        report << "Model type: " << (params.modelType == AutoRemesher::ModelType::Organic ? "organic" : "hardsurface") << "\n\n";
+    }
+
+    std::vector<std::string> failedFiles;
+    auto noteFailed = [&](const std::string& name) {
+        if (std::find(failedFiles.begin(), failedFiles.end(), name) == failedFiles.end())
+            failedFiles.push_back(name);
+    };
+
+    for (const std::string& inputPath : inputs) {
+        const std::string fileLabel = batch
+            ? "FILE " + std::filesystem::path(inputPath).filename().string() + (lodMode ? " " : ": ")
+            : "";
+        const std::string failName = batch
+            ? std::filesystem::path(inputPath).filename().string()
+            : inputPath;
+
+        std::vector<AutoRemesher::Vector3> vertices;
+        std::vector<std::vector<size_t>> triangles;
+        if (!loadObj(inputPath, &vertices, &triangles)) {
+            std::cerr << "Error: failed to load " << inputPath << '\n';
+            std::cout << fileLabel << "FAILED to load " << inputPath << '\n';
+            noteFailed(failName);
+            continue;
+        }
+        std::cerr << "Loaded " << vertices.size() << " vertices, "
+                  << triangles.size() << " triangles" << '\n';
+
+        for (size_t rung = 0; rung < targets.size(); ++rung) {
+            std::string outputPath;
+            if (batch) {
+                const std::filesystem::path inFile(inputPath);
+                if (lodMode)
+                    outputPath = (std::filesystem::path(params.outputPath) / (inFile.stem().string() + "_lod" + std::to_string(rung) + ".obj")).string();
+                else
+                    outputPath = (std::filesystem::path(params.outputPath) / inFile.filename()).string();
+            } else {
+                outputPath = lodOutputPath(params.outputPath, rung);
+            }
+            std::string label = fileLabel;
+            if (lodMode)
+                label += "LOD " + std::to_string(rung) + ": ";
+
+            RungResult result = remeshLoadedMesh(params, vertices, triangles, targets[rung], outputPath);
+            if (!result.ok) {
+                std::cerr << "Error: " << result.error << " (" << outputPath << ")" << '\n';
+                std::cout << label << "FAILED " << result.error << '\n';
+                noteFailed(failName);
+                continue;
+            }
+            printRungLine(label, outputPath, targets[rung], result);
+            if (report.is_open()) {
+                report << "Input file: " << inputPath << "\n";
+                report << "Output file: " << outputPath << "\n";
+                report << "Target quads: " << targets[rung] << "\n";
+                report << "Results:\n";
+                report << "  Quads: " << result.quadCount << "\n";
+                report << "  Non-quads: " << result.nonQuadCount << "\n";
+                report << "  Vertices: " << result.vertexCount << "\n";
+                report << "  Total time: " << result.elapsedSeconds << " seconds\n\n";
+            }
+        }
+    }
+
+    if (report.is_open()) {
+        report.close();
+        if (report.fail()) {
+            std::cerr << "Error: failed to write " << params.reportPath << '\n';
+            return 1;
+        }
+    }
+
+    if (batch) {
+        if (failedFiles.empty()) {
+            std::cout << "Failed files: none" << '\n';
+        } else {
+            std::cout << "Failed files (" << failedFiles.size() << "):";
+            for (const auto& name : failedFiles)
+                std::cout << " " << name;
+            std::cout << '\n';
+        }
+    }
+    return failedFiles.empty() ? 0 : 1;
+}
+
 int main(int argc, char** argv)
 {
     Params params;
     if (!parseArgs(argc, argv, &params))
         return 1;
+
+    std::error_code dirEc;
+    const bool batch = std::filesystem::is_directory(params.inputPath, dirEc);
+    if (!params.lodTargets.empty() || batch)
+        return runMultiMode(params, batch);
 
     auto startTime = std::chrono::steady_clock::now();
 
