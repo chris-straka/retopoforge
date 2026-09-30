@@ -59,10 +59,10 @@ new warnings.
 - [x] Blender one-click "Generate LODs" driving CLI `--lods`
       (rungs as `<name>_lodN` siblings; sync operator — modal-ize if
       long chains freeze the UI annoyingly)
-- [ ] Document the rung strategy: which chain rungs serve desktop vs
-      mobile, triangle budgets per rung for hero/prop/environment
-      assets, and how Godot's import-time auto-LOD interacts with
-      hand-authored chains.
+- [ ] Document the rung strategy: rung map + budgets done
+      (`docs/lod-strategy.md`, measured chain); still open: how
+      Godot's import-time auto-LOD interacts with hand-authored
+      chains.
 
 ## Texturing (AI output is textured; ours is bare)
 
@@ -154,8 +154,10 @@ new warnings.
 
 ## Quality / release
 
-- [ ] README refresh (module layout, build, tests, Blender addon)
-- [ ] Architecture doc (engine / CLI / app / addon split, module graph)
+- [x] README refresh (module layout, build, tests, Blender addon)
+      — literal-tested, covers 16 modules + `--symmetry` + profiler
+- [x] Architecture doc (engine / CLI / app / addon split, module graph)
+      — covers the 16-module graph incl. symmetry
 - [x] macOS bundle CI: unsigned bundle build + self-containment verify
       in `development.yml`; Developer-ID signing stubbed (needs owner
       `APPLE_DEVELOPER_IDENTITY` secret)
