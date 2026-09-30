@@ -27,10 +27,8 @@
 // dependency: no QApplication, no event loop, works over ssh and in CI.
 
 #include <AutoRemesher/AutoRemesher>
+#include <AutoRemesher/ObjReader>
 #include <AutoRemesher/Vector3>
-
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
 
 #include <chrono>
 #include <cstdio>
@@ -237,13 +235,13 @@ static bool loadObj(const std::string& filename,
     std::vector<AutoRemesher::Vector3>* vertices,
     std::vector<std::vector<size_t>>* triangles)
 {
-    tinyobj::attrib_t attributes;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
+    std::vector<float> positions;
+    std::vector<std::vector<size_t>> loadedTriangles;
     std::string warn, err;
 
-    // Note: tinyobj triangulates by default, so indices stride by 3 below.
-    bool loadSuccess = tinyobj::LoadObj(&attributes, &shapes, &materials, &warn, &err, filename.c_str());
+    // Note: the reader fan-triangulates polygons, so every face below
+    // is a triangle.
+    bool loadSuccess = AutoRemesher::loadObjPositionsAndTriangles(filename.c_str(), &positions, &loadedTriangles, &warn, &err);
     if (!warn.empty())
         std::cerr << "WARN: " << warn << std::endl;
     if (!err.empty())
@@ -251,23 +249,15 @@ static bool loadObj(const std::string& filename,
     if (!loadSuccess)
         return false;
 
-    vertices->resize(attributes.vertices.size() / 3);
+    vertices->resize(positions.size() / 3);
     for (size_t i = 0, j = 0; i < vertices->size(); ++i) {
         auto& dest = (*vertices)[i];
-        dest.setX(attributes.vertices[j++]);
-        dest.setY(attributes.vertices[j++]);
-        dest.setZ(attributes.vertices[j++]);
+        dest.setX(positions[j++]);
+        dest.setY(positions[j++]);
+        dest.setZ(positions[j++]);
     }
 
-    triangles->clear();
-    for (const auto& shape : shapes) {
-        for (size_t i = 0; i + 2 < shape.mesh.indices.size(); i += 3) {
-            triangles->push_back(std::vector<size_t> {
-                (size_t)shape.mesh.indices[i + 0].vertex_index,
-                (size_t)shape.mesh.indices[i + 1].vertex_index,
-                (size_t)shape.mesh.indices[i + 2].vertex_index });
-        }
-    }
+    triangles->assign(loadedTriangles.begin(), loadedTriangles.end());
     return true;
 }
 

@@ -63,8 +63,7 @@
 #include "theme.h"
 #include "util.h"
 #include "version.h"
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
+#include <AutoRemesher/ObjReader>
 
 LogBrowser* g_logBrowser = nullptr;
 QTextBrowser* g_acknowlegementsWidget = nullptr;
@@ -489,14 +488,13 @@ void MainWindow::updateButtonStates()
 
 bool MainWindow::loadObj(const QString& filename)
 {
-    tinyobj::attrib_t attributes;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
+    std::vector<float> positions;
+    std::vector<std::vector<size_t>> loadedTriangles;
     std::string warn, err;
 
     qDebug() << "loadObj:" << filename;
 
-    bool loadSuccess = tinyobj::LoadObj(&attributes, &shapes, &materials, &warn, &err, filename.toUtf8().constData());
+    bool loadSuccess = AutoRemesher::loadObjPositionsAndTriangles(filename.toUtf8().constData(), &positions, &loadedTriangles, &warn, &err);
     if (!warn.empty()) {
         qDebug() << "WARN:" << warn.c_str();
     }
@@ -538,23 +536,15 @@ bool MainWindow::loadObj(const QString& filename)
     m_previewParamButton->setChecked(false);
     m_previewRemeshButton->setChecked(false);
 
-    m_originalVertices.resize(attributes.vertices.size() / 3);
+    m_originalVertices.resize(positions.size() / 3);
     for (size_t i = 0, j = 0; i < m_originalVertices.size(); ++i) {
         auto& dest = m_originalVertices[i];
-        dest.setX(attributes.vertices[j++]);
-        dest.setY(attributes.vertices[j++]);
-        dest.setZ(attributes.vertices[j++]);
+        dest.setX(positions[j++]);
+        dest.setY(positions[j++]);
+        dest.setZ(positions[j++]);
     }
 
-    m_originalTriangles.clear();
-    for (const auto& shape : shapes) {
-        for (size_t i = 0; i < shape.mesh.indices.size(); i += 3) {
-            m_originalTriangles.push_back(std::vector<size_t> {
-                (size_t)shape.mesh.indices[i + 0].vertex_index,
-                (size_t)shape.mesh.indices[i + 1].vertex_index,
-                (size_t)shape.mesh.indices[i + 2].vertex_index });
-        }
-    }
+    m_originalTriangles.assign(loadedTriangles.begin(), loadedTriangles.end());
 
     qDebug() << "m_originalVertices.size():" << m_originalVertices.size();
     qDebug() << "m_originalTriangles.size():" << m_originalTriangles.size();
