@@ -1,10 +1,10 @@
 # retopoforge TODO / Roadmap
 
-Owner context: solo-dev Godot game (project HLL, `~/Games/hll`). The main
-workflow is AI image-to-3D meshes (messy, dense, often non-indexed soup)
-remeshed into clean quad game characters (e.g. Andras). Optimize for
-organic quality and robustness on nasty inputs over hard-surface features.
-`bench/models/andras_*.obj` (local, gitignored, converted from GLB) cover it.
+Owner context: solo-dev Godot game. The main workflow is AI image-to-3D
+meshes (messy, dense, often non-indexed soup) remeshed into clean quad
+game characters. Optimize for organic quality and robustness on nasty
+inputs over hard-surface features. The owner's game assets must never be
+committed to this repo — not even file names or paths in tracked files.
 
 Ordered by priority: Blender-first workflow, Exoside-beating last.
 Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
@@ -66,7 +66,7 @@ new warnings.
 ## Game-asset workflow (owner's main use case)
 
 - [ ] Weld-on-load in the CLI: AI exporters emit non-indexed triangle soup;
-      unwelded input exploded into 3684 islands on andras_image (meshopt
+      unwelded input exploded into thousands of islands in testing (meshopt
       remap in the loader, drop degenerate tris)
 - [ ] `--quiet` CLI flag: progress spam hit 1.7 MB of stdout on the soup
       input; throttle or silence per-island stage reports
