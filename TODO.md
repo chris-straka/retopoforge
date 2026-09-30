@@ -69,9 +69,9 @@ new warnings.
 - [ ] (future) Emit remeshed UVs from the internal parameterization so
       game assets can be textured without a second auto-UV pass
       (Exoside's UV behavior is undocumented — possible leapfrog)
-- [ ] Blender bake assist: automate the standard high→low bake
-      (import high-poly source + remeshed low, Smart UV Project the low,
-      bake diffuse/normal from high) as a one-click addon step
+- [x] Blender bake assist: one-click high→low bake (Smart UV the
+      low, Cycles CPU diffuse + tangent normal, PNGs next to the .blend;
+      render settings restored afterwards)
 - [x] GLB input (and ideally output) for the CLI to cut the manual
       GLB→OBJ conversion out of the loop (cgltf input + hand-written
       writer; batch and `--lods` keep the extension)

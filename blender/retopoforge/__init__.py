@@ -802,6 +802,8 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             normal.filepath_raw = normal_path
 
         scene = context.scene
+        saved_engine = scene.render.engine
+        saved_samples = scene.cycles.samples if saved_engine == "CYCLES" else None
         scene.render.engine = "CYCLES"
         scene.cycles.device = "CPU"
         scene.cycles.samples = 1
@@ -840,6 +842,11 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             high.select_set(True)
             low.select_set(True)
             context.view_layer.objects.active = high
+            # The bake needs Cycles, but the scene is the user's: put the
+            # render settings back the way they were.
+            scene.render.engine = saved_engine
+            if saved_samples is not None:
+                scene.cycles.samples = saved_samples
 
         scene.retopoforge_last_report += line + "\n"
         self.report({"INFO"}, line.replace("\n", " | "))
