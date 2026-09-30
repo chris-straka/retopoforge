@@ -123,8 +123,10 @@ new warnings.
 - [x] Multi-object loop over the selection; temp files removed afterwards
 - [x] Headless verification (`blender/tests/test_headless.py`, all passing)
 - [x] Honest UV / vertex-color data-loss notice in the UI
-- [ ] Zip install path verified (`package_install_files`); user-facing
-      release packaging (signed zip? extensions.blender.org listing?)
+- [x] Zip install path verified (`package_install_files`) end to end
+      in an isolated config (0.2.0)
+- [ ] Release packaging (signed zip? extensions.blender.org listing?) —
+      needs the owner's signing identity + publishing decisions
 - [x] Iterate loop: per-object settings recall (last-used params
       auto-restore per object with an INFO note, so do-overs are one
       click, not retyping)
@@ -185,8 +187,11 @@ new warnings.
 - [ ] Density painting (0.25x–4x local density): engine + CLI mask
       file done (see above); still open: paint in Blender, export the
       weight group as the mask
-- [ ] Perf at scale: profile the CLI on production-size meshes, check
-      TBB scaling, measured black-box comparison vs QR (EULA-aware:
-      their outputs stay out of the repo and out of training data)
+- [x] Perf at scale: profiled (`docs/perf.md`, dragon 50k: ~23s,
+      ~1.5 GiB); TBB scaling checked — no thread knob exists, batch
+      mode is the parallelism story
+- [ ] Measured black-box comparison vs QR (EULA-aware: their outputs
+      stay out of the repo and out of training data) — needs the
+      owner's QR license + inputs
 - [ ] UX polish in the addon and the app
 - [ ] DCC breadth (other hosts) — last of last
