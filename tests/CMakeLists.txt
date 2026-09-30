@@ -152,6 +152,17 @@ target_compile_definitions(test_island_stats PRIVATE
 add_dependencies(test_island_stats retopo)
 set_tests_properties(test_island_stats PROPERTIES TIMEOUT 600)
 
+# Pole-cap manifold: remeshed UV sphere must be edge-manifold (zero
+# boundary edges, zero non-manifold edges, zero duplicate faces).
+# Hermetic: committed fixture only, no bench/models download required.
+retopo_add_test(test_pole_manifold test_pole_manifold.cpp)
+target_compile_definitions(test_pole_manifold PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_FIXTURE_SPHERE=\"${CMAKE_SOURCE_DIR}/tests/fixtures/sphere-pole.obj\""
+)
+add_dependencies(test_pole_manifold retopo)
+set_tests_properties(test_pole_manifold PROPERTIES TIMEOUT 600)
+
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.
 retopo_add_test(test_cli_engine_quiet test_cli_engine_quiet.cpp)
