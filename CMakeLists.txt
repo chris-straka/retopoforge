@@ -1,0 +1,73 @@
+cmake_minimum_required(VERSION 3.16)
+project(retopoforge VERSION 0.1.0 LANGUAGES C CXX)
+
+# retopoforge: fork of huxingyi/autoremesher (MIT), restructured around a
+# Qt-free core library + CLI. The Qt desktop app still builds via qmake
+# (autoremesher.pro); this CMake build covers the headless engine only.
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# --- Core static library (Qt-free) ---
+# Source list mirrors autoremesher.pro minus the Qt GUI shell.
+set(CORE_SOURCES
+    src/AutoRemesher/autoremesher.cpp
+    src/AutoRemesher/isotropicremesher.cpp
+    src/AutoRemesher/parameterizer.cpp
+    src/AutoRemesher/surfacemesh.cpp
+    src/AutoRemesher/singularitysimplifier.cpp
+    src/AutoRemesher/constrainedleastsquares.cpp
+    src/AutoRemesher/mixedintegerleastsquares.cpp
+    src/AutoRemesher/framefield.cpp
+    src/AutoRemesher/quadparameterizer.cpp
+    src/AutoRemesher/quadextractor.cpp
+    src/AutoRemesher/positionkey.cpp
+    src/AutoRemesher/meshseparator.cpp
+    thirdparty/isotropicremesher/isotropicremesher.cpp
+    thirdparty/isotropicremesher/isotropichalfedgemesh.cpp
+    thirdparty/isotropicremesher/axisalignedboundingboxtree.cpp
+    thirdparty/meshoptimizer/src/simplifier.cpp
+    thirdparty/meshoptimizer/src/indexgenerator.cpp
+)
+
+add_library(retopo_core STATIC ${CORE_SOURCES})
+
+target_include_directories(retopo_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/eigen
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/isotropicremesher
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/meshoptimizer/src
+)
+
+target_compile_definitions(retopo_core PUBLIC _USE_MATH_DEFINES NOMINMAX)
+
+if(APPLE)
+    target_compile_definitions(retopo_core PUBLIC AUTO_REMESHER_USE_ACCELERATE=1)
+    target_link_libraries(retopo_core PUBLIC "-framework Accelerate")
+else()
+    target_compile_definitions(retopo_core PUBLIC AUTO_REMESHER_USE_ACCELERATE=0)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(retopo_core PRIVATE $<$<CONFIG:Release>:-O3 -funroll-loops>)
+elseif(MSVC)
+    target_compile_options(retopo_core PRIVATE $<$<CONFIG:Release>:/O2 /fp:fast> /bigobj)
+endif()
+
+# TBB (system install; Homebrew hints for macOS)
+find_package(TBB REQUIRED PATHS /opt/homebrew/opt/tbb /usr/local/opt/tbb)
+target_link_libraries(retopo_core PUBLIC TBB::tbb)
+if(TARGET TBB::tbbmalloc)
+    target_link_libraries(retopo_core PUBLIC TBB::tbbmalloc)
+endif()
+
+# zlib (matches the unix link in autoremesher.pro)
+if(UNIX)
+    find_package(ZLIB)
+    if(ZLIB_FOUND)
+        target_link_libraries(retopo_core PUBLIC ZLIB::ZLIB)
+    endif()
+endif()
+
+add_subdirectory(cli)

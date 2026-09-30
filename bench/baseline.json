@@ -1,0 +1,140 @@
+{
+  "results": [
+    {
+      "model": "armadillo.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.169,
+      "input_verts": 49990,
+      "input_faces": 99976,
+      "verts": 242,
+      "quads": 231,
+      "non_quads": 6,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "armadillo.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.622,
+      "input_verts": 49990,
+      "input_faces": 99976,
+      "verts": 2875,
+      "quads": 2856,
+      "non_quads": 14,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "beast.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.149,
+      "input_verts": 32311,
+      "input_faces": 32364,
+      "verts": 206,
+      "quads": 191,
+      "non_quads": 10,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "beast.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.637,
+      "input_verts": 32311,
+      "input_faces": 32364,
+      "verts": 1135,
+      "quads": 1104,
+      "non_quads": 26,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.162,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 562,
+      "quads": 555,
+      "non_quads": 6,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.644,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 2914,
+      "quads": 2890,
+      "non_quads": 18,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.169,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 995,
+      "quads": 978,
+      "non_quads": 10,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.375,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 2959,
+      "quads": 2951,
+      "non_quads": 4,
+      "errors": [],
+      "error_count": 0
+    }
+  ]
+}

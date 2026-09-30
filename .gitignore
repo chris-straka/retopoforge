@@ -36,6 +36,10 @@ build/
 build2/
 obj/
 
+# Benchmark models + run results (use bench/baseline.json for regressions)
+bench/models/
+bench/results/
+
 # Generated build artifacts
 .qmake.stash
 Makefile

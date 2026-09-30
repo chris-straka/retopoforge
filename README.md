@@ -1,4 +1,47 @@
-# AutoRemesher
+# retopoforge
+
+retopoforge is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher)
+(MIT, by Jeremy HU) restructured around a **Qt-free headless engine**: a C++
+core library, a `retopo` CLI, a benchmark/regression harness, and (planned) a
+Blender addon. Upstream is kept as the `upstream` git remote for merging future
+fixes. Original README follows below.
+
+## Headless build (no Qt required)
+
+```bash
+# macOS prerequisites (Linux: TBB + zlib from your package manager)
+brew install cmake tbb
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+## CLI usage
+
+```bash
+./build/cli/retopo --input armadillo.obj --output remeshed.obj \
+    --report report.txt --target-quads 5000
+./build/cli/retopo --help   # all options (same flags as upstream --input mode)
+```
+
+## Benchmarks
+
+```bash
+bench/fetch_models.sh          # one-time download of test models (gitignored)
+bench/run.py                   # run suite, validate meshes, save results JSON
+bench/run.py --check bench/baseline.json   # fail on regression vs baseline
+```
+
+## Direction
+
+1. Headless engine + CLI + benchmarks (this fork's foundation, done)
+2. Blender addon driving the CLI
+3. Keep the Qt desktop app building (via `autoremesher.pro`, untouched)
+4. Incremental engine improvements, gated by the benchmark suite
+
+---
+
+# AutoRemesher (upstream README)
 
 AutoRemesher is a cross-platform automatic quad remeshing tool that converts high-polygon meshes into clean quad-based topology. It is built on top of libraries: [Geogram](https://github.com/BrunoLevy/geogram), [libigl](https://github.com/libigl), [isotropicremesher](https://github.com/huxingyi/isotropicremesher) and [others](https://github.com/huxingyi/autoremesher/blob/master/ACKNOWLEDGEMENTS.html).
 
