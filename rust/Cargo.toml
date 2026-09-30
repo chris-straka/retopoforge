@@ -1,0 +1,10 @@
+[workspace]
+members = ["solvers", "core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+faer = "0.24"

@@ -1,0 +1,7 @@
+[package]
+name = "retopo_core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+faer.workspace = true
