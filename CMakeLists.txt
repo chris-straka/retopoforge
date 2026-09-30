@@ -96,8 +96,12 @@ if(TARGET autoremesher)
     # AUTOMOC's unity file includes moc outputs for app headers that now import
     # retopo.core modules, but CMake compiles autogen sources with the unscanned
     # rule (no dyndep BMI flags), so hand the unity file the module files it
-    # needs plus build-order edges on them. Revisit if CMake starts scanning
-    # autogen sources or if more lane modules land (extend both lists).
+    # needs. Ordering comes from the finished static lib: the .pcm files have
+    # no static ninja rule (dyndep produces them), so a static edge on them
+    # fails fresh-build planning -- the lib archive instead completes only
+    # after every module compile, hence after every .pcm exists. Revisit if
+    # CMake starts scanning autogen sources or if more lane modules land
+    # (extend the module list; the lib edge already covers them).
     set(_RETOPO_MMI ${CMAKE_BINARY_DIR}/app/autoremesher_autogen/mocs_compilation.cpp)
     set(_RETOPO_PCM_DIR ${CMAKE_BINARY_DIR}/CMakeFiles/retopo_core.dir)
     set(_RETOPO_PCM_NAMES
@@ -108,19 +112,16 @@ if(TARGET autoremesher)
         retopo.core.quad_extractor
     )
     set(_RETOPO_MMI_FLAGS "")
-    set(_RETOPO_MMI_PCMS "")
     foreach(_mod IN LISTS _RETOPO_PCM_NAMES)
         list(APPEND _RETOPO_MMI_FLAGS "-fmodule-file=${_mod}=${_RETOPO_PCM_DIR}/${_mod}.pcm")
-        list(APPEND _RETOPO_MMI_PCMS "${_RETOPO_PCM_DIR}/${_mod}.pcm")
     endforeach()
     set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
         APPEND PROPERTY COMPILE_OPTIONS ${_RETOPO_MMI_FLAGS})
     set_property(SOURCE ${_RETOPO_MMI} TARGET_DIRECTORY autoremesher
-        APPEND PROPERTY OBJECT_DEPENDS ${_RETOPO_MMI_PCMS})
+        APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/libretopo_core.a)
     unset(_RETOPO_MMI)
     unset(_RETOPO_PCM_DIR)
     unset(_RETOPO_PCM_NAMES)
     unset(_RETOPO_MMI_FLAGS)
-    unset(_RETOPO_MMI_PCMS)
     unset(_mod)
 endif()
