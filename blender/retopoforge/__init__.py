@@ -97,9 +97,11 @@ def parse_lod_targets(text):
 # Scene params snapshotted into the recall blob, grouped by Blender type.
 _RECALL_INT_KEYS = ("target_quads",)
 _RECALL_FLOAT_KEYS = ("sharp_edge", "smooth_normal", "edge_scaling",
-                      "adaptivity", "anisotropy")
-_RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original", "symmetry_enabled")
-_RECALL_STR_KEYS = ("lod_targets",)
+                      "adaptivity", "anisotropy",
+                      "density_min", "density_max")
+_RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original", "symmetry_enabled",
+                     "guides_enabled", "density_enabled")
+_RECALL_STR_KEYS = ("lod_targets", "density_vertex_group")
 _RECALL_MODEL_TYPES = ("ORGANIC", "HARDSURFACE")
 _RECALL_SYMMETRY_PLANES = ("AUTO", "X", "Y", "Z")
 
@@ -286,6 +288,31 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Also bake a tangent-space normal map alongside diffuse",
         default=True,
     )
+    guides_enabled: BoolProperty(
+        name="Flow Guides",
+        description="Constrain quad flow to the edge selection on each target (passed as --guides)",
+        default=False,
+    )
+    density_enabled: BoolProperty(
+        name="Density Mask",
+        description="Drive local density from a vertex group (passed as --density)",
+        default=False,
+    )
+    density_vertex_group: StringProperty(
+        name="Density Group",
+        description="Vertex group whose weights map to density multipliers",
+        default="",
+    )
+    density_min: FloatProperty(
+        name="Density Min",
+        description="Multiplier for weight 0 (CLI clamps outside 0.25-4.0)",
+        default=0.25, min=0.01, max=8.0,
+    )
+    density_max: FloatProperty(
+        name="Density Max",
+        description="Multiplier for weight 1 (CLI clamps outside 0.25-4.0)",
+        default=4.0, min=0.01, max=8.0,
+    )
 
     def symmetry_value(self):
         """CLI --symmetry value: off unless the toggle is on, else the
@@ -362,6 +389,171 @@ def _import_result(filepath):
     bpy.ops.wm.obj_import(filepath=filepath)
     return [o for o in bpy.data.objects
             if o not in before and o.type == "MESH"]
+
+
+def trace_edge_chains(mesh):
+    """Order the mesh's selected edges into polylines for --guides.
+
+    Each chain is a list of vertex indices. Chains start at open ends
+    (degree 1) first, then leftovers (loops, branches); a branch vertex
+    ends every chain passing through it. Iteration is index-sorted, so
+    the output is deterministic for a given selection."""
+    selected = sorted(e.index for e in mesh.edges if e.select)
+    if not selected:
+        return []
+    neighbours = {}
+    for edge_index in selected:
+        edge = mesh.edges[edge_index]
+        v0, v1 = edge.vertices
+        neighbours.setdefault(v0, []).append(v1)
+        neighbours.setdefault(v1, []).append(v0)
+    for vert in neighbours:
+        neighbours[vert].sort()
+    used = set()
+    chains = []
+
+    def walk(start):
+        chain = [start]
+        vert = start
+        while True:
+            nxt = None
+            for cand in neighbours[vert]:
+                if (min(vert, cand), max(vert, cand)) not in used:
+                    nxt = cand
+                    break
+            if nxt is None:
+                return chain
+            used.add((min(vert, nxt), max(vert, nxt)))
+            chain.append(nxt)
+            vert = nxt
+            # An open end or a branch stops the chain; a loop closes it
+            # by returning to the start vertex (no unused edge remains).
+            if len(neighbours[vert]) != 2:
+                return chain
+            if vert == start:
+                return chain
+
+    endpoints = sorted(v for v, vs in neighbours.items() if len(vs) == 1)
+    for vert in endpoints:
+        if any((min(vert, c), max(vert, c)) not in used
+               for c in neighbours[vert]):
+            chains.append(walk(vert))
+    for vert in sorted(neighbours):
+        if any((min(vert, c), max(vert, c)) not in used
+               for c in neighbours[vert]):
+            chains.append(walk(vert))
+    return [c for c in chains if len(c) >= 2]
+
+
+def write_guide_chains(obj, chains, filepath):
+    """Write vertex-index chains as a --guides file (local coords, one
+    'x y z' per line, blank line between polylines). Returns the number
+    of polylines written."""
+    mesh = obj.data
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"# RetopoForge flow guides from '{obj.name}' "
+                f"({len(chains)} polylines)\n")
+        for index, chain in enumerate(chains):
+            if index:
+                f.write("\n")
+            for vert in chain:
+                co = mesh.vertices[vert].co
+                f.write(f"{co.x!r} {co.y!r} {co.z!r}\n")
+    return len(chains)
+
+
+def density_multipliers(obj, group_name, lo, hi):
+    """Per-vertex density multipliers in mesh-vertex order: group weight
+    0..1 maps linearly onto min..max (swapped when min > max). Vertices
+    with no group assignment stay neutral at 1.0, so painting a small
+    region never sparsifies the unpainted rest. Raises RuntimeError when
+    the group does not exist on the object."""
+    group = obj.vertex_groups.get(group_name)
+    if group is None:
+        raise RuntimeError(
+            f"Object '{obj.name}' has no vertex group '{group_name}'")
+    lo, hi = (lo, hi) if lo <= hi else (hi, lo)
+    multipliers = []
+    for vert in obj.data.vertices:
+        try:
+            weight = group.weight(vert.index)
+        except RuntimeError:
+            multipliers.append(1.0)
+        else:
+            multipliers.append(lo + weight * (hi - lo))
+    return multipliers
+
+
+def write_density_multipliers(obj, group_name, multipliers, filepath):
+    """Write multipliers as a --density file (one per line, mesh-vertex
+    order). Returns the number of entries written."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"# RetopoForge density mask from '{obj.name}' "
+                f"group '{group_name}' ({len(multipliers)} vertices)\n")
+        for value in multipliers:
+            f.write(f"{value!r}\n")
+    return len(multipliers)
+
+
+def count_obj_vertices(filepath):
+    """Count the 'v ' lines in an exported OBJ: the exact vertex count
+    the CLI will read (before its weld, which is the identity on clean
+    Blender exports)."""
+    count = 0
+    with open(filepath, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("v "):
+                count += 1
+    return count
+
+
+def constraint_args_for_target(params, obj, input_path, tmpdir, tag):
+    """Build the [--guides file, --density file] args for one remesh
+    target, writing the temp files into tmpdir. Returns (args, notes):
+    notes are skip reasons the caller reports as INFO. Guides enabled
+    but nothing selected is a skip, not an error, so multi-object runs
+    with partial selections still finish; likewise a named-but-missing
+    vertex group skips, because the remesh mesh-swap drops vertex
+    groups (weights live on the old topology) and a do-over would
+    otherwise always cancel on its own recalled settings. Raises
+    RuntimeError only for real setup mistakes: no group set, or the
+    mask count not matching the exported OBJ (a topology-changing
+    modifier with Apply Modifiers on)."""
+    args = []
+    notes = []
+    if params.guides_enabled:
+        chains = trace_edge_chains(obj.data)
+        if not chains:
+            notes.append(f"{obj.name}: guides on but no edge selection, "
+                         f"remeshing unconstrained")
+        else:
+            guides_path = os.path.join(tmpdir, f"guides_{tag}.txt")
+            write_guide_chains(obj, chains, guides_path)
+            args += ["--guides", guides_path]
+    if params.density_enabled:
+        group_name = (params.density_vertex_group or "").strip()
+        if not group_name:
+            raise RuntimeError(
+                "Density mask on but no vertex group set "
+                "(pick one in the Density panel)")
+        if obj.vertex_groups.get(group_name) is None:
+            notes.append(f"{obj.name}: vertex group '{group_name}' not "
+                         f"found, remeshing unconstrained")
+            return args, notes
+        multipliers = density_multipliers(
+            obj, group_name, float(params.density_min),
+            float(params.density_max))
+        exported = count_obj_vertices(input_path)
+        if exported != len(multipliers):
+            raise RuntimeError(
+                f"Density mask has {len(multipliers)} entries but the "
+                f"exported mesh has {exported} vertices "
+                f"(topology-changing modifier? turn off Apply Modifiers "
+                f"or apply it first)")
+        density_path = os.path.join(tmpdir, f"density_{tag}.txt")
+        write_density_multipliers(obj, group_name, multipliers, density_path)
+        args += ["--density", density_path]
+    return args, notes
 
 
 class RETOPOFORGE_OT_remesh(bpy.types.Operator):
@@ -472,8 +664,14 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
                 try:
                     input_path = self._export_job(context, obj, index)
                     output_path = os.path.join(self._tmpdir, f"out_{index}.obj")
+                    extra, notes = constraint_args_for_target(
+                        self._params, obj, input_path, self._tmpdir,
+                        str(index))
+                    for note in notes:
+                        self.report({"INFO"}, note)
                     proc = subprocess.run(
-                        self._params.cli_args(binary, input_path, output_path),
+                        self._params.cli_args(binary, input_path, output_path)
+                        + extra,
                         capture_output=True, text=True,
                     )
                     if proc.returncode != 0:
@@ -526,14 +724,28 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         wm.progress_begin(0, self._total)
         self._timer = wm.event_timer_add(0.1, window=context.window)
         wm.modal_handler_add(self)
-        self._start_next(context)
+        if not self._start_next(context):
+            self._cleanup(context)
+            return {"CANCELLED"}
         return {"RUNNING_MODAL"}
 
     def _start_next(self, context):
+        """Export the next queued object and spawn its CLI run. Returns
+        True, or False after restoring the object's transform and
+        reporting (the caller then cleans up and cancels)."""
         self._current = self._queue.pop(0)
         obj = self._current["obj"]
         index = self._total - len(self._queue) - 1
-        input_path = self._export_job(context, obj, index)
+        try:
+            input_path = self._export_job(context, obj, index)
+            extra, notes = constraint_args_for_target(
+                self._params, obj, input_path, self._tmpdir, str(index))
+            for note in notes:
+                self.report({"INFO"}, note)
+        except RuntimeError as exc:
+            obj.matrix_world = self._current["matrix"]
+            self.report({"ERROR"}, str(exc))
+            return False
         self._output_path = os.path.join(self._tmpdir, f"out_{index}.obj")
         # Never PIPEs here: the CLI prints megabytes of progress and the
         # modal poll loop does not drain, so pipes fill and wedge the child
@@ -541,10 +753,12 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         self._log_path = os.path.join(self._tmpdir, f"run_{index}.log")
         self._log_handle = open(self._log_path, "w")
         self._proc = subprocess.Popen(
-            self._params.cli_args(self._binary, input_path, self._output_path),
+            self._params.cli_args(self._binary, input_path, self._output_path)
+            + extra,
             stdout=self._log_handle, stderr=subprocess.STDOUT, text=True,
         )
         context.window_manager.progress_update(index)
+        return True
 
     def modal(self, context, event):
         if event.type == "ESC":
@@ -585,7 +799,9 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         if self._queue:
             context.window_manager.progress_update(
                 self._total - len(self._queue))
-            self._start_next(context)
+            if not self._start_next(context):
+                self._cleanup(context)
+                return {"CANCELLED"}
             return {"PASS_THROUGH"}
         self._cleanup(context)
         return {"FINISHED"}
@@ -884,6 +1100,98 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class RETOPOFORGE_OT_export_guides(bpy.types.Operator):
+    """Export the active object's edge selection as a --guides file"""
+
+    bl_idname = "retopoforge.export_guides"
+    bl_label = "Export Guide Strokes"
+    bl_options = {"REGISTER"}
+
+    filepath: StringProperty(
+        name="Guides File",
+        description="Where to write the --guides polyline file",
+        default="",
+        subtype="FILE_PATH",
+    )
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.view_layer.objects.active
+        if obj is None or obj.type != "MESH":
+            self.report({"ERROR"}, "Make a mesh object the active object")
+            return {"CANCELLED"}
+        chains = trace_edge_chains(obj.data)
+        if not chains:
+            self.report({"ERROR"},
+                        f"No edge selection on '{obj.name}' "
+                        f"(select flow-stroke edges in Edit Mode first)")
+            return {"CANCELLED"}
+        if not self.filepath:
+            self.report({"ERROR"}, "No output file given")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(self.filepath)
+        count = write_guide_chains(obj, chains, path)
+        points = sum(len(c) for c in chains)
+        self.report({"INFO"},
+                    f"Exported {count} guide polylines "
+                    f"({points} points) to {path}")
+        return {"FINISHED"}
+
+
+class RETOPOFORGE_OT_export_density(bpy.types.Operator):
+    """Export the active object's density vertex group as a --density file"""
+
+    bl_idname = "retopoforge.export_density"
+    bl_label = "Export Density Mask"
+    bl_options = {"REGISTER"}
+
+    filepath: StringProperty(
+        name="Density File",
+        description="Where to write the --density multiplier file",
+        default="",
+        subtype="FILE_PATH",
+    )
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.view_layer.objects.active
+        if obj is None or obj.type != "MESH":
+            self.report({"ERROR"}, "Make a mesh object the active object")
+            return {"CANCELLED"}
+        params = context.scene.retopoforge_params
+        group_name = (params.density_vertex_group or "").strip()
+        if not group_name:
+            self.report({"ERROR"},
+                        "No vertex group set (pick one in the Density panel)")
+            return {"CANCELLED"}
+        if not self.filepath:
+            self.report({"ERROR"}, "No output file given")
+            return {"CANCELLED"}
+        try:
+            multipliers = density_multipliers(
+                obj, group_name, float(params.density_min),
+                float(params.density_max))
+        except RuntimeError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        path = bpy.path.abspath(self.filepath)
+        count = write_density_multipliers(obj, group_name, multipliers, path)
+        self.report({"INFO"},
+                    f"Exported {count} density multipliers "
+                    f"(group '{group_name}') to {path}")
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_OT_reload(bpy.types.Operator):
     """Reload all scripts (picks up extension updates), then confirm"""
 
@@ -930,6 +1238,27 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         sym_row = col.row()
         sym_row.enabled = params.symmetry_enabled
         sym_row.prop(params, "symmetry_plane")
+        guides = layout.box()
+        guides.label(text="Flow Guides: edge selection, per target")
+        guides.prop(params, "guides_enabled")
+        guides.operator("retopoforge.export_guides",
+                        text="Export Guide Strokes", icon="GREASEPENCIL")
+        density = layout.box()
+        density.label(text="Density: vertex group weights")
+        density.prop(params, "density_enabled")
+        dcol = density.column(align=True)
+        dcol.enabled = params.density_enabled
+        active = context.view_layer.objects.active
+        if active is not None and active.type == "MESH":
+            dcol.prop_search(params, "density_vertex_group", active,
+                             "vertex_groups", text="Group")
+        else:
+            dcol.prop(params, "density_vertex_group")
+        drow = dcol.row(align=True)
+        drow.prop(params, "density_min")
+        drow.prop(params, "density_max")
+        density.operator("retopoforge.export_density",
+                         text="Export Density Mask", icon="GROUP_VERTEX")
         col.prop(params, "lod_targets")
         layout.operator("retopoforge.generate_lods", text="Generate LODs",
                         icon="MOD_DECIM")
@@ -961,6 +1290,8 @@ _CLASSES = (
     RETOPOFORGE_OT_remesh,
     RETOPOFORGE_OT_generate_lods,
     RETOPOFORGE_OT_bake_textures,
+    RETOPOFORGE_OT_export_guides,
+    RETOPOFORGE_OT_export_density,
     RETOPOFORGE_OT_reload,
     RETOPOFORGE_PT_panel,
 )
