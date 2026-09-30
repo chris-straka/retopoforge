@@ -189,9 +189,19 @@ and QtAwesome deleted as dead code before the removal.
 - [x] Perf at scale: profiled (`docs/perf.md`, dragon 50k: ~23s,
       ~1.5 GiB); TBB scaling checked — no thread knob exists, batch
       mode is the parallelism story
-- [ ] Measured comparison vs Blender's native Quadriflow remesh
-      (owner-scratched the paid QR comparison): same inputs, quad
-      counts, timings, thin-feature behavior — all reproducible in-repo
+- [ ] Measured comparison vs free baselines (owner-scratched the
+      paid QR comparison): native Voxel remesh in-repo + standalone
+      QuadriFlow binary — same inputs, quad counts, timings,
+      thin-feature behavior. NOTE: Blender 5.x removed the Quadriflow
+      modifier mode (only BLOCKS/SMOOTH/SHARP/VOXEL remain), so the
+      quad baseline must be the standalone QuadriFlow build, not a
+      modifier
+- [ ] Thin-feature detail allocation (fingers, face): owner-verified
+      15k hero still starves thin regions; needs the density-aware
+      pole placement research below, validated on finger-like fixtures
+- [ ] Pole pinch cleanup: stray non-manifold verts at sphere poles
+      (2 verts found in character hair via Select Non-Manifold);
+      find and fix the degenerate-cap source
 - [ ] UX polish in the addon (needs the owner's eyes on real meshes)
 - [ ] DCC breadth (other hosts) — last of last
 
