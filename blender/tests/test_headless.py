@@ -120,6 +120,15 @@ def main():
         bpy.ops.object.select_all(action="DESELECT")
         bpy.ops.mesh.primitive_cone_add(radius1=0.3, depth=2.0)
         tall = bpy.context.active_object
+        # Character-like fixture: mesh data lies along local +Y with its
+        # base at the local origin (feet at origin), while the object
+        # rotation stands it upright in world — the exact setup whose
+        # remesh tipped over (bug 1) and then flipped upside down (bug 2).
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.transform.rotate(value=math.pi / 2, orient_axis="X")
+        bpy.ops.transform.translate(value=(0.0, 1.0, 0.0))
+        bpy.ops.object.mode_set(mode="OBJECT")
         tall.rotation_euler = (math.pi / 2, 0, 0)
         bpy.context.view_layer.update()
 
@@ -131,17 +140,30 @@ def main():
             return (max(xs) - min(xs), max(ys) - min(ys),
                     max(zs) - min(zs))
 
+        def world_centroid(o):
+            ws = [o.matrix_world @ v.co for v in o.data.vertices]
+            n = len(ws)
+            return (sum(c.x for c in ws) / n, sum(c.y for c in ws) / n,
+                    sum(c.z for c in ws) / n)
+
         before = world_extents(tall)
-        check(before[1] > before[0] * 2 and before[1] > before[2] * 2,
-              f"fixture is Y-tall before remesh ({before[0]:.2f}, "
-              f"{before[1]:.2f}, {before[2]:.2f})")
+        cbx, cby, cbz = world_centroid(tall)
+        check(before[2] > before[0] * 2 and before[2] > before[1] * 2
+              and cbz > 0.5,
+              f"fixture standing before remesh (ext {before[0]:.2f}, "
+              f"{before[1]:.2f}, {before[2]:.2f} centroid z {cbz:.2f})")
         bpy.context.scene.retopoforge_params.target_quads = 200
         result = bpy.ops.retopoforge.remesh()
         check("FINISHED" in result, f"orient remesh finished (got {result})")
         after = world_extents(tall)
-        check(after[1] > after[0] * 1.5 and after[1] > after[2] * 1.5,
-              f"mesh still Y-tall after remesh ({after[0]:.2f}, "
+        check(after[2] > after[0] * 1.5 and after[2] > after[1] * 1.5,
+              f"mesh still standing after remesh ({after[0]:.2f}, "
               f"{after[1]:.2f}, {after[2]:.2f})")
+        # Extents alone cannot tell standing from upside-down (both are
+        # Z-tall); the centroid sign catches the 180-degree flip.
+        cx, cy, cz = world_centroid(tall)
+        check(cz > 0.3 and abs(cx) < 0.5 and abs(cy) < 0.5,
+              f"mesh head-up after remesh ({cx:.2f}, {cy:.2f}, {cz:.2f})")
 
         # --- per-object settings recall: fresh object (no blob entry yet),
         # so the distinctive values below survive to the CLI call and get

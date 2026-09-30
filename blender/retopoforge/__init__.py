@@ -388,10 +388,11 @@ def _export_selection(context, filepath, apply_modifiers):
         # is under the identity transform, and local coords stay correct
         # even if that ever changes. Identity + local = belt and suspenders.
         apply_transform=False,
-        # Blender-native axes (no axis conversion): the default -Z/Y mapping
-        # is applied asymmetrically across export/import and tipped meshes
-        # 90 degrees about X. Must match _import_result.
-        forward_axis="NEGATIVE_Y",
+        # Identity axis mapping (verified empirically: a (1,2,4) marker
+        # round-trips byte-identical). Defaults rotate -90 deg about X;
+        # NEGATIVE_Y/Z rotates 180 deg about Z. The importer applies no
+        # axis mapping at all, so export must be identity.
+        forward_axis="Y",
         up_axis="Z",
         export_uv=False,
         export_normals=False,
@@ -402,10 +403,10 @@ def _export_selection(context, filepath, apply_modifiers):
 
 def _import_result(filepath):
     before = set(bpy.data.objects)
-    # Axes must match _export_selection: the file holds raw Blender-local
-    # coords, so the import mapping is identity too.
-    bpy.ops.wm.obj_import(filepath=filepath, forward_axis="NEGATIVE_Y",
-                            up_axis="Z")
+    # Axis params are accepted but applied as identity by the importer
+    # (probed: file coords land in the mesh verbatim either way); kept
+    # matching _export_selection for documentation value.
+    bpy.ops.wm.obj_import(filepath=filepath, forward_axis="Y", up_axis="Z")
     return [o for o in bpy.data.objects
             if o not in before and o.type == "MESH"]
 
