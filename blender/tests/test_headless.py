@@ -140,6 +140,56 @@ def main():
         check(params.lod_targets == "400,200,80",
               "recall restored lod_targets")
 
+        # --- Symmetry toggle: defaults off, cli_args maps toggle+plane to
+        # the CLI --symmetry value, and a remesh with symmetry on finishes
+        # (operator FINISHED means the subprocess exited 0 with the flag).
+        check(params.symmetry_enabled is False, "symmetry defaults off")
+        check(params.symmetry_plane == "AUTO", "symmetry plane defaults auto")
+        off_args = params.cli_args("retopo", "in.obj", "out.obj")
+        check("--symmetry" in off_args
+              and off_args[off_args.index("--symmetry") + 1] == "off",
+              "cli_args passes --symmetry off by default")
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        sym_obj = bpy.context.active_object
+        for _ in range(2):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.subdivide(number_cuts=3)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        params.target_quads = 200
+        params.symmetry_enabled = True
+        params.symmetry_plane = "X"
+        on_args = params.cli_args("retopo", "in.obj", "out.obj")
+        check("--symmetry" in on_args
+              and on_args[on_args.index("--symmetry") + 1] == "x",
+              "cli_args passes --symmetry x when enabled")
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"symmetry remesh finished (got {result})")
+        sym_polys = len(sym_obj.data.polygons)
+        check(sym_polys > 0, "symmetry result has polygons")
+        blob = json.loads(bpy.context.scene.retopoforge_recall or "{}")
+        sym_entry = blob.get(sym_obj.name)
+        check(isinstance(sym_entry, dict), "recall blob has symmetry entry")
+        check(sym_entry.get("symmetry_enabled") is True,
+              "recall blob symmetry_enabled")
+        check(sym_entry.get("symmetry_plane") == "X",
+              "recall blob symmetry_plane")
+        print("symmetry entry:", json.dumps(sym_entry, sort_keys=True))
+        params.symmetry_enabled = False
+        params.symmetry_plane = "AUTO"
+        sym_obj.select_set(True)
+        bpy.context.view_layer.objects.active = sym_obj
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"symmetry do-over remesh finished (got {result})")
+        check(params.symmetry_enabled is True,
+              "recall restored symmetry_enabled")
+        check(params.symmetry_plane == "X", "recall restored symmetry_plane")
+        # Leave symmetry off so the LOD/bake sections below run unconstrained,
+        # exactly as before this toggle existed.
+        params.symmetry_enabled = False
+        params.symmetry_plane = "AUTO"
+
         # --- Generate LODs: fresh object so rung counts are unaffected by
         # the remeshes above; only it may be selected (the operator runs on
         # every selected mesh object).

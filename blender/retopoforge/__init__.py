@@ -98,9 +98,10 @@ def parse_lod_targets(text):
 _RECALL_INT_KEYS = ("target_quads",)
 _RECALL_FLOAT_KEYS = ("sharp_edge", "smooth_normal", "edge_scaling",
                       "adaptivity", "anisotropy")
-_RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original")
+_RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original", "symmetry_enabled")
 _RECALL_STR_KEYS = ("lod_targets",)
 _RECALL_MODEL_TYPES = ("ORGANIC", "HARDSURFACE")
+_RECALL_SYMMETRY_PLANES = ("AUTO", "X", "Y", "Z")
 
 
 def _params_snapshot(params):
@@ -109,6 +110,7 @@ def _params_snapshot(params):
     snap.update({k: bool(getattr(params, k)) for k in _RECALL_BOOL_KEYS})
     snap.update({k: str(getattr(params, k)) for k in _RECALL_STR_KEYS})
     snap["model_type"] = str(params.model_type)
+    snap["symmetry_plane"] = str(params.symmetry_plane)
     return snap
 
 
@@ -168,6 +170,11 @@ def load_recall_entry(context, obj_name):
     if entry.get("model_type") in _RECALL_MODEL_TYPES:
         try:
             params.model_type = entry["model_type"]
+        except (ValueError, TypeError):
+            pass
+    if entry.get("symmetry_plane") in _RECALL_SYMMETRY_PLANES:
+        try:
+            params.symmetry_plane = entry["symmetry_plane"]
         except (ValueError, TypeError):
             pass
     return True
@@ -243,6 +250,22 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Comma-separated quad counts for Generate LODs (one rung per value)",
         default="10000,5000,2000",
     )
+    symmetry_enabled: BoolProperty(
+        name="Symmetry",
+        description="Mirror-symmetry constraints (passes --symmetry to the CLI; off by default)",
+        default=False,
+    )
+    symmetry_plane: EnumProperty(
+        name="Symmetry Plane",
+        description="Symmetry plane: auto-detect the dominant plane, or pin an axis",
+        items=[
+            ("AUTO", "Auto", "Detect the dominant symmetry plane"),
+            ("X", "X", "Mirror across the YZ plane (x = 0)"),
+            ("Y", "Y", "Mirror across the XZ plane (y = 0)"),
+            ("Z", "Z", "Mirror across the XY plane (z = 0)"),
+        ],
+        default="AUTO",
+    )
     bake_size: IntProperty(
         name="Bake Size",
         description="Width/height of baked textures in pixels",
@@ -264,6 +287,13 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         default=True,
     )
 
+    def symmetry_value(self):
+        """CLI --symmetry value: off unless the toggle is on, else the
+        selected plane (auto/x/y/z, lowercased)."""
+        if not self.symmetry_enabled:
+            return "off"
+        return str(self.symmetry_plane).lower()
+
     def cli_args(self, binary, input_path, output_path):
         return [
             binary,
@@ -277,6 +307,7 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
             "--anisotropy", repr(float(self.anisotropy)),
             "--model-type",
             "hardsurface" if self.model_type == "HARDSURFACE" else "organic",
+            "--symmetry", self.symmetry_value(),
         ]
 
 
@@ -895,6 +926,10 @@ class RETOPOFORGE_PT_panel(bpy.types.Panel):
         col.prop(params, "anisotropy")
         col.prop(params, "apply_modifiers")
         col.prop(params, "keep_original")
+        col.prop(params, "symmetry_enabled")
+        sym_row = col.row()
+        sym_row.enabled = params.symmetry_enabled
+        sym_row.prop(params, "symmetry_plane")
         col.prop(params, "lod_targets")
         layout.operator("retopoforge.generate_lods", text="Generate LODs",
                         icon="MOD_DECIM")
