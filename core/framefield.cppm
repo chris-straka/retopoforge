@@ -35,8 +35,13 @@ public:
     // `guides` holds user guide polylines as ordered point chains in mesh
     // coordinates; faces near a segment lock to the segment tangent (sharp
     // edges win ties). Empty by default: no guide pass runs at all.
+    // `sharps` holds explicit sharp/feature polylines under the same
+    // contract (point chains in mesh coordinates, snapped post-resample by
+    // the caller). Sharp locks run before guide locks and win ties: faces
+    // a sharp claims are skipped by the guide pass. Empty by default.
     static bool create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
         std::vector<Vector3>* field,
-        const std::vector<std::vector<Vector3>>& guides = {});
+        const std::vector<std::vector<Vector3>>& guides = {},
+        const std::vector<std::vector<Vector3>>& sharps = {});
 };
 }

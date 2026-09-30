@@ -33,6 +33,7 @@ module;
 module retopo.core.quad_parameterizer;
 
 import retopo.core.constrained_least_squares;
+import retopo.core.guides;
 import retopo.core.mixed_integer_least_squares;
 import retopo.core.progress;
 import retopo.core.surface_mesh;
@@ -90,6 +91,31 @@ namespace {
         if (mesh.oppositeCorner(c) != SurfaceMesh::npos && std::fabs(mesh.normalAngle(c)) * 180.0 / M_PI < hardEdgeDegrees)
             return EdgeConstraint::ConstraintNone;
         const size_t f = mesh.cornerFace(c);
+        const Vector3 edge = unit(mesh.edgeVector(c), Vector3(1, 0, 0));
+        const Vector3 b = unit(field[f], edge);
+        const Vector3 br = unit(Vector3::crossProduct(normals[f], b), Vector3(0, 1, 0));
+        const bool alongB = std::acos(std::max(-1.0, std::min(1.0, std::fabs(Vector3::dotProduct(edge, b))))) < 10.0 * M_PI / 180.0;
+        const bool alongBr = std::acos(std::max(-1.0, std::min(1.0, std::fabs(Vector3::dotProduct(edge, br))))) < 10.0 * M_PI / 180.0;
+        if (alongB == alongBr)
+            return EdgeConstraint::ConstraintNone;
+        return alongB ? EdgeConstraint::ConstraintV : EdgeConstraint::ConstraintU;
+    }
+
+    // Explicit-sharp twin of edgeConstraint: the dihedral gate is replaced
+    // by proximity to a user sharp polyline (edge midpoint within `radius`
+    // of a segment). The field-alignment check below is identical, so a
+    // marked edge constrains the same U/V coordinate an automatic sharp
+    // would, and anchors the curl correction through the same
+    // cornerConstraints channel. Returns None when no sharp passes nearby.
+    EdgeConstraint sharpEdgeConstraint(const SurfaceMesh& mesh, size_t c,
+        const std::vector<Vector3>& field, const std::vector<Vector3>& normals,
+        const std::vector<std::vector<Vector3>>& sharps, double radius)
+    {
+        const size_t f = mesh.cornerFace(c);
+        const size_t v0 = mesh.cornerVertex(c), v1 = mesh.cornerVertex(mesh.nextCorner(c));
+        const Vector3 midpoint = (mesh.position(v0) + mesh.position(v1)) / 2.0;
+        if (Guides::tangentNear(sharps, midpoint, normals[f], radius).length() <= 1e-12)
+            return EdgeConstraint::ConstraintNone;
         const Vector3 edge = unit(mesh.edgeVector(c), Vector3(1, 0, 0));
         const Vector3 b = unit(field[f], edge);
         const Vector3 br = unit(Vector3::crossProduct(normals[f], b), Vector3(0, 1, 0));
@@ -239,13 +265,28 @@ namespace {
     }
 
     std::vector<signed char> computeCornerConstraints(const SurfaceMesh& mesh,
-        const std::vector<Vector3>& field, const std::vector<Vector3>& normals, double hardEdgeDegrees)
+        const std::vector<Vector3>& field, const std::vector<Vector3>& normals, double hardEdgeDegrees,
+        const std::vector<std::vector<Vector3>>* sharps = nullptr)
     {
         const size_t corners = mesh.cornerCount();
         std::vector<signed char> cornerConstraints(corners, static_cast<signed char>(EdgeConstraint::ConstraintNone));
+        const bool useSharps = nullptr != sharps && !sharps->empty();
+        // Corner marks pin integer coordinates, so the radius stays tight
+        // (half an edge length): only edges ON the snapped feature line
+        // qualify. Anything wider pins rings of edges around every feature
+        // and collapses the quad budget on small hard-surface parts.
+        const double sharpRadius = useSharps ? 0.5 * mesh.averageEdgeLength() : 0.0;
         tbb::parallel_for(tbb::blocked_range<size_t>(0, corners), [&](const tbb::blocked_range<size_t>& range) {
-            for (size_t c = range.begin(); c != range.end(); ++c)
-                cornerConstraints[c] = static_cast<signed char>(edgeConstraint(mesh, c, field, normals, hardEdgeDegrees));
+            for (size_t c = range.begin(); c != range.end(); ++c) {
+                const EdgeConstraint automatic = edgeConstraint(mesh, c, field, normals, hardEdgeDegrees);
+                if (automatic != EdgeConstraint::ConstraintNone) {
+                    cornerConstraints[c] = static_cast<signed char>(automatic);
+                    continue;
+                }
+                if (useSharps)
+                    cornerConstraints[c] = static_cast<signed char>(
+                        sharpEdgeConstraint(mesh, c, field, normals, *sharps, sharpRadius));
+            }
         });
         return cornerConstraints;
     }
@@ -289,6 +330,9 @@ namespace {
                 mesh.edgeVector(3 * f));
         }
 
+        // Anchored faces pin the curl-correction rotation to zero. Automatic
+        // dihedral marks and explicit sharp marks arrive through the same
+        // cornerConstraints channel, so both anchor identically.
         std::vector<char> anchored(faceCount, 0);
         for (size_t c = 0; c < mesh.cornerCount(); ++c)
             if (cornerConstraints[c] != static_cast<signed char>(EdgeConstraint::ConstraintNone))
@@ -653,7 +697,8 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     const std::vector<double>* faceScaling,
     const std::vector<double>* faceScalingU,
     const std::vector<double>* faceScalingV,
-    const ProgressHandler* progressHandler)
+    const ProgressHandler* progressHandler,
+    const std::vector<std::vector<Vector3>>* sharps)
 {
     const auto report = [progressHandler](float fraction, const char* name) {
         if (nullptr != progressHandler && *progressHandler)
@@ -691,7 +736,7 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
     const std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
     result->cornerRotations = rotation;
     const std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,
-        normals, hardEdgeDegrees);
+        normals, hardEdgeDegrees, sharps);
     if (trackDirectionalScale)
         applyDirectionalSwaps(mesh, fieldBeforeBrush, result->field, normals,
             &activeScalingU, &activeScalingV);

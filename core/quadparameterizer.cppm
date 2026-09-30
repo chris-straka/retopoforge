@@ -48,7 +48,13 @@ public:
         const std::vector<double>* faceScalingV = nullptr,
         // Reports 0..1 across the quad cover solve, which is the single longest
         // step of the whole pipeline and would otherwise be one silent block.
-        const ProgressHandler* progressHandler = nullptr);
+        const ProgressHandler* progressHandler = nullptr,
+        // Explicit sharp/feature polylines (ordered point chains in mesh
+        // coordinates, snapped post-resample by the caller). Edges near a
+        // segment gain hard corner marks even below the dihedral threshold,
+        // and anchor the curl correction like automatic sharps. Null (the
+        // default) disables the sharp pass entirely.
+        const std::vector<std::vector<Vector3>>* sharps = nullptr);
 };
 
 }

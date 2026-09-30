@@ -157,6 +157,25 @@ public:
         m_guidePolylines = guides;
     }
 
+    // Explicit sharp/feature constraints for hard-surface props. Same
+    // contract as setGuidePolylines: each polyline is an ordered point
+    // chain in input-mesh coordinates; consecutive points form segments.
+    // Per island, points snap to the resampled mesh, nearby faces lock in
+    // the frame field (winning ties over guides), and nearby edges gain
+    // hard corner marks in the quad cover. Default OFF (empty): the
+    // pipeline is byte-for-byte the unmodified one. Polylines with fewer
+    // than two points and zero-length segments are ignored.
+    // setFeaturePolylines is the CLI-flag-spelled alias (--features).
+    void setSharpPolylines(const std::vector<std::vector<Vector3>>& sharps)
+    {
+        m_sharpPolylines = sharps;
+    }
+
+    void setFeaturePolylines(const std::vector<std::vector<Vector3>>& sharps)
+    {
+        m_sharpPolylines = sharps;
+    }
+
     const std::vector<Vector3>& remeshedVertices()
     {
         return m_remeshedVertices;
@@ -317,6 +336,7 @@ private:
     int m_symmetryAxis = -1;
     SymmetryPlane m_symmetryPlane;
     std::vector<std::vector<Vector3>> m_guidePolylines;
+    std::vector<std::vector<Vector3>> m_sharpPolylines;
     std::vector<double> m_densityMultipliers;
     AutoRemesherProgressHandler m_progressHandler = nullptr;
     void* m_tag = nullptr;
