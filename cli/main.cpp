@@ -674,9 +674,13 @@ struct RungResult {
     std::string error;
 };
 
-// Count input islands with no output vertex near them. The engine merges
-// per-island outputs without attribution, so a failed or skipped island is
-// visible only as missing output geometry. A remeshed island stays in
+// Count input islands with no output vertex near them. FALLBACK ONLY: the
+// engine now reports per-island output counts directly
+// (AutoRemesher::islandOutputQuadCounts) and droppedIslandCount() below
+// prefers those. This bounding-box attribution survives only for runs whose
+// engine stats are missing or misaligned with the CLI's own island split
+// (defensive: both sides split the same welded triangles with the same
+// splitter, so in practice they always agree). A remeshed island stays in
 // place, so any output vertex inside the island's slightly expanded
 // bounding box proves the island produced output. Conservative by design:
 // a failed island nested inside another island's box can hide, but a
@@ -738,6 +742,24 @@ static size_t countIslandsWithoutOutput(
     return failed;
 }
 
+// Dropped-island accounting off the engine's per-island output counts (same
+// splitToIslands order as the CLI's own split, so entry i belongs to
+// islands[i]; a zero entry is a dropped island). The bbox heuristic above
+// is the fallback when the counts are unavailable or misaligned.
+static size_t droppedIslandCount(const std::vector<size_t>& engineQuadCounts,
+    const std::vector<std::vector<std::vector<size_t>>>& islands,
+    const std::vector<AutoRemesher::Vector3>& inputVertices,
+    const std::vector<AutoRemesher::Vector3>& outputVertices)
+{
+    if (engineQuadCounts.size() == islands.size()) {
+        size_t dropped = 0;
+        for (const size_t quads : engineQuadCounts)
+            dropped += (quads == 0) ? 1 : 0;
+        return dropped;
+    }
+    return countIslandsWithoutOutput(islands, inputVertices, outputVertices);
+}
+
 // Same remesher setup as single-file mode, parameterized by target count.
 // Used by --lods and batch runs; single-file mode keeps its inline copy so
 // its stdout/stderr bytes stay exactly as before.
@@ -775,6 +797,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
     remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
     remesher.setComputeRemeshedUvs(params.emitUvs);
+    remesher.setQuiet(params.quiet);
     ProgressState progressState;
     if (!params.quiet) {
         remesher.setTag(&progressState);
@@ -807,7 +830,8 @@ static RungResult remeshLoadedMesh(const Params& params,
     std::vector<std::vector<std::vector<size_t>>> inputIslands;
     AutoRemesher::MeshSeparator::splitToIslands(triangles, inputIslands);
     result.islandCount = inputIslands.size();
-    result.failedIslands = countIslandsWithoutOutput(inputIslands, vertices, remeshedVertices);
+    result.failedIslands = droppedIslandCount(remesher.islandOutputQuadCounts(),
+        inputIslands, vertices, remeshedVertices);
 
     const std::vector<AutoRemesher::Vector2>* uvs = params.emitUvs
         ? &remesher.remeshedVertexUvs()
@@ -1103,6 +1127,7 @@ int main(int argc, char** argv)
     remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
     remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
     remesher.setComputeRemeshedUvs(params.emitUvs);
+    remesher.setQuiet(params.quiet);
     ProgressState progressState;
     if (!params.quiet) {
         remesher.setTag(&progressState);
@@ -1128,7 +1153,8 @@ int main(int argc, char** argv)
     // success so pipelines still get the surviving output.
     std::vector<std::vector<std::vector<size_t>>> inputIslands;
     AutoRemesher::MeshSeparator::splitToIslands(triangles, inputIslands);
-    const size_t failedIslands = countIslandsWithoutOutput(inputIslands, vertices, remeshedVertices);
+    const size_t failedIslands = droppedIslandCount(remesher.islandOutputQuadCounts(),
+        inputIslands, vertices, remeshedVertices);
     if (failedIslands > 0) {
         std::cerr << "Warning: " << failedIslands << " of " << inputIslands.size()
                   << " islands produced no output and were dropped from the mesh" << '\n';

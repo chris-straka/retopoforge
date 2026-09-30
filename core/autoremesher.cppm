@@ -76,6 +76,23 @@ public:
         m_tag = tag;
     }
 
+    // Quiet mode (the CLI's --quiet): silences engine-owned progress
+    // chatter on stderr — the phase-report dump and the per-stage progress
+    // echoes downstream — while warnings and errors still print. Quiet also
+    // skips downstream progress-handler installation, so a quiet run
+    // collects no per-stage timings and phaseReport() omits its leaf-stage
+    // lines (the summary lines are unaffected). Progress callbacks still
+    // fire when a handler is installed; quiet only mutes stderr. Default off.
+    void setQuiet(bool quiet)
+    {
+        m_quiet = quiet;
+    }
+
+    bool quiet() const
+    {
+        return m_quiet;
+    }
+
     void setModelType(ModelType modelType)
     {
         m_modelType = modelType;
@@ -280,6 +297,18 @@ public:
         return m_phaseReport;
     }
 
+    // Per-island output accounting, in MeshSeparator::splitToIslands() order:
+    // entry i is the number of output faces (quads + non-quads, the
+    // remeshedQuads() rows) island i contributed, 0 when the island produced
+    // nothing and was dropped. Populated by remesh(); empty when remesh()
+    // never ran or rejected the input. The CLI's island reporting reads this
+    // instead of attributing output vertices to input islands by bounding
+    // box (which cannot see a dropped island nested inside a live one).
+    const std::vector<size_t>& islandOutputQuadCounts() const
+    {
+        return m_islandOutputQuadCounts;
+    }
+
     static const double m_defaultSharpEdgeDegrees;
 
     // Per-island durations are accumulated in microseconds: a mesh split into
@@ -319,6 +348,7 @@ private:
     int m_reportedPermille = -1;
     const char* m_reportedStatus = nullptr;
     std::vector<std::string> m_phaseReport;
+    std::vector<size_t> m_islandOutputQuadCounts;
     mutable std::mutex m_progressMutex;
     std::mutex m_stageTimingMutex;
     struct StageTime {
@@ -343,6 +373,7 @@ private:
     std::vector<double> m_densityMultipliers;
     AutoRemesherProgressHandler m_progressHandler = nullptr;
     void* m_tag = nullptr;
+    bool m_quiet = false;
 
     static double calculateAverageEdgeLength(const std::vector<Vector3>& vertices,
         const std::vector<std::vector<size_t>>& faces);

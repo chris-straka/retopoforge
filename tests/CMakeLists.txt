@@ -142,3 +142,24 @@ target_compile_definitions(test_cli_uv_atlas PRIVATE
 )
 add_dependencies(test_cli_uv_atlas retopo)
 set_tests_properties(test_cli_uv_atlas PROPERTIES TIMEOUT 600)
+
+# Engine follow-ups: per-island output accounting (engine contract + CLI
+# island reporting over a two-box mesh).
+retopo_add_test(test_island_stats test_island_stats.cpp)
+target_compile_definitions(test_island_stats PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+)
+add_dependencies(test_island_stats retopo)
+set_tests_properties(test_island_stats PROPERTIES TIMEOUT 600)
+
+# Engine follow-ups: --quiet silences engine-owned stderr (progress and
+# phase-report lines) on both streams while errors still print.
+retopo_add_test(test_cli_engine_quiet test_cli_engine_quiet.cpp)
+target_compile_definitions(test_cli_engine_quiet PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_ARMADDILLO=\"${CMAKE_SOURCE_DIR}/bench/models/armadillo.obj\""
+    "RETOPO_MODEL_FANDISK=\"${CMAKE_SOURCE_DIR}/bench/models/fandisk.obj\""
+)
+add_dependencies(test_cli_engine_quiet retopo)
+set_tests_properties(test_cli_engine_quiet PROPERTIES TIMEOUT 600)
+
