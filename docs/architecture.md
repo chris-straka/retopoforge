@@ -38,7 +38,7 @@ Blender mesh --wm.obj_export--> in_N.obj --retopo--> out_N.obj --wm.obj_import--
 bench/models/*.obj --retopo--> results JSON --check--> baseline verdict
 ```
 
-## The `retopo.core.*` module graph (16 modules)
+## The `retopo.core.*` module graph (17 modules)
 
 One named module per converted component. The interface lives in
 `core/<name>.cppm`: copyright header, then `module;` plus third-party
@@ -81,6 +81,11 @@ Leaf-first, with interface-level imports:
   mirror-plane detection/scoring plus frame-field and vertex
   symmetrization. Imported by the `parameterizer` interface and by the
   (unconverted) `autoremesher.h` orchestrator header.
+- `retopo.core.guides` (`guides.cppm`) — imports `vector3`:
+  guide-polyline proximity queries (influence radius, tangent lookup).
+  Imported by the `frame_field` implementation unit, which locks
+  near-guide faces to guide tangents as hard constraints in the
+  sharp-edge solve.
 - `retopo.core.parameterizer` (`parameterizer.cppm`) — imports
   `progress`, `symmetry`, `vector2`, `vector3`.
 - `retopo.core.quad_parameterizer` (`quadparameterizer.cppm`) —

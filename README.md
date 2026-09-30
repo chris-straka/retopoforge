@@ -37,12 +37,18 @@ Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--target-quads` (default 50000), `--edge-scaling` (1.0–4.0),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
-`--symmetry off|auto|x|y|z` (default `off`), `--lods <q0,q1,...>`,
+`--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,
+`--uvs on|off` (default `off`), `--lods <q0,q1,...>`,
 `--quiet`, `--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is
 welded on load; `--quiet` silences progress output (warnings, errors, and
 the report still print). `--symmetry auto` detects the dominant mirror
 plane (x/y/z pin it) and falls back to unconstrained output when the
-input scores below threshold. `--input`/`--output` accept `.glb` as well
+input scores below threshold. `--guides` takes a polyline file (one
+`x y z` point per line, blank lines separate polylines, `#` comments)
+and bends quad edge flow along the curves; single-file and `--lods`
+runs only. `--uvs on` emits remeshed UVs from the internal
+parameterization (`vt` + `v/vt` corners for OBJ, `TEXCOORD_0` for GLB),
+normalized 0..1 per island. `--input`/`--output` accept `.glb` as well
 as `.obj` (positions + faces; batch dirs and `--lods` chains keep each
 file's extension). The input model comes from
 `bench/fetch_models.sh` (see Benchmarks).
@@ -71,11 +77,12 @@ otool -L build/cli/retopo | grep -i qt || echo "Qt-free: OK"
 ctest --test-dir build --output-on-failure
 ```
 
-Ten unit tests cover engine components (vectors, mesh container,
-solvers, OBJ reader, welding, symmetry); five CLI tests drive the built
-binary end to end (round-trip, `--lods`/batch multi-output, `--quiet`,
-GLB input/output, symmetry). The CLI tests remesh `bench/models/`
-fixtures, so fetch the models first (see Benchmarks).
+Eleven unit tests cover engine components (vectors, mesh container,
+solvers, OBJ reader, welding, symmetry, guide curves); seven CLI tests
+drive the built binary end to end (round-trip, `--lods`/batch
+multi-output, `--quiet`, GLB input/output, symmetry, guides, UVs). The
+CLI tests remesh `bench/models/` fixtures, so fetch the models first
+(see Benchmarks).
 
 ## Benchmarks
 
@@ -149,9 +156,10 @@ files. See [docs/architecture.md](docs/architecture.md) and
 ## Layout
 
 - `core/` — Qt-free engine, built as the `retopo_core` static library:
-  16 C++23 named modules `retopo.core.*` (interface in `core/*.cppm`,
+  17 C++23 named modules `retopo.core.*` (interface in `core/*.cppm`,
   implementation in `core/*.cpp`, including the `symmetry`
-  mirror-constraint module), plus the two components not yet
+  mirror-constraint and `guides` guide-curve modules), plus the two
+  components not yet
   converted: `core/autoremesher.h/.cpp` (pipeline orchestrator) and
   `core/objreader.h/.cpp` (OBJ loader), reached via the
   `<AutoRemesher/...>` forwarders in `core/include/`.

@@ -66,9 +66,11 @@ new warnings.
 
 ## Texturing (AI output is textured; ours is bare)
 
-- [ ] (future) Emit remeshed UVs from the internal parameterization so
-      game assets can be textured without a second auto-UV pass
-      (Exoside's UV behavior is undocumented — possible leapfrog)
+- [x] Emit remeshed UVs from the internal parameterization so game
+      assets can be textured without a second auto-UV pass: CLI
+      `--uvs on|off` (default off), OBJ `vt` + `v/vt` corners, GLB
+      `TEXCOORD_0`, normalized 0..1 per island (multi-island UVs
+      overlap; a global atlas needs a second pass)
 - [x] Blender bake assist: one-click high→low bake (Smart UV the
       low, Cycles CPU diffuse + tangent normal, PNGs next to the .blend;
       render settings restored afterwards)
@@ -78,14 +80,14 @@ new warnings.
 
 ## Character quality (engine work that serves the game)
 
-- [ ] Face animation flow (owner's top quality complaint): automatic
-      fields follow curvature, not animation flow — eye/mouth loops
-      that deform cleanly need user-drawn guide curves as frame-field
-      constraints (draw flow lines in Blender → CLI carries them to the
-      engine). Until then: document the iterate loop (preset, sharp
-      angle, adaptivity, head-only passes) plus the manual-cleanup
-      workflow. Honest scope: no automatic remesher emits
-      animator-grade face topology; the goal is 80% + fast cleanup.
+- [ ] Face animation flow (owner's top quality complaint): engine +
+      CLI guide mechanism DONE (`setGuidePolylines` frame-field locks,
+      CLI `--guides` polyline file); still open: draw flow lines in
+      Blender and export them to the guide file, plus the iterate-loop
+      doc (preset, sharp angle, adaptivity, head-only passes) and the
+      manual-cleanup workflow. Honest scope: no automatic remesher
+      emits animator-grade face topology; the goal is 80% + fast
+      cleanup.
 - [x] Symmetry constraints (characters are the main subject):
       vote-based plane detection + frame-field/vertex symmetrization,
       default off, CLI `--symmetry off|auto|x|y|z`; positional only
@@ -171,7 +173,10 @@ new warnings.
 
 - [x] Feature comparison pass vs Exoside (the $100 benchmark —
       `docs/exoside-gap.md`, cited, UNVERIFIED marks where needed)
-- [ ] Guide system phase 1 (their headline differentiator; L–XL)
+- [x] Guide system phase 1 (their headline differentiator):
+      user polylines as frame-field hard constraints end to end
+      (engine setter + CLI `--guides`); Blender-side drawing is
+      phase 2
 - [ ] Density painting (0.25x–4x local density)
 - [ ] Perf at scale: profile the CLI on production-size meshes, check
       TBB scaling, measured black-box comparison vs QR (EULA-aware:
