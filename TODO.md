@@ -61,7 +61,9 @@ new warnings.
 
 - [x] Multi-resolution output: CLI `--lods` emits the full chain
       (`<stem>_lod<N>.obj` + per-rung report lines)
-- [ ] Blender one-click "Generate LODs" driving CLI `--lods`
+- [x] Blender one-click "Generate LODs" driving CLI `--lods`
+      (rungs as `<name>_lodN` siblings; sync operator — modal-ize if
+      long chains freeze the UI annoyingly)
 - [ ] Document the rung strategy: which chain rungs serve desktop vs
       mobile, triangle budgets per rung for hero/prop/environment
       assets, and how Godot's import-time auto-LOD interacts with
@@ -112,8 +114,9 @@ new warnings.
 - [x] Honest UV / vertex-color data-loss notice in the UI
 - [ ] Zip install path verified (`package_install_files`); user-facing
       release packaging (signed zip? extensions.blender.org listing?)
-- [ ] Iterate loop: per-object settings recall (remember last remesh
-      settings per object) so do-overs are one click, not retyping
+- [x] Iterate loop: per-object settings recall (last-used params
+      auto-restore per object with an INFO note, so do-overs are one
+      click, not retyping)
 
 ## App phase 2: Qt shell headers to modules
 
