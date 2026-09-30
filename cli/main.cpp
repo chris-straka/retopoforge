@@ -28,6 +28,7 @@
 
 #include <AutoRemesher/AutoRemesher>
 #include <AutoRemesher/ObjReader>
+#include "glb.h"
 import retopo.core.mesh_separator;
 import retopo.core.vector3;
 
@@ -63,23 +64,25 @@ struct Params {
 
 static void printUsage(const char* argv0)
 {
-    std::cout << "Usage: " << argv0 << " --input <file.obj|dir> --output <output.obj|dir> [options]\n"
+    std::cout << "Usage: " << argv0 << " --input <file.obj|file.glb|dir> --output <output.obj|output.glb|dir> [options]\n"
               << "\n"
               << "Options:\n"
-              << "  -i, --input <file.obj|dir>  Input .obj file to remesh (required).\n"
-              << "                              A directory remeshes every .obj in it\n"
-              << "                              (non-recursive); --output is then a directory\n"
-              << "                              (created if missing) and each input foo.obj\n"
-              << "                              is written as <dir>/foo.obj.\n"
-              << "  -o, --output <path>         Output .obj file path (required).\n"
+              << "  -i, --input <file|dir>      Input .obj or .glb file to remesh (required).\n"
+              << "                              A directory remeshes every .obj and .glb\n"
+              << "                              in it (non-recursive); --output is then a\n"
+              << "                              directory (created if missing) and each\n"
+              << "                              input foo.ext is written as <dir>/foo.ext.\n"
+              << "  -o, --output <path>         Output file path (required): .obj writes\n"
+              << "                              OBJ, .glb writes GLB (quads triangulated).\n"
               << "                              A directory in batch mode (see --input).\n"
               << "  --report <report.txt>       Write a stats report file (optional)\n"
               << "  --target-quads <count>      Target quad count (default: 50000,\n"
               << "                              ignored when --lods is given)\n"
               << "  --lods <q0,q1,...>          Emit a full LOD chain in one run, e.g.\n"
               << "                              --lods 10000,5000,2000 writes\n"
-              << "                              <stem>_lod0.obj, <stem>_lod1.obj, ...\n"
-              << "                              next to --output (overrides --target-quads)\n"
+              << "                              <stem>_lod0.<ext>, <stem>_lod1.<ext>, ...\n"
+              << "                              next to --output, keeping its extension\n"
+              << "                              (overrides --target-quads)\n"
               << "  --edge-scaling <factor>     Edge scaling factor (default: 1.0, range: 1.0-4.0)\n"
               << "  --sharp-edge <degrees>      Sharp edge dihedral angle threshold\n"
               << "                              (default: 90.0, range: 30.0-180.0)\n"
@@ -328,6 +331,57 @@ static bool loadObj(const std::string& filename,
     return true;
 }
 
+// GLB twin of loadObj: identical weld + Vector3 conversion, only the parser
+// differs (cgltf via GlbIo). loadObj above is intentionally untouched so the
+// OBJ path keeps byte-identical stdout/stderr and counts.
+static bool loadGlb(const std::string& filename,
+    std::vector<AutoRemesher::Vector3>* vertices,
+    std::vector<std::vector<size_t>>* triangles,
+    size_t* preWeldVertices = nullptr,
+    size_t* preWeldTriangles = nullptr)
+{
+    std::vector<float> positions;
+    std::vector<std::vector<size_t>> loadedTriangles;
+    std::string warn, err;
+
+    bool loadSuccess = GlbIo::loadGlbPositionsAndTriangles(filename.c_str(), &positions, &loadedTriangles, &warn, &err);
+    if (!warn.empty())
+        std::cerr << "WARN: " << warn << '\n';
+    if (!err.empty())
+        std::cerr << err << '\n';
+    if (!loadSuccess)
+        return false;
+
+    if (nullptr != preWeldVertices)
+        *preWeldVertices = positions.size() / 3;
+    if (nullptr != preWeldTriangles)
+        *preWeldTriangles = loadedTriangles.size();
+    // Weld-on-load: same as OBJ; GLB exporters also emit non-indexed soup.
+    AutoRemesher::weldPositionsAndTriangles(&positions, &loadedTriangles);
+
+    vertices->resize(positions.size() / 3);
+    for (size_t i = 0, j = 0; i < vertices->size(); ++i) {
+        auto& dest = (*vertices)[i];
+        dest.setX(positions[j++]);
+        dest.setY(positions[j++]);
+        dest.setZ(positions[j++]);
+    }
+
+    triangles->assign(loadedTriangles.begin(), loadedTriangles.end());
+    return true;
+}
+
+static bool loadMesh(const std::string& filename,
+    std::vector<AutoRemesher::Vector3>* vertices,
+    std::vector<std::vector<size_t>>* triangles,
+    size_t* preWeldVertices = nullptr,
+    size_t* preWeldTriangles = nullptr)
+{
+    if (GlbIo::hasGlbExtension(filename))
+        return loadGlb(filename, vertices, triangles, preWeldVertices, preWeldTriangles);
+    return loadObj(filename, vertices, triangles, preWeldVertices, preWeldTriangles);
+}
+
 static bool saveObj(const std::string& filename,
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& quads)
@@ -349,10 +403,24 @@ static bool saveObj(const std::string& filename,
     return !file.fail();
 }
 
+static bool saveMesh(const std::string& filename,
+    const std::vector<AutoRemesher::Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& quads)
+{
+    if (GlbIo::hasGlbExtension(filename)) {
+        std::string generator = std::string("retopoforge ") + RETOPO_VERSION;
+        return GlbIo::saveGlb(filename.c_str(), generator.c_str(), vertices, quads);
+    }
+    return saveObj(filename, vertices, quads);
+}
+
 static std::string lodOutputPath(const std::string& baseOutput, size_t lodIndex)
 {
     const std::filesystem::path base(baseOutput);
-    const std::string name = base.stem().string() + "_lod" + std::to_string(lodIndex) + ".obj";
+    std::string ext = base.extension().string();
+    if (ext.empty())
+        ext = ".obj";
+    const std::string name = base.stem().string() + "_lod" + std::to_string(lodIndex) + ext;
     return (base.parent_path() / name).string();
 }
 
@@ -414,7 +482,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     }
     result.vertexCount = remeshedVertices.size();
 
-    if (!saveObj(outputPath, remeshedVertices, remeshedQuads)) {
+    if (!saveMesh(outputPath, remeshedVertices, remeshedQuads)) {
         result.error = "failed to write " + outputPath;
         return result;
     }
@@ -454,12 +522,12 @@ static int runMultiMode(const Params& params, bool batch)
             std::error_code fileEc;
             if (!it->is_regular_file(fileEc) || fileEc)
                 continue;
-            if (it->path().extension() == ".obj")
+            if (GlbIo::isSupportedInputExtension(it->path().string()))
                 inputs.push_back(it->path().string());
         }
         std::sort(inputs.begin(), inputs.end());
         if (inputs.empty()) {
-            std::cerr << "Error: no .obj files in " << params.inputPath << '\n';
+            std::cerr << "Error: no .obj/.glb files in " << params.inputPath << '\n';
             return 1;
         }
         if (std::filesystem::exists(params.outputPath, ec) && !std::filesystem::is_directory(params.outputPath, ec)) {
@@ -513,7 +581,7 @@ static int runMultiMode(const Params& params, bool batch)
 
         std::vector<AutoRemesher::Vector3> vertices;
         std::vector<std::vector<size_t>> triangles;
-        if (!loadObj(inputPath, &vertices, &triangles)) {
+        if (!loadMesh(inputPath, &vertices, &triangles)) {
             std::cerr << "Error: failed to load " << inputPath << '\n';
             std::cout << fileLabel << "FAILED to load " << inputPath << '\n';
             noteFailed(failName);
@@ -528,8 +596,13 @@ static int runMultiMode(const Params& params, bool batch)
             std::string outputPath;
             if (batch) {
                 const std::filesystem::path inFile(inputPath);
+                // LOD outputs keep the input's extension (.obj stays .obj,
+                // .glb stays .glb); plain batch already copies the filename.
+                std::string lodExt = inFile.extension().string();
+                if (lodExt.empty())
+                    lodExt = ".obj";
                 if (lodMode)
-                    outputPath = (std::filesystem::path(params.outputPath) / (inFile.stem().string() + "_lod" + std::to_string(rung) + ".obj")).string();
+                    outputPath = (std::filesystem::path(params.outputPath) / (inFile.stem().string() + "_lod" + std::to_string(rung) + lodExt)).string();
                 else
                     outputPath = (std::filesystem::path(params.outputPath) / inFile.filename()).string();
             } else {
@@ -662,7 +735,7 @@ int main(int argc, char** argv)
     std::vector<std::vector<size_t>> triangles;
     size_t preWeldVertices = 0;
     size_t preWeldTriangles = 0;
-    if (!loadObj(params.inputPath, &vertices, &triangles, &preWeldVertices, &preWeldTriangles)) {
+    if (!loadMesh(params.inputPath, &vertices, &triangles, &preWeldVertices, &preWeldTriangles)) {
         std::cerr << "Error: failed to load " << params.inputPath << '\n';
         return 1;
     }
@@ -726,7 +799,7 @@ int main(int argc, char** argv)
             ++nonQuadCount;
     }
 
-    if (!saveObj(params.outputPath, remeshedVertices, remeshedQuads)) {
+    if (!saveMesh(params.outputPath, remeshedVertices, remeshedQuads)) {
         std::cerr << "Error: failed to write " << params.outputPath << '\n';
         return 1;
     }
