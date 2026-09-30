@@ -100,8 +100,13 @@ new warnings.
       in FrameField + corner marks in computeCornerConstraints + curl
       anchors; CLI `--features` and Blender sharp-marks export go on
       top after.
-- [ ] Local density control (face/hands detail without blowing the
-      total budget)
+- [x] Local density control (face/hands detail without blowing the
+      total budget): engine `setDensityMultipliers` + CLI `--density`
+      mask file, budget-preserving renormalization; strong localized
+      refinement saturates (~2.3x for 4x asks — integer-grid pole
+      saturation), mild masks realize nearly fully, coarsening fully.
+      Full 4x needs density-aware pole placement (future engine work).
+      Blender weight-paint export still open.
 
 ## Blender addon (the workflow goal)
 
@@ -177,7 +182,9 @@ new warnings.
       user polylines as frame-field hard constraints end to end
       (engine setter + CLI `--guides`); Blender-side drawing is
       phase 2
-- [ ] Density painting (0.25x–4x local density)
+- [ ] Density painting (0.25x–4x local density): engine + CLI mask
+      file done (see above); still open: paint in Blender, export the
+      weight group as the mask
 - [ ] Perf at scale: profile the CLI on production-size meshes, check
       TBB scaling, measured black-box comparison vs QR (EULA-aware:
       their outputs stay out of the repo and out of training data)

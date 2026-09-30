@@ -63,6 +63,7 @@ struct Params {
     bool symmetryEnabled = false;
     int symmetryAxis = -1; // -1 = auto-detect, 0/1/2 = X/Y/Z
     std::string guidesPath;
+    std::string densityPath;
     bool emitUvs = false;
     bool quiet = false;
 };
@@ -111,6 +112,14 @@ static void printUsage(const char* argv0)
               << "                              a comment. Points live in input-mesh\n"
               << "                              coordinates. Single-file and --lods runs\n"
               << "                              only (rejected in batch mode)\n"
+              << "  --density <file>            Local density control: one multiplier\n"
+              << "                              per input vertex (OBJ v-line order),\n"
+              << "                              1.0 = unchanged, range 0.25-4.0 (values\n"
+              << "                              outside clamp). '#' starts a comment.\n"
+              << "                              Strong localized refinement saturates\n"
+              << "                              (~2.3x realized for 4x asks); mild masks\n"
+              << "                              realize nearly fully. Single-file and\n"
+              << "                              --lods runs only (rejected in batch mode)\n"
               << "  --uvs <on|off>              Emit remeshed UVs from the internal\n"
               << "                              parameterization (default: off). OBJ\n"
               << "                              gains vt lines + v/vt corners, GLB gains\n"
@@ -247,6 +256,45 @@ static bool parseGuidesFile(const std::string& path,
     return true;
 }
 
+// Density file: one multiplier per line ("#" starts a comment, blank
+// lines skipped). The count must match the input's (welded) vertex
+// count exactly — checked at the use site, where the count is known.
+static bool parseDensityFile(const std::string& path, std::vector<double>* multipliers)
+{
+    multipliers->clear();
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        std::cerr << "Error: cannot open --density file '" << path << "'" << '\n';
+        return false;
+    }
+    std::string line;
+    long lineNo = 0;
+    while (std::getline(in, line)) {
+        ++lineNo;
+        const size_t hash = line.find('#');
+        if (hash != std::string::npos)
+            line.erase(hash);
+        const size_t first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos)
+            continue;
+        double value = 0.0;
+        int endPos = 0;
+        if (1 != std::sscanf(line.c_str() + first, "%lf %n", &value, &endPos)
+            || line.find_first_not_of(" \t\r", first + static_cast<size_t>(endPos))
+                != std::string::npos) {
+            std::cerr << "Error: --density file '" << path << "' line " << lineNo
+                      << " expects a number, got '" << line << "'" << '\n';
+            return false;
+        }
+        multipliers->push_back(value);
+    }
+    if (multipliers->empty()) {
+        std::cerr << "Error: --density file '" << path << "' holds no multipliers" << '\n';
+        return false;
+    }
+    return true;
+}
+
 static bool matches(const char* arg, const char* longFlag, char shortFlag)
 {
     if (0 != shortFlag) {
@@ -355,6 +403,10 @@ static bool parseArgs(int argc, char** argv, Params* params)
                           << value << "'" << '\n';
                 return false;
             }
+        } else if (matches(arg, "--density", '\0')) {
+            if (!takeValue(argc, argv, i, "--density", &value))
+                return false;
+            params->densityPath = value;
         } else if (matches(arg, "--guides", '\0')) {
             if (!takeValue(argc, argv, i, "--guides", &value))
                 return false;
@@ -596,11 +648,18 @@ static RungResult remeshLoadedMesh(const Params& params,
     const std::vector<AutoRemesher::Vector3>& vertices,
     const std::vector<std::vector<size_t>>& triangles,
     const std::vector<std::vector<AutoRemesher::Vector3>>& guides,
+    const std::vector<double>& density,
     int targetQuads,
     const std::string& outputPath)
 {
     RungResult result;
     auto startTime = std::chrono::steady_clock::now();
+
+    if (!density.empty() && density.size() != vertices.size()) {
+        result.error = "--density file holds " + std::to_string(density.size())
+            + " multipliers, input has " + std::to_string(vertices.size()) + " vertices";
+        return result;
+    }
 
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
@@ -608,6 +667,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     remesher.setSymmetryEnabled(params.symmetryEnabled);
     remesher.setSymmetryPlane(params.symmetryAxis);
     remesher.setGuidePolylines(guides);
+    remesher.setDensityMultipliers(density);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);
@@ -676,8 +736,15 @@ static int runMultiMode(const Params& params, bool batch)
         std::cerr << "Error: --guides needs a single input mesh, not a batch directory" << '\n';
         return 1;
     }
+    if (batch && !params.densityPath.empty()) {
+        std::cerr << "Error: --density needs a single input mesh, not a batch directory" << '\n';
+        return 1;
+    }
     std::vector<std::vector<AutoRemesher::Vector3>> guides;
     if (!params.guidesPath.empty() && !parseGuidesFile(params.guidesPath, &guides))
+        return 1;
+    std::vector<double> density;
+    if (!params.densityPath.empty() && !parseDensityFile(params.densityPath, &density))
         return 1;
     std::vector<std::string> inputs;
     if (batch) {
@@ -785,7 +852,7 @@ static int runMultiMode(const Params& params, bool batch)
             if (lodMode)
                 label += "LOD " + std::to_string(rung) + ": ";
 
-            RungResult result = remeshLoadedMesh(params, vertices, triangles, guides, targets[rung], outputPath);
+            RungResult result = remeshLoadedMesh(params, vertices, triangles, guides, density, targets[rung], outputPath);
             if (!result.ok) {
                 std::cerr << "Error: " << result.error << " (" << outputPath << ")" << '\n';
                 std::cout << label << "FAILED " << result.error << '\n';
@@ -929,6 +996,18 @@ int main(int argc, char** argv)
         if (!params.quiet)
             std::cerr << "Guide polylines: " << guides.size() << '\n';
     }
+    std::vector<double> density;
+    if (!params.densityPath.empty()) {
+        if (!parseDensityFile(params.densityPath, &density))
+            return 1;
+        if (density.size() != vertices.size()) {
+            std::cerr << "Error: --density file holds " << density.size()
+                      << " multipliers, input has " << vertices.size() << " vertices" << '\n';
+            return 1;
+        }
+        if (!params.quiet)
+            std::cerr << "Density multipliers: " << density.size() << '\n';
+    }
 
     AutoRemesher::AutoRemesher remesher(vertices, triangles);
     // Same derivation as the Qt app: one quad ~= two triangles.
@@ -936,6 +1015,7 @@ int main(int argc, char** argv)
     remesher.setSymmetryEnabled(params.symmetryEnabled);
     remesher.setSymmetryPlane(params.symmetryAxis);
     remesher.setGuidePolylines(guides);
+    remesher.setDensityMultipliers(density);
     if (params.edgeScaling > 0)
         remesher.setScaling(params.edgeScaling);
     remesher.setModelType(params.modelType);

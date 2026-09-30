@@ -95,3 +95,12 @@ target_compile_definitions(test_cli_uvs PRIVATE
 )
 add_dependencies(test_cli_uvs retopo)
 set_tests_properties(test_cli_uvs PROPERTIES TIMEOUT 600)
+
+# CLI --density: mask-file wiring end to end (help text, missing/bad
+# files, count mismatch, batch rejection, masked output differs).
+retopo_add_test(test_cli_density test_cli_density.cpp)
+target_compile_definitions(test_cli_density PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+)
+add_dependencies(test_cli_density retopo)
+set_tests_properties(test_cli_density PROPERTIES TIMEOUT 600)

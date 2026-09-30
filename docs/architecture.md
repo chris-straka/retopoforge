@@ -38,7 +38,7 @@ Blender mesh --wm.obj_export--> in_N.obj --retopo--> out_N.obj --wm.obj_import--
 bench/models/*.obj --retopo--> results JSON --check--> baseline verdict
 ```
 
-## The `retopo.core.*` module graph (17 modules)
+## The `retopo.core.*` module graph (18 modules)
 
 One named module per converted component. The interface lives in
 `core/<name>.cppm`: copyright header, then `module;` plus third-party
@@ -86,6 +86,12 @@ Leaf-first, with interface-level imports:
   Imported by the `frame_field` implementation unit, which locks
   near-guide faces to guide tangents as hard constraints in the
   sharp-edge solve.
+- `retopo.core.density` (`density.cppm`) — imports `vector3`:
+  per-vertex multiplier normalization/clamping, edge-scale mapping,
+  nearest-neighbor resampling across retopology, and scaling-field
+  modulation with budget-preserving renormalization. Consumed by
+  `parameterizer` (modulation site) and the `autoremesher`
+  orchestrator (mask slicing + resampling across stages).
 - `retopo.core.parameterizer` (`parameterizer.cppm`) — imports
   `progress`, `symmetry`, `vector2`, `vector3`.
 - `retopo.core.quad_parameterizer` (`quadparameterizer.cppm`) —
