@@ -134,6 +134,18 @@ public:
         return m_symmetryPlane.score;
     }
 
+    // User guide-curve constraints for the frame field. Each polyline is an
+    // ordered point chain in input-mesh coordinates (the same frame as the
+    // constructor vertices); consecutive points form segments, and the cross
+    // field near each segment aligns to the segment tangent so quad edge flow
+    // follows the drawn curves. Default OFF (empty): the pipeline is
+    // byte-for-byte the unmodified one. Polylines with fewer than two points
+    // and zero-length segments are ignored.
+    void setGuidePolylines(const std::vector<std::vector<Vector3>>& guides)
+    {
+        m_guidePolylines = guides;
+    }
+
     const std::vector<Vector3>& remeshedVertices()
     {
         return m_remeshedVertices;
@@ -275,6 +287,7 @@ private:
     bool m_symmetryEnabled = false;
     int m_symmetryAxis = -1;
     SymmetryPlane m_symmetryPlane;
+    std::vector<std::vector<Vector3>> m_guidePolylines;
     AutoRemesherProgressHandler m_progressHandler = nullptr;
     void* m_tag = nullptr;
 

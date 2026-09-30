@@ -32,6 +32,7 @@ module;
 module retopo.core.frame_field;
 
 import retopo.core.constrained_least_squares;
+import retopo.core.guides;
 import retopo.core.surface_mesh;
 import retopo.core.vector3;
 
@@ -86,10 +87,37 @@ namespace {
         matrix << coefficients[0], coefficients[1], coefficients[3], coefficients[1], coefficients[2], coefficients[4], coefficients[3], coefficients[4], coefficients[5];
         return matrix;
     }
+
+    // Lock faces near a guide polyline to the nearest segment tangent, so
+    // quad edge flow follows the drawn curve. Only faces the sharp-edge pass
+    // left unlocked are touched; the locked values then enter the same
+    // hard-constraint + smoothing solve as sharp edges above.
+    void lockGuideFaces(const SurfaceMesh& mesh,
+        const std::vector<FacetTangentBasis>& facetBases,
+        const std::vector<std::vector<Vector3>>& guides,
+        std::vector<double>* periodic, std::vector<char>* locked)
+    {
+        const double radius = Guides::influenceRadius(mesh);
+        for (size_t faceIndex = 0; faceIndex < mesh.faceCount(); ++faceIndex) {
+            if ((*locked)[faceIndex])
+                continue;
+            const auto& triangle = mesh.triangle(faceIndex);
+            const Vector3 centroid = (mesh.position(triangle[0]) + mesh.position(triangle[1]) + mesh.position(triangle[2])) / 3.0;
+            const Vector3 tangent = Guides::tangentNear(guides, centroid,
+                facetBases[faceIndex].normal, radius);
+            if (tangent.length() <= 1e-12)
+                continue;
+            const double fieldAngle = kSymmetry * tangentAngle(tangent, facetBases[faceIndex]);
+            (*periodic)[2 * faceIndex] = std::cos(fieldAngle);
+            (*periodic)[2 * faceIndex + 1] = std::sin(fieldAngle);
+            (*locked)[faceIndex] = 1;
+        }
+    }
 }
 
 bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
-    std::vector<Vector3>* field)
+    std::vector<Vector3>* field,
+    const std::vector<std::vector<Vector3>>& guides)
 {
     if (nullptr == field || mesh.faceCount() == 0)
         return false;
@@ -113,6 +141,9 @@ bool FrameField::create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
             periodic[2 * faceIndex + 1] = std::sin(fieldAngle);
             locked[faceIndex] = 1;
         }
+
+    if (!guides.empty())
+        lockGuideFaces(mesh, facetBases, guides, &periodic, &locked);
 
     std::vector<std::array<double, 6>> vertexTensor(mesh.vertexCount());
     tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexTensor.size()), [&](const tbb::blocked_range<size_t>& range) {

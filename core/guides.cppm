@@ -23,20 +23,27 @@ module;
 #include <cstddef>
 #include <vector>
 
-export module retopo.core.frame_field;
+export module retopo.core.guides;
 
 import retopo.core.surface_mesh;
 import retopo.core.vector3;
 
 namespace AutoRemesher {
 
-export class FrameField {
+export class Guides {
 public:
-    // `guides` holds user guide polylines as ordered point chains in mesh
-    // coordinates; faces near a segment lock to the segment tangent (sharp
-    // edges win ties). Empty by default: no guide pass runs at all.
-    static bool create(const SurfaceMesh& mesh, double sharpEdgeDegrees,
-        std::vector<Vector3>* field,
-        const std::vector<std::vector<Vector3>>& guides = {});
+    // Influence radius for guide constraints on this mesh: faces and edges
+    // within this distance of a guide polyline follow the guide tangent.
+    static double influenceRadius(const SurfaceMesh& mesh);
+
+    // Nearest guide segment tangent at `point`, projected onto the tangent
+    // plane of `normal` and normalized. Returns the zero vector when no
+    // guide segment passes within `radius` of `point`, when every nearby
+    // segment is degenerate, or when the nearest tangent runs into the
+    // surface (more than 60 degrees out of the tangent plane) and so
+    // carries no flow direction for it.
+    static Vector3 tangentNear(const std::vector<std::vector<Vector3>>& guides,
+        const Vector3& point, const Vector3& normal, double radius);
 };
+
 }

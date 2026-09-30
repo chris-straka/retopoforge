@@ -23,6 +23,7 @@ set(CORE_SOURCES
     core/constrainedleastsquares.cpp
     core/mixedintegerleastsquares.cpp
     core/framefield.cpp
+    core/guides.cpp
     core/quadparameterizer.cpp
     core/quadextractor.cpp
     core/positionkey.cpp
@@ -43,6 +44,7 @@ target_sources(retopo_core PUBLIC FILE_SET CXX_MODULES FILES
     core/constrainedleastsquares.cppm
     core/double.cppm
     core/framefield.cppm
+    core/guides.cppm
     core/isotropicremesher.cppm
     core/meshseparator.cppm
     core/mixedintegerleastsquares.cppm
