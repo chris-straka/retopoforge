@@ -17,3 +17,15 @@ retopo_add_test(test_vector2 test_vector2.cpp)
 retopo_add_test(test_vector3 test_vector3.cpp)
 retopo_add_test(test_positionkey test_positionkey.cpp)
 retopo_add_test(test_objreader test_objreader.cpp)
+retopo_add_test(test_surfacemesh test_surfacemesh.cpp)
+
+# CLI round-trip: runs the built retopo binary on bench/models/armadillo.obj.
+# Needs the model file (bench/fetch_models.sh, gitignored) and the retopo
+# target built first. Timeout matches bench/run.py TIMEOUT_SECONDS.
+retopo_add_test(test_cli_roundtrip test_cli_roundtrip.cpp)
+target_compile_definitions(test_cli_roundtrip PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_ARMADDILLO=\"${CMAKE_SOURCE_DIR}/bench/models/armadillo.obj\""
+)
+add_dependencies(test_cli_roundtrip retopo)
+set_tests_properties(test_cli_roundtrip PROPERTIES TIMEOUT 600)

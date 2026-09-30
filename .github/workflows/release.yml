@@ -453,6 +453,10 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build
+      - name: Fetch benchmark models
+        run: ./bench/fetch_models.sh
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
       - name: Generate DMG
         run: |
           export PATH="$(brew --prefix qtbase)/bin:$PATH"
