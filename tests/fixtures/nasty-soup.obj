@@ -1,0 +1,18 @@
+# Non-indexed soup: the control tetrahedron as 12 independent vertices.
+# Weld-on-load must merge these back to 4 vertices / 1 island.
+v 0 0 0
+v 0 1 0
+v 1 0 0
+v 0 0 0
+v 1 0 0
+v 0 0 1
+v 0 0 0
+v 0 0 1
+v 0 1 0
+v 1 0 0
+v 0 1 0
+v 0 0 1
+f 1 2 3
+f 4 5 6
+f 7 8 9
+f 10 11 12

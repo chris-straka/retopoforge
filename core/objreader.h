@@ -39,17 +39,32 @@ bool loadObjPositionsAndTriangles(const char* filename,
     std::string* warn,
     std::string* err);
 
+// Per-reason drop counts from weldPositionsAndTriangles (optional out
+// param; both are zero for clean input, which takes the identity path).
+struct WeldStats {
+    // Index-degenerate triangles (two corners sharing an index), counted
+    // both before the remap and after it (welding can collapse
+    // distinct-but-coincident corners onto one vertex).
+    size_t degenerateDropped = 0;
+    // Triangles with a NaN or infinite corner, which would otherwise
+    // poison area-weighted sizing for the whole run.
+    size_t nonFiniteDropped = 0;
+};
+
 // Weld coincident vertices and drop degenerate triangles in place.
 // AI exporters emit non-indexed triangle soup (one vertex copy per face
 // corner); without welding, the island splitter sees thousands of islands
 // and the remesh degrades. Vertices are merged by bitwise position
 // equality via meshopt_generateVertexRemap; a triangle is degenerate when
 // two of its corners share an index, checked both before and after the
-// remap (welding can collapse distinct-but-coincident corners).
+// remap (welding can collapse distinct-but-coincident corners). Faces
+// with a non-finite (NaN/inf) corner are dropped as well: one NaN corner
+// makes the mesh area NaN, which used to fail every island of the run.
 // Already-welded input is left untouched (identity fast path), unreferenced
 // vertices are removed, and non-triangle faces pass through unchanged.
 void weldPositionsAndTriangles(std::vector<float>* positions,
-    std::vector<std::vector<size_t>>* triangles);
+    std::vector<std::vector<size_t>>* triangles,
+    WeldStats* stats = nullptr);
 
 }
 

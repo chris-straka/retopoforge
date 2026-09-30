@@ -43,11 +43,18 @@ bool isNewLine(char c)
 
 // Zero-based index with relative-index support, mirroring tinyobj's
 // fixIndex: positive values are 1-based, negatives are relative to the
-// end, zero is invalid.
+// end, zero is invalid. Unlike tinyobj, positive values are also
+// range-checked: an out-of-range corner used to flow into the triangle
+// list and index the vertex array out of bounds downstream (observed
+// segfault). Forward references (faces before their vertices) fail here
+// too, since the vertices defined so far are all that exist.
 bool fixIndex(int idx, size_t count, size_t* ret)
 {
     if (idx > 0) {
-        *ret = static_cast<size_t>(idx - 1);
+        const size_t zeroBased = static_cast<size_t>(idx - 1);
+        if (zeroBased >= count)
+            return false;
+        *ret = zeroBased;
         return true;
     }
     if (idx == 0)
@@ -66,6 +73,11 @@ bool parseFaceCorner(const char** cursor, size_t vertexCount, size_t* ret)
     char* end = nullptr;
     const long idx = std::strtol(*cursor, &end, 10);
     if (end == *cursor)
+        return false;
+    // The index narrows to int below; a value outside int range (or a
+    // strtol overflow) must fail instead of wrapping into a valid index.
+    if (idx > static_cast<long>(std::numeric_limits<int>::max())
+        || idx < static_cast<long>(std::numeric_limits<int>::min()))
         return false;
     *cursor = end;
     *cursor += std::strspn(*cursor, "/");
@@ -336,22 +348,58 @@ bool loadObjPositionsAndTriangles(const char* filename,
 }
 
 void weldPositionsAndTriangles(std::vector<float>* positions,
-    std::vector<std::vector<size_t>>* triangles)
+    std::vector<std::vector<size_t>>* triangles,
+    WeldStats* stats)
 {
     if (nullptr == positions || nullptr == triangles)
         return;
+    if (nullptr != stats)
+        *stats = WeldStats();
+
+    // Any corner whose position is NaN or infinite poisons the face. Faces
+    // with out-of-range corners cannot be judged here and are kept: the
+    // flatten step below bails out on them, and engine input validation
+    // rejects the mesh loudly instead of indexing out of bounds.
+    const auto faceHasNonFiniteCorner = [&](const std::vector<size_t>& face) {
+        if (positions->size() % 3 != 0)
+            return false;
+        const size_t vertexCount = positions->size() / 3;
+        for (const size_t corner : face) {
+            if (corner >= vertexCount)
+                return false;
+            for (size_t component = 0; component < 3; ++component) {
+                if (!std::isfinite((*positions)[corner * 3 + component]))
+                    return true;
+            }
+        }
+        return false;
+    };
 
     // Drop index-degenerate triangles first: two corners sharing an index
-    // can never form an area, before or after welding.
+    // can never form an area, before or after welding. Non-finite-cornered
+    // triangles go in the same pass: one NaN corner makes the whole mesh
+    // area NaN, which used to fail every island of the run.
     {
         std::vector<std::vector<size_t>> kept;
         kept.reserve(triangles->size());
+        size_t degenerateDropped = 0;
+        size_t nonFiniteDropped = 0;
         for (const auto& face : *triangles) {
-            if (face.size() == 3 && (face[0] == face[1] || face[1] == face[2] || face[0] == face[2]))
+            if (face.size() == 3 && (face[0] == face[1] || face[1] == face[2] || face[0] == face[2])) {
+                ++degenerateDropped;
                 continue;
+            }
+            if (face.size() == 3 && faceHasNonFiniteCorner(face)) {
+                ++nonFiniteDropped;
+                continue;
+            }
             kept.push_back(face);
         }
         triangles->assign(kept.begin(), kept.end());
+        if (nullptr != stats) {
+            stats->degenerateDropped = degenerateDropped;
+            stats->nonFiniteDropped = nonFiniteDropped;
+        }
     }
 
     if (triangles->empty() || positions->empty() || positions->size() % 3 != 0)
@@ -397,14 +445,19 @@ void weldPositionsAndTriangles(std::vector<float>* positions,
     // Welding can collapse a triangle's distinct corners onto one vertex.
     std::vector<std::vector<size_t>> weldedTriangles;
     weldedTriangles.reserve(indices.size() / 3);
+    size_t collapsedDropped = 0;
     for (size_t i = 0; i + 2 < indices.size(); i += 3) {
         const size_t a = indices[i + 0];
         const size_t b = indices[i + 1];
         const size_t c = indices[i + 2];
-        if (a == b || b == c || a == c)
+        if (a == b || b == c || a == c) {
+            ++collapsedDropped;
             continue;
+        }
         weldedTriangles.push_back(std::vector<size_t> { a, b, c });
     }
+    if (nullptr != stats)
+        stats->degenerateDropped += collapsedDropped;
 
     positions->assign(weldedPositions.begin(), weldedPositions.end());
     triangles->assign(weldedTriangles.begin(), weldedTriangles.end());

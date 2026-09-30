@@ -1,0 +1,12 @@
+# All zero-area: two colinear triangles, no index-degenerate faces.
+# The loader keeps these; whether the engine extracts output from
+# area-less islands is engine behavior, so callers must assert only the
+# exit/output contract (exit 0 iff a valid, non-empty mesh is written).
+v 0 0 0
+v 1 0 0
+v 2 0 0
+v 5 5 5
+v 6 5 5
+v 7 5 5
+f 1 2 3
+f 4 5 6
