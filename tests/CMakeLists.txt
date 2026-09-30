@@ -157,6 +157,12 @@ target_link_libraries(solver_diff_dump PRIVATE retopo_core)
 add_executable(double_progress_diff_dump double_progress_diff_dump.cpp)
 set_target_properties(double_progress_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(double_progress_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the meshseparator Rust port (wave 1).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/meshsep_diff.txt for rust/core/tests/mesh_separator_diff.rs.
+add_executable(meshsep_diff_dump meshsep_diff_dump.cpp)
+set_target_properties(meshsep_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(meshsep_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
