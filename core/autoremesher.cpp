@@ -789,6 +789,10 @@ bool AutoRemesher::remesh()
         std::vector<Vector3> capturedSingularVertices;
         std::vector<size_t> capturedSingularVertexIndices;
         std::vector<std::pair<Vector3, Vector3>> capturedExtractedConnections;
+        std::vector<Vector2> capturedVertexUvs;
+        // Copied from AutoRemesher::m_computeRemeshedUvs before the parallel
+        // loop (the worker below is not a member, so it cannot read it).
+        bool computeVertexUvs = false;
     };
 
     std::vector<ParameterizationThread> parameterizationThreads(islandContexes.size());
@@ -798,6 +802,7 @@ bool AutoRemesher::remesh()
         thread.islandIndex = i;
         thread.island = &context;
         thread.autoRemesher = this;
+        thread.computeVertexUvs = m_computeRemeshedUvs;
     }
 
     class SurfaceParameterizer {
@@ -879,11 +884,13 @@ bool AutoRemesher::remesh()
                     thread.remesher->setProgressHandler(
                         thread.autoRemesher->makeStageProgress(thread.islandIndex,
                             islandParameterizeEnd, 1.0f, 1.0f));
+                    thread.remesher->setComputeVertexUvs(thread.computeVertexUvs);
                     if (!thread.remesher->extract()) {
                         thread.remesher.reset();
                     } else {
                         thread.capturedExtractedConnections = thread.remesher->extractedConnections();
                         thread.capturedExtractedConnectionMoved = thread.remesher->extractedConnectionMoved();
+                        thread.capturedVertexUvs = thread.remesher->remeshedVertexUvs();
                     }
                 }
                 thread.autoRemesher->updateProgress(thread.islandIndex, 1.0f);
@@ -944,6 +951,7 @@ bool AutoRemesher::remesh()
             thread.capturedExtractedConnectionMoved.end());
         m_isotropicExtractedConnectionMoved.resize(m_isotropicExtractedConnections.size(), 0);
     }
+    m_remeshedVertexUvs.clear();
     for (auto& thread : parameterizationThreads) {
         if (nullptr == thread.remesher)
             continue;
@@ -963,7 +971,21 @@ bool AutoRemesher::remesh()
                 quad.push_back(vertexStartIndex + v);
             m_remeshedQuads.push_back(quad);
         }
+        if (m_computeRemeshedUvs) {
+            // The extractor guarantees one UV per vertex; pad defensively so
+            // the merged accessor can never disagree with the vertex count.
+            m_remeshedVertexUvs.reserve(m_remeshedVertices.size());
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                m_remeshedVertexUvs.push_back(i < thread.capturedVertexUvs.size()
+                        ? thread.capturedVertexUvs[i]
+                        : Vector2(0.5, 0.5));
+            }
+        }
     }
+    if (m_computeRemeshedUvs)
+        m_remeshedVertexUvs.resize(m_remeshedVertices.size(), Vector2(0.5, 0.5));
+    else
+        m_remeshedVertexUvs.clear();
 
     // Mirror partners can live on different islands (two disconnected halves),
     // so the vertex constraint runs once on the merged output, not per island.

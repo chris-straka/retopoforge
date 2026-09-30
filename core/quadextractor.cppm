@@ -55,6 +55,22 @@ public:
         return m_remeshedPolygons;
     }
 
+    // Per-output-vertex UVs interpolated from the input parameterization
+    // (m_triangleUvs), normalized to 0..1 over this island's UV bounding box.
+    // Only computed when setComputeVertexUvs(true) was called before
+    // extract(); otherwise empty. When computed, size always matches
+    // remeshedVertices(). Computing them never alters geometry: it is a
+    // pure post-pass over the final positions.
+    const std::vector<Vector2>& remeshedVertexUvs() const
+    {
+        return m_remeshedVertexUvs;
+    }
+
+    void setComputeVertexUvs(bool compute)
+    {
+        m_computeVertexUvs = compute;
+    }
+
     // The raw connections produced by extractConnections(), before graph cleanup.
     const std::vector<std::pair<Vector3, Vector3>>& extractedConnections() const
     {
@@ -99,6 +115,8 @@ private:
     const std::vector<std::vector<Vector2>>* m_triangleUvs = nullptr;
     std::vector<Vector3> m_remeshedVertices;
     std::vector<std::vector<size_t>> m_remeshedPolygons;
+    std::vector<Vector2> m_remeshedVertexUvs;
+    bool m_computeVertexUvs = false;
     std::vector<std::pair<Vector3, Vector3>> m_extractedConnections;
     std::vector<uint8_t> m_extractedConnectionMoved;
     const std::vector<std::vector<Vector2>>* m_originalTriangleUvs = nullptr;
@@ -155,6 +173,7 @@ private:
     // Merges one edge per pass over the whole polygon set, so it reports from
     // inside its round loop instead of running silently to completion.
     void mergeSharedFiveEdgeFaces(const ProgressHandler* progressHandler = nullptr);
+    void computeRemeshedVertexUvs();
     bool removeNonManifoldFaces();
     void rebuildHalfEdges();
     void fixHoles();

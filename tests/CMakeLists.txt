@@ -72,3 +72,13 @@ target_compile_definitions(test_cli_symmetry PRIVATE
 )
 add_dependencies(test_cli_symmetry retopo)
 set_tests_properties(test_cli_symmetry PROPERTIES TIMEOUT 600)
+
+# CLI --uvs: on/off contract for remeshed UV emission (OBJ vt + v/vt
+# corners, GLB TEXCOORD_0, geometry identical with the flag on or off).
+retopo_add_test(test_cli_uvs test_cli_uvs.cpp)
+target_compile_definitions(test_cli_uvs PRIVATE
+    "RETOPO_BINARY=\"$<TARGET_FILE:retopo>\""
+    "RETOPO_MODEL_FANDISK=\"${CMAKE_SOURCE_DIR}/bench/models/fandisk.obj\""
+)
+add_dependencies(test_cli_uvs retopo)
+set_tests_properties(test_cli_uvs PROPERTIES TIMEOUT 600)

@@ -21,6 +21,7 @@ module;
 #include <algorithm>
 #include <axisalignedboundingbox.h>
 #include <axisalignedboundingboxtree.h>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -273,6 +274,11 @@ bool QuadExtractor::extract()
     report(0.99f, "Collapsing three valence edge pairs");
     collapseThreeValenceEdgePairs();
     report(1.0f, "");
+
+    // Pure post-pass over the final positions: reads m_remeshedVertices,
+    // never writes it, so geometry is identical with the flag on or off.
+    if (m_computeVertexUvs)
+        computeRemeshedVertexUvs();
 
 #if AUTO_REMESHER_DEV
     {
@@ -1671,6 +1677,175 @@ void QuadExtractor::smoothAndProject(size_t iterations,
             });
         m_remeshedVertices = std::move(smoothedVertices);
     }
+}
+
+void QuadExtractor::computeRemeshedVertexUvs()
+{
+    m_remeshedVertexUvs.clear();
+    if (m_remeshedVertices.empty()
+        || nullptr == m_vertices
+        || nullptr == m_triangles
+        || m_triangles->empty()
+        || nullptr == m_triangleUvs
+        || m_triangleUvs->size() != m_triangles->size())
+        return;
+
+    // Bounding-box tree over the source triangles, same construction as
+    // smoothAndProject: output vertices lie on the source surface, so an
+    // expanding-radius query finds the home triangle in a few probes.
+    std::vector<::Vector3> targetVertices;
+    targetVertices.reserve(m_vertices->size());
+    for (const auto& it : *m_vertices)
+        targetVertices.push_back(::Vector3(it.x(), it.y(), it.z()));
+
+    std::vector<AxisAlignedBoudingBox> triangleBoxes(m_triangles->size());
+    std::vector<size_t> triangleIndices(m_triangles->size());
+    AxisAlignedBoudingBox groupBox;
+    for (size_t i = 0; i < m_triangles->size(); ++i) {
+        const auto& triangle = (*m_triangles)[i];
+        for (size_t k = 0; k < 3; ++k) {
+            triangleBoxes[i].update(targetVertices[triangle[k]]);
+            groupBox.update(targetVertices[triangle[k]]);
+        }
+        triangleBoxes[i].updateCenter();
+        triangleIndices[i] = i;
+    }
+    groupBox.updateCenter();
+    AxisAlignedBoudingBoxTree tree(&triangleBoxes, triangleIndices, groupBox);
+
+    double totalEdgeLength = 0.0;
+    size_t edgeNum = 0;
+    for (const auto& face : m_remeshedPolygons) {
+        for (size_t i = 0; i < face.size(); ++i) {
+            const size_t j = (i + 1) % face.size();
+            if (face[i] >= m_remeshedVertices.size() || face[j] >= m_remeshedVertices.size())
+                continue;
+            totalEdgeLength += (m_remeshedVertices[face[i]] - m_remeshedVertices[face[j]]).length();
+            ++edgeNum;
+        }
+    }
+    if (0 == edgeNum)
+        return;
+    const double averageEdgeLength = totalEdgeLength / edgeNum;
+    if (!(averageEdgeLength > 0.0))
+        return;
+
+    auto findHomeTriangle = [&](const Vector3& position, Vector3* projected) {
+        size_t home = 0;
+        for (double radius = averageEdgeLength; radius <= averageEdgeLength * 8.0; radius *= 2.0) {
+            std::vector<AxisAlignedBoudingBox> queryBoxes(1);
+            queryBoxes[0].update(::Vector3(position.x() - radius, position.y() - radius, position.z() - radius));
+            queryBoxes[0].update(::Vector3(position.x() + radius, position.y() + radius, position.z() + radius));
+            queryBoxes[0].updateCenter();
+            AxisAlignedBoudingBoxTree queryTree(&queryBoxes, { 0 }, queryBoxes[0]);
+            std::vector<std::pair<size_t, size_t>> pairs;
+            tree.test(tree.root(), queryTree.root(), &queryBoxes, &pairs);
+            double minDistance2 = std::numeric_limits<double>::max();
+            for (const auto& [key, value] : pairs) {
+                (void)value;
+                const auto& triangle = (*m_triangles)[key];
+                const auto candidate = closestPointOnTriangle(position,
+                    (*m_vertices)[triangle[0]],
+                    (*m_vertices)[triangle[1]],
+                    (*m_vertices)[triangle[2]]);
+                double distance2 = (candidate - position).lengthSquared();
+                if (distance2 < minDistance2) {
+                    minDistance2 = distance2;
+                    *projected = candidate;
+                    home = key;
+                }
+            }
+            if (minDistance2 < std::numeric_limits<double>::max())
+                return home;
+        }
+        // Straggler (smoothing pushed it past the search radius): fall back
+        // to a full scan so every vertex still gets a home triangle.
+        double minDistance2 = std::numeric_limits<double>::max();
+        for (size_t key = 0; key < m_triangles->size(); ++key) {
+            const auto& triangle = (*m_triangles)[key];
+            const auto candidate = closestPointOnTriangle(position,
+                (*m_vertices)[triangle[0]],
+                (*m_vertices)[triangle[1]],
+                (*m_vertices)[triangle[2]]);
+            double distance2 = (candidate - position).lengthSquared();
+            if (distance2 < minDistance2) {
+                minDistance2 = distance2;
+                *projected = candidate;
+                home = key;
+            }
+        }
+        return home;
+    };
+
+    // Each vertex is independent (reads the tree and the source mesh, writes
+    // its own slot), so the parallel result matches the serial one exactly.
+    std::vector<Vector2> uvs(m_remeshedVertices.size());
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, m_remeshedVertices.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t i = range.begin(); i != range.end(); ++i) {
+                Vector3 projected = m_remeshedVertices[i];
+                const size_t home = findHomeTriangle(m_remeshedVertices[i], &projected);
+                const auto& triangle = (*m_triangles)[home];
+                const auto& cornerUvs = (*m_triangleUvs)[home];
+                if (cornerUvs.size() < 3) {
+                    uvs[i] = cornerUvs.empty() ? Vector2() : cornerUvs[0];
+                    continue;
+                }
+                const double area = Vector3::area((*m_vertices)[triangle[0]],
+                    (*m_vertices)[triangle[1]],
+                    (*m_vertices)[triangle[2]]);
+                if (!(area > 1e-18)) {
+                    uvs[i] = Vector2((cornerUvs[0].x() + cornerUvs[1].x() + cornerUvs[2].x()) / 3.0,
+                        (cornerUvs[0].y() + cornerUvs[1].y() + cornerUvs[2].y()) / 3.0);
+                    continue;
+                }
+                const Vector3 bary = Vector3::barycentricCoordinates(
+                    (*m_vertices)[triangle[0]],
+                    (*m_vertices)[triangle[1]],
+                    (*m_vertices)[triangle[2]],
+                    projected);
+                uvs[i] = Vector2(
+                    bary.x() * cornerUvs[0].x() + bary.y() * cornerUvs[1].x() + bary.z() * cornerUvs[2].x(),
+                    bary.x() * cornerUvs[0].y() + bary.y() * cornerUvs[1].y() + bary.z() * cornerUvs[2].y());
+            }
+        });
+
+    // Normalize to 0..1 over this island's UV bounding box. Non-finite
+    // interpolants (a degenerate parameterization corner) collapse to the
+    // box center so the accessor never emits NaN or infinity.
+    double minU = 0.0, maxU = 0.0, minV = 0.0, maxV = 0.0;
+    bool haveFinite = false;
+    for (const auto& uv : uvs) {
+        if (!std::isfinite(uv.x()) || !std::isfinite(uv.y()))
+            continue;
+        if (!haveFinite) {
+            minU = maxU = uv.x();
+            minV = maxV = uv.y();
+            haveFinite = true;
+        } else {
+            minU = std::min(minU, uv.x());
+            maxU = std::max(maxU, uv.x());
+            minV = std::min(minV, uv.y());
+            maxV = std::max(maxV, uv.y());
+        }
+    }
+    if (!haveFinite) {
+        uvs.assign(uvs.size(), Vector2(0.5, 0.5));
+        m_remeshedVertexUvs = std::move(uvs);
+        return;
+    }
+    const double rangeU = maxU - minU;
+    const double rangeV = maxV - minV;
+    const double centerU = (minU + maxU) * 0.5;
+    const double centerV = (minV + maxV) * 0.5;
+    for (auto& uv : uvs) {
+        double u = std::isfinite(uv.x()) ? uv.x() : centerU;
+        double v = std::isfinite(uv.y()) ? uv.y() : centerV;
+        u = (rangeU > 1e-12) ? (u - minU) / rangeU : 0.5;
+        v = (rangeV > 1e-12) ? (v - minV) / rangeV : 0.5;
+        uv = Vector2(u, v);
+    }
+    m_remeshedVertexUvs = std::move(uvs);
 }
 
 void QuadExtractor::splitSixEdgeFaces()

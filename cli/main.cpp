@@ -30,6 +30,7 @@
 #include <AutoRemesher/ObjReader>
 #include "glb.h"
 import retopo.core.mesh_separator;
+import retopo.core.vector2;
 import retopo.core.vector3;
 
 #include <algorithm>
@@ -61,6 +62,7 @@ struct Params {
     AutoRemesher::ModelType modelType = AutoRemesher::ModelType::Organic;
     bool symmetryEnabled = false;
     int symmetryAxis = -1; // -1 = auto-detect, 0/1/2 = X/Y/Z
+    bool emitUvs = false;
     bool quiet = false;
 };
 
@@ -101,6 +103,11 @@ static void printUsage(const char* argv0)
               << "                              plane; x/y/z pin it. Falls back to\n"
               << "                              unconstrained output when the input scores\n"
               << "                              below threshold on the chosen plane\n"
+              << "  --uvs <on|off>              Emit remeshed UVs from the internal\n"
+              << "                              parameterization (default: off). OBJ\n"
+              << "                              gains vt lines + v/vt corners, GLB gains\n"
+              << "                              TEXCOORD_0. Off keeps every output byte\n"
+              << "                              identical to before\n"
               << "  --quiet                     Silence progress and info output; only\n"
               << "                              warnings, errors and the report print\n"
               << "  -h, --help                  Show this help\n"
@@ -248,6 +255,18 @@ static bool parseArgs(int argc, char** argv, Params* params)
                 return false;
             if (!parseDouble(value, "--anisotropy", &params->anisotropy))
                 return false;
+        } else if (matches(arg, "--uvs", '\0')) {
+            if (!takeValue(argc, argv, i, "--uvs", &value))
+                return false;
+            if (value == "on")
+                params->emitUvs = true;
+            else if (value == "off")
+                params->emitUvs = false;
+            else {
+                std::cerr << "Error: --uvs expects 'on' or 'off', got '"
+                          << value << "'" << '\n';
+                return false;
+            }
         } else if (matches(arg, "--quiet", '\0')) {
             params->quiet = true;
         } else if (matches(arg, "--symmetry", '\0')) {
@@ -433,19 +452,54 @@ static bool saveObj(const std::string& filename,
     return !file.fail();
 }
 
+// --uvs on twin of saveObj: one vt per vertex (same 1-based index as its v),
+// faces as v/vt corners. saveObj above is intentionally untouched so the
+// default-off path keeps byte-identical output.
+static bool saveObjWithUvs(const std::string& filename,
+    const std::vector<AutoRemesher::Vector3>& vertices,
+    const std::vector<std::vector<size_t>>& quads,
+    const std::vector<AutoRemesher::Vector2>& uvs)
+{
+    std::ofstream file(filename.c_str(), std::ios::out | std::ios::trunc);
+    if (!file.is_open())
+        return false;
+    file << "# retopoforge " << RETOPO_VERSION << "\n";
+    file << "# https://github.com/chris-straka/retopoforge\n";
+    for (const auto& v : vertices)
+        file << "v " << v.x() << " " << v.y() << " " << v.z() << "\n";
+    for (const auto& uv : uvs)
+        file << "vt " << uv.x() << " " << uv.y() << "\n";
+    for (const auto& face : quads) {
+        file << "f";
+        for (size_t index : face)
+            file << " " << (1 + index) << "/" << (1 + index);
+        file << "\n";
+    }
+    file.close();
+    return !file.fail();
+}
+
 static bool saveMesh(const std::string& filename,
     const std::vector<AutoRemesher::Vector3>& vertices,
-    const std::vector<std::vector<size_t>>& quads)
+    const std::vector<std::vector<size_t>>& quads,
+    const std::vector<AutoRemesher::Vector2>* uvs = nullptr)
 {
     // An empty result is a failure in every format: writing a 0-vertex file
     // that claims success is exactly the silent-failure class the island
     // accounting exists to kill. Fail here so OBJ and GLB agree.
     if (vertices.empty())
         return false;
+    // A size mismatch (should never happen: the engine pads to the vertex
+    // count) degrades to UV-less output rather than corrupt files.
+    const bool haveUvs = nullptr != uvs && uvs->size() == vertices.size();
     if (GlbIo::hasGlbExtension(filename)) {
         std::string generator = std::string("retopoforge ") + RETOPO_VERSION;
+        if (haveUvs)
+            return GlbIo::saveGlb(filename.c_str(), generator.c_str(), vertices, quads, *uvs);
         return GlbIo::saveGlb(filename.c_str(), generator.c_str(), vertices, quads);
     }
+    if (haveUvs)
+        return saveObjWithUvs(filename, vertices, quads, *uvs);
     return saveObj(filename, vertices, quads);
 }
 
@@ -492,6 +546,7 @@ static RungResult remeshLoadedMesh(const Params& params,
     remesher.setAnisotropy(params.anisotropy);
     remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
     remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
+    remesher.setComputeRemeshedUvs(params.emitUvs);
     ProgressState progressState;
     if (!params.quiet) {
         remesher.setTag(&progressState);
@@ -519,7 +574,10 @@ static RungResult remeshLoadedMesh(const Params& params,
     }
     result.vertexCount = remeshedVertices.size();
 
-    if (!saveMesh(outputPath, remeshedVertices, remeshedQuads)) {
+    const std::vector<AutoRemesher::Vector2>* uvs = params.emitUvs
+        ? &remesher.remeshedVertexUvs()
+        : nullptr;
+    if (!saveMesh(outputPath, remeshedVertices, remeshedQuads, uvs)) {
         result.error = "failed to write " + outputPath;
         return result;
     }
@@ -798,6 +856,7 @@ int main(int argc, char** argv)
     remesher.setAnisotropy(params.anisotropy);
     remesher.setSharpEdgeDegrees(params.sharpEdgeDegrees);
     remesher.setSmoothNormalDegrees(params.smoothNormalDegrees);
+    remesher.setComputeRemeshedUvs(params.emitUvs);
     ProgressState progressState;
     if (!params.quiet) {
         remesher.setTag(&progressState);
@@ -838,7 +897,10 @@ int main(int argc, char** argv)
             ++nonQuadCount;
     }
 
-    if (!saveMesh(params.outputPath, remeshedVertices, remeshedQuads)) {
+    const std::vector<AutoRemesher::Vector2>* uvs = params.emitUvs
+        ? &remesher.remeshedVertexUvs()
+        : nullptr;
+    if (!saveMesh(params.outputPath, remeshedVertices, remeshedQuads, uvs)) {
         std::cerr << "Error: failed to write " << params.outputPath << '\n';
         return 1;
     }
