@@ -13,6 +13,7 @@ third-party software. Full license texts live next to each dependency under
 | oneTBB | Apache-2.0 | Linked from the system install (Homebrew `tbb` / apt `libtbb-dev`) | https://github.com/oneapi-src/oneTBB |
 | meshoptimizer | MIT | `simplifier.cpp`, `indexgenerator.cpp` compiled in | `thirdparty/meshoptimizer/LICENSE.md` |
 | isotropicremesher | MIT (Jeremy HU) | Compiled in | `thirdparty/isotropicremesher/LICENSE` |
+| cgltf v1.15 | MIT (Johannes Kuhlmann) | Header-only GLB input parser, CLI only | `thirdparty/cgltf/LICENSE` |
 | zlib | zlib license | Linked on Unix | system / `ACKNOWLEDGEMENTS.html` |
 | Apple Accelerate | System framework (macOS only) | BLAS/LAPACK via `Eigen/AccelerateSupport` | system |
 
