@@ -65,6 +65,14 @@ new warnings.
 
 ## Character quality (engine work that serves the game)
 
+- [ ] Face animation flow (owner's top quality complaint): automatic
+      fields follow curvature, not animation flow — eye/mouth loops
+      that deform cleanly need user-drawn guide curves as frame-field
+      constraints (draw flow lines in Blender → CLI carries them to the
+      engine). Until then: document the iterate loop (preset, sharp
+      angle, adaptivity, head-only passes) plus the manual-cleanup
+      workflow. Honest scope: no automatic remesher emits
+      animator-grade face topology; the goal is 80% + fast cleanup.
 - [ ] Symmetry constraints (characters are the main subject)
 - [ ] Sharp / feature constraints end-to-end (weapons and hard-surface
       props need crisp edges; Blender sharp-edge marks as constraints
@@ -89,6 +97,8 @@ new warnings.
 - [x] Honest UV / vertex-color data-loss notice in the UI
 - [ ] Zip install path verified (`package_install_files`); user-facing
       release packaging (signed zip? extensions.blender.org listing?)
+- [ ] Iterate loop: per-object settings recall (remember last remesh
+      settings per object) so do-overs are one click, not retyping
 
 ## App phase 2: Qt shell headers to modules
 
