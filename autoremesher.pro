@@ -107,7 +107,7 @@ win32-msvc* {
 
 win32-g++ {
 	# MinGW GCC does not understand MSVC-style /flags. /bigobj has no MinGW
-	# equivalent flag, but Geogram and Eigen produce very large translation
+	# equivalent flag, but Eigen produces very large translation
 	# units that need the big-obj object format, enabled via the assembler.
 	# Optimization (-O2) already comes from the default release CONFIG.
 	QMAKE_CXXFLAGS += -Wa,-mbig-obj
