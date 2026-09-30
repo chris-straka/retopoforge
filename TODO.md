@@ -58,9 +58,10 @@ new warnings.
 - [ ] Expand `tests/`: solver golden tests, CLI round-trip tests;
       wire `ctest` into CI
 - [x] Binary rename `autoremesher` → `retopoforge` (binaries, bundle, docs)
-- [ ] Upstream watch: evaluate the Sept-2026 Kwizatz PRs for porting —
-      input validation (#58), parameterizer success flag (#57), dense
-      face map (#56); unique_ptr (#60) and Qt6/MinGW (#59) already covered
+- [x] Upstream watch: Sept-2026 Kwizatz PRs evaluated — all already
+      present (fork contains upstream/master tip 3cb2012c): #56 dense
+      face map, #57 success flag, #58 input validation, #59 Qt6/MinGW,
+      #60 unique_ptr. No ports needed.
       by our tree
 
 ## Game-asset workflow (owner's main use case)
