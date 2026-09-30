@@ -1,0 +1,66 @@
+# retopoforge TODO / Roadmap
+
+Ordered by priority: Blender-first workflow, Exoside-beating last.
+Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
+must report no regressions with identical counts, and new code adds zero
+new warnings.
+
+## In flight
+
+- [ ] Idioms wave (`retopo-idioms`): solvers + mesh + shell modernization
+      lanes and the unit-test lane; coordinator verifies each branch and
+      joins to `main`
+- [ ] Blender addon v1 scaffold (between lane reports)
+
+## Blender addon (the workflow goal)
+
+- [ ] Extension-format package (`blender_manifest.toml`) for Blender 4.2+/5.x
+- [ ] Operator: remesh selected objects via the `retopo` CLI subprocess,
+      temp-OBJ round-trip invisible to the user
+- [ ] Panel: organic/hardsurface presets, target quads, sharp/smooth angles,
+      adaptivity, anisotropy, model type
+- [ ] Evaluated-mesh export (modifiers applied, toggleable) in world space;
+      restore object transforms on import
+- [ ] Replace-active-mesh in a single undo step vs spawn-new-object modes
+- [ ] Modal operator with progress indication (no UI freeze on long remeshes)
+- [ ] Stats report display in the panel
+- [ ] Multi-object loop over the selection; temp files in Blender's temp dir
+- [ ] Headless verification (`blender --background --python`)
+- [ ] Honest UV / vertex-color data-loss notice in the UI
+- [ ] (future) Blender sharp-edge marks as feature constraints — needs a
+      CLI `--features` input flag first (engine change)
+
+## App phase 2: Qt shell headers to modules
+
+- [ ] Scope the moc strategy (AUTOMOC compiles its unity file unscanned;
+      the manual `-fmodule-file` workaround must extend to new modules)
+- [ ] Convert `app/*.h` to `.cppm` in bench-gated lane(s)
+- [ ] (needs user decision) QtAwesome replacement: what replaces the
+      FontAwesome icons?
+
+## C++ follow-ups (after the idioms join)
+
+- [ ] API-shape modernization, solo (cross-file, not lane-safe):
+      `string_view` params, `std::span`, `std::expected` returns
+- [ ] Expand `tests/`: solver golden tests, CLI round-trip tests;
+      wire `ctest` into CI
+- [ ] Binary rename `autoremesher` → `retopoforge` (binaries, bundle, docs)
+- [ ] Upstream watch: evaluate the Sept-2026 Kwizatz PRs for porting —
+      input validation (#58), parameterizer success flag (#57), dense
+      face map (#56); unique_ptr (#60) and Qt6/MinGW (#59) already covered
+      by our tree
+
+## Quality / release
+
+- [ ] README refresh (module layout, build, tests, Blender addon)
+- [ ] Architecture doc (engine / CLI / app / addon split, module graph)
+- [ ] macOS bundle CI: sign + verify path via `ci/macos_bundle.sh`
+- [ ] Bigger bench models for a real perf signal
+- [ ] Linux CI revive (parked); Windows stays parked (mac-only scope)
+
+## Exoside parity (last)
+
+- [ ] Feature comparison pass vs Exoside (the $100 benchmark)
+- [ ] Sharp / feature constraints end-to-end
+- [ ] Perf: profile the CLI on production-size meshes, check TBB scaling
+- [ ] UX polish in the addon and the app
