@@ -38,7 +38,8 @@ Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
 `--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,
-`--density <file>`, `--uvs on|off` (default `off`), `--lods <q0,q1,...>`,
+`--density <file>`, `--features <file>`, `--uvs on|off` (default `off`),
+`--lods <q0,q1,...>`,
 `--quiet`, `--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is
 welded on load; `--quiet` silences progress output (warnings, errors, and
 the report still print). `--symmetry auto` detects the dominant mirror
@@ -50,7 +51,10 @@ runs only. `--density` takes a mask file (one multiplier per input
 vertex, `1.0` = unchanged, clamped to 0.25–4.0) for local detail
 control; strong localized refinement saturates (~2.3x realized for
 4x asks), mild masks realize nearly fully; single-file and `--lods`
-runs only. `--uvs on` emits remeshed UVs from the internal
+runs only. `--features` takes a polyline file in the same format as
+`--guides` and marks crisp hard-surface edges (wins ties over guides);
+single-file and `--lods` runs only. `--uvs on` emits remeshed UVs from
+the internal
 parameterization (`vt` + `v/vt` corners for OBJ, `TEXCOORD_0` for GLB),
 normalized 0..1 per island. `--input`/`--output` accept `.glb` as well
 as `.obj` (positions + faces; batch dirs and `--lods` chains keep each
@@ -81,12 +85,13 @@ otool -L build/cli/retopo | grep -i qt || echo "Qt-free: OK"
 ctest --test-dir build --output-on-failure
 ```
 
-Twelve unit tests cover engine components (vectors, mesh container,
-solvers, OBJ reader, welding, symmetry, guide curves, density); eight
-CLI tests drive the built binary end to end (round-trip, `--lods`/batch
-multi-output, `--quiet`, GLB input/output, symmetry, guides, UVs,
-density). The CLI tests remesh `bench/models/` fixtures, so fetch the
-models first (see Benchmarks).
+Fourteen unit tests cover engine components (vectors, mesh container,
+solvers, OBJ reader, welding, symmetry, guide curves, density, sharp
+constraints, input validation); ten CLI tests drive the built binary end
+to end (round-trip, `--lods`/batch multi-output, `--quiet`, GLB
+input/output, symmetry, guides, UVs, density, nasty-corpus, sharp
+features). The CLI tests remesh `bench/models/` fixtures (except the two
+hermetic robustness suites), so fetch the models first (see Benchmarks).
 
 ## Benchmarks
 

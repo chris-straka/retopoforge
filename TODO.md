@@ -95,14 +95,13 @@ new warnings.
       vote-based plane detection + frame-field/vertex symmetrization,
       default off, CLI `--symmetry off|auto|x|y|z`; positional only
       (quad connectivity is not mirrored)
-- [ ] Sharp / feature constraints end-to-end (weapons and hard-surface
-      props need crisp edges). Research done: NO explicit-constraint
-      hook exists anywhere (all sharp handling is automatic dihedral
-      detection; `setConstraintVertices` is a dead setter). Real work
-      is engine-first: polyline snapping post-resample + locked faces
-      in FrameField + corner marks in computeCornerConstraints + curl
-      anchors; CLI `--features` and Blender sharp-marks export go on
-      top after.
+- [x] Sharp / feature constraints end-to-end (weapons and hard-surface
+      props need crisp edges): engine `setSharpPolylines` (snapping
+      post-resample, sharp-first frame locks winning ties over guides,
+      corner marks, curl anchors) + CLI `--features` sharing the guide
+      file format. Blender sharp-marks export still open. Follow-up:
+      corner singularities under crossing sharps distort (full cage
+      over-constrains); keep corner-mark radius small.
 - [x] Local density control (face/hands detail without blowing the
       total budget): engine `setDensityMultipliers` + CLI `--density`
       mask file, budget-preserving renormalization; strong localized
