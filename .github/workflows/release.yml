@@ -14,34 +14,17 @@ concurrency:
 
 jobs:
   linux-build-test:
-    # Linux CI is compile + test validation only (the shipped product is
-    # macOS-only): engine + CLI, no packaging.
+    # Linux CI is compile + bench validation only (the shipped product is
+    # macOS-only): no packaging.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install LLVM, CMake and Ninja
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm cmake ninja-build
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libtbb-dev
-      - name: Build engine and CLI
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j`nproc`
-      - name: Fetch benchmark models
-        run: ./bench/fetch_models.sh
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Build Rust release binary (bench product)
+      - name: Build release binary
         run: cargo build --locked --release --manifest-path rust/Cargo.toml -p retopo
+      - name: Fetch benchmark models
+        run: ./bench/fetch_models.sh
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline-linux.json
 
@@ -49,26 +32,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install LLVM and Ninja
-        run: |
-          brew install llvm ninja
-      - name: Install TBB
-        run: |
-          brew install tbb
-      - name: Build engine and CLI
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-      - name: Fetch benchmark models
-        run: ./bench/fetch_models.sh
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Build Rust release binary (bench + smoke product)
+      - name: Build release binary
         run: cargo build --locked --release --manifest-path rust/Cargo.toml -p retopo
+      - name: Run Rust tests (module goldens + CLI contract)
+        run: cargo test --locked --release --manifest-path rust/Cargo.toml
+      - name: Fetch benchmark models
+        run: ./bench/fetch_models.sh
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline.json
       - name: Headless CLI smoke test
@@ -84,13 +55,13 @@ jobs:
           set -e
           rm -rf blender/retopoforge/__pycache__
           cd blender && zip -r -X ../retopoforge-blender-extension.zip retopoforge
-      # The CLI artifact needs brew tbb + llvm installed to run (it links
-      # them dynamically); for a managed install use the Homebrew formula.
+      # The Rust binary is self-contained (meshoptimizer is statically
+      # compiled in); the Homebrew formula is the managed install.
       - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
           name: retopoforge-${{ github.ref_name }}-macos-cli
-          path: build/cli/retopo
+          path: rust/target/release/retopo
       - name: Upload Blender extension
         uses: actions/upload-artifact@v4
         with:
