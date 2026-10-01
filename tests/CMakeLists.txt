@@ -177,6 +177,13 @@ target_link_libraries(meshsep_diff_dump PRIVATE retopo_core)
 add_executable(objreader_diff_dump objreader_diff_dump.cpp)
 set_target_properties(objreader_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(objreader_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the quad_parameterizer Rust port
+# (rs-quadparameterizer lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/quadparam_diff.txt for
+# rust/core/tests/quad_parameterizer_diff.rs.
+add_executable(quadparam_diff_dump quadparam_diff_dump.cpp)
+set_target_properties(quadparam_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(quadparam_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).

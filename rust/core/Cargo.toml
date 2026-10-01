@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 faer.workspace = true
+retopo_solvers = { path = "../solvers" }
