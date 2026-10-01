@@ -28,3 +28,5 @@ pub mod guides;
 pub mod frame_field;
 // Wave 3 lane: rs-singularitysimplifier.
 pub mod singularity_simplifier;
+// Wave 3 lane: rs-parameterizer (vendored SingularitySimplifier mirror deduped at join).
+pub mod parameterizer;

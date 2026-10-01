@@ -261,6 +261,13 @@ target_link_libraries(framefield_diff_dump PRIVATE retopo_core)
 add_executable(singularitysimplifier_diff_dump singularitysimplifier_diff_dump.cpp)
 set_target_properties(singularitysimplifier_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(singularitysimplifier_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the parameterizer Rust port
+# (rs-parameterizer lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/parameterizer_diff.txt for
+# rust/core/tests/parameterizer_diff.rs.
+add_executable(parameterizer_diff_dump parameterizer_diff_dump.cpp)
+set_target_properties(parameterizer_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(parameterizer_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.
