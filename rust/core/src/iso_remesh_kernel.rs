@@ -1486,6 +1486,7 @@ impl IsotropicHalfedgeMesh {
             let left_face = self.halfedges[first].left_face;
             // Mirrored exactly: the C++ checks `bottomFace` twice here
             // (`topFace` missing, apparent typo).
+            #[allow(clippy::eq_op)]
             if bottom_face == left_face || bottom_face == left_face {
                 let next = self.halfedges[opposite].next_halfedge;
                 self.vertices[bottom_vertex].first_halfedge =

@@ -1003,6 +1003,7 @@ fn differential_replay() {
     assert!(saw_multi_island, "no multi-island case ran");
     eprintln!("strict cases: {strict_cases}, max rel diff: {max_diff:.3e} at {max_diff_at}");
     eprintln!("order-only remaps accepted: {order_only_notes}");
+    eprintln!("ecx cases: {ecx_cases}, conn-agree: {ecx_conn_agree}");
     eprintln!(
         "epx cases: {}, both-ok: {}, value-agree: {}, max diff: {:.3e} at {}",
         stats.cases, stats.both_ok, stats.value_agree, stats.max_diff, stats.max_diff_at
