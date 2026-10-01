@@ -12,5 +12,5 @@ pub mod progress;
 // Wave 2 foundation (ported by the coordinator, unblocks the fan-out):
 pub mod vector2;
 pub mod vector3;
-// Wave 2 lane (rs-positionkey):
 pub mod position_key;
+pub mod surface_mesh;

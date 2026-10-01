@@ -184,6 +184,12 @@ target_link_libraries(objreader_diff_dump PRIVATE retopo_core)
 add_executable(positionkey_diff_dump positionkey_diff_dump.cpp)
 set_target_properties(positionkey_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(positionkey_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the surface_mesh Rust port (rs-surfacemesh lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/surfacemesh_diff.txt for rust/core/tests/surface_mesh_diff.rs.
+add_executable(surfacemesh_diff_dump surfacemesh_diff_dump.cpp)
+set_target_properties(surfacemesh_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(surfacemesh_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
