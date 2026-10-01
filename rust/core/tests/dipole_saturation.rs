@@ -323,12 +323,14 @@ fn fixture_inputs_are_clean() {
     for fix in [Fixture::Single, Fixture::Split, Fixture::Fused] {
         let (verts, tris) = load_fixture(fix.file());
         let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut directed: HashMap<(usize, usize), usize> = HashMap::new();
         let mut vol = 0.0;
         for t in &tris {
             assert_eq!(t.len(), 3, "{}: non-triangle input", fix.file());
             let (a, b, c) = (t[0], t[1], t[2]);
             for (u, v) in [(a, b), (b, c), (c, a)] {
                 *edges.entry((u.min(v), u.max(v))).or_insert(0) += 1;
+                *directed.entry((u, v)).or_insert(0) += 1;
             }
             let (ax, ay, az) = (verts[a].x(), verts[a].y(), verts[a].z());
             let (bx, by, bz) = (verts[b].x(), verts[b].y(), verts[b].z());
@@ -337,6 +339,14 @@ fn fixture_inputs_are_clean() {
         }
         let bad = edges.values().filter(|n| **n != 2).count();
         assert_eq!(bad, 0, "{}: {bad} non-manifold edges", fix.file());
+        // Orientation consistency: every directed edge needs exactly one
+        // opposite (the 2026-10-01 pole fans passed the undirected check
+        // while splitting into their own orientation islands).
+        let flipped = directed
+            .iter()
+            .filter(|(e, n)| **n != 1 || directed.get(&(e.1, e.0)) != Some(&1))
+            .count();
+        assert_eq!(flipped, 0, "{}: {flipped} flipped edges", fix.file());
         assert!(vol > 0.0, "{}: non-positive volume", fix.file());
         let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
         let (mut masked, mut control) = (0, 0);
