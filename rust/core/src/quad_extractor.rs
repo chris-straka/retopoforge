@@ -68,7 +68,7 @@ use crate::progress::ProgressHandler;
 use crate::vector2::Vector2;
 use crate::vector3::Vector3;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -162,8 +162,10 @@ fn fma_first_sub(p: f64, b: f64, q: f64, d: f64) -> f64 {
 //   unreachable — the mirror saturates there, documented at the site).
 //
 // Bounds: float/int exactness below 2^24 elements (`size + 1 > bc * 1.0f`
-// in the C++); every container here holds hundreds of entries at most.
-// `u64`/`usize` are interchangeable below (LP64, like `PositionKey`).
+// in the C++). Production tables hold 100k+ entries (cross-point graphs),
+// so every op is O(1) (O(n) regroup on growth); the `HashMap` lookups are
+// never iterated, keeping their order unobservable. `u64`/`usize` are
+// interchangeable below (LP64, like `PositionKey`).
 //
 // Deliberately missing `insert`/`entry` on [`CxxMap`]: `BTreeMap::insert`
 // overwrites while C++ `insert` keeps the old value, so every map write
@@ -270,166 +272,559 @@ fn cxx_mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
     result
 }
 
-/// `__do_rehash` unique-keys path, literal: regroup `order` in place under
-/// the new bucket count. `chain_start` plays `__bucket_list_` (run-start
-/// index per chain; chains stay contiguous, so runs and chains coincide).
-fn cxx_regroup(order: &mut Vec<usize>, buckets: usize) {
-    if order.is_empty() {
-        return;
-    }
-    let mut chain_start: BTreeMap<usize, usize> = BTreeMap::new();
-    let mut previous_hash = cxx_constrain_hash(order[0], buckets);
-    chain_start.insert(previous_hash, 0);
-    let mut i = 1;
-    while i < order.len() {
-        let chained = cxx_constrain_hash(order[i], buckets);
-        if chained == previous_hash {
-            i += 1;
-        } else if !chain_start.contains_key(&chained) {
-            chain_start.insert(chained, i);
-            previous_hash = chained;
-            i += 1;
-        } else {
-            let front = chain_start[&chained];
-            debug_assert!(front < i);
-            let node = order.remove(i);
-            order.insert(front, node);
-            // Refresh run starts over the shifted window only.
-            chain_start.retain(|_, index| *index < front || *index > i);
-            for k in front..=i {
-                if k == 0
-                    || cxx_constrain_hash(order[k], buckets)
-                        != cxx_constrain_hash(order[k - 1], buckets)
-                {
-                    chain_start.insert(cxx_constrain_hash(order[k], buckets), k);
-                }
-            }
-        }
-    }
+// NOTE: the previous `cxx_regroup` / `cxx_maybe_rehash` splice loop now lives
+// inside `CxxTable` as the O(n) closed-form `regroup`, the verbatim trigger
+// `grow_rehash_if_needed`, and the O(1) chain-head lookup in `insert_fresh`
+// (same libc++ order, O(1) updates).
+
+/// Empty-list marker for [`CxxSlot`] links (no table here reaches 2^32
+/// entries, let alone `usize::MAX`).
+const NO_SLOT: usize = usize::MAX;
+
+/// One node of a [`CxxTable`]'s iteration list. Slots are append-only and
+/// recycled through the table's free list; a live slot's index never
+/// changes, so inserts and erases never shift any lookup.
+#[derive(Clone, Debug)]
+struct CxxSlot<V> {
+    key: usize,
+    /// `Some` on live slots; `None` on free-list slots (the value is
+    /// dropped at erase time so dead buffers are freed).
+    value: Option<V>,
+    prev: usize,
+    next: usize,
 }
 
-/// Grow step shared by both containers: mirrors the `size + 1 > bc *
-/// max_load` trigger plus `__rehash_unique(max(2 * bc + !is_pow2(bc),
-/// size + 1))`. (`usize` math is exact here; the C++ float spell agrees
-/// below 2^24 elements.) Returns whether a rehash regrouped `order`.
-fn cxx_maybe_rehash(order: &mut Vec<usize>, buckets: &mut usize) -> bool {
-    if order.len() + 1 > *buckets {
-        let arg = (2 * *buckets + usize::from(!cxx_is_hash_pow2(*buckets))).max(order.len() + 1);
-        let grown = if arg == 1 {
-            2
-        } else if arg & (arg - 1) != 0 {
-            cxx_next_prime(arg)
-        } else {
-            arg
-        };
-        debug_assert!(grown > *buckets);
-        *buckets = grown;
-        cxx_regroup(order, grown);
-        return true;
-    }
-    false
-}
-
-/// `__emplace_unique` position rule: before the chain's first node, or at
-/// the list front when the chain is empty.
-fn cxx_insert_position(order: &[usize], buckets: usize, key: usize) -> usize {
-    let chained = cxx_constrain_hash(key, buckets);
-    order
-        .iter()
-        .position(|k| cxx_constrain_hash(*k, buckets) == chained)
-        .unwrap_or(0)
-}
-
-/// Emulated `std::unordered_set<size_t>`: `order` is the node list
-/// (iteration order), `present` the membership index, `buckets` the table's
-/// bucket count. Iteration yields list order, like the C++ iterators.
-#[derive(Debug, Default)]
-struct CxxSet {
-    order: Vec<usize>,
-    present: BTreeSet<usize>,
+/// Exact-order libc++ `__hash_table` emulation with O(1) updates.
+///
+/// Iteration order, bucket-count evolution, and every method's return value
+/// are identical to the previous `Vec` + `BTreeMap` emulation (proved by
+/// the CXXHASH fixture oracle and the randomized old-vs-new differential
+/// test); only the asymptotics changed, because production tables hold
+/// 100k+ entries (cross-point graphs), not the hundreds the old code was
+/// shaped for:
+/// - node list: index-linked slots instead of a `Vec` that memmoves on
+///   every insert/erase;
+/// - membership: `HashMap` key->slot instead of a `BTreeMap` whose values
+///   all shift on every insert/erase (never iterated, so its order is
+///   unobservable);
+/// - chain heads: `HashMap` chain->first-slot instead of an O(n) scan per
+///   insert;
+/// - rehash regroup: the O(n) closed form instead of O(n^2) splicing (see
+///   [`CxxTable::regroup`]).
+#[derive(Debug)]
+struct CxxTable<V> {
+    slots: Vec<CxxSlot<V>>,
+    free: Vec<usize>,
+    head: usize,
+    index: HashMap<usize, usize>,
+    chain_head: HashMap<usize, usize>,
     buckets: usize,
 }
 
-impl Clone for CxxSet {
-    /// Copy ctor: a copy of an EMPTY table is fresh (`bc == 0`) — the C++
-    /// copy ctor early-returns before allocating buckets when the source
-    /// has no nodes. Non-empty tables keep list order and the count.
+impl<V: Clone> Clone for CxxTable<V> {
+    /// Copy ctor (the old `CxxSet::clone` rule): a copy of an EMPTY table
+    /// is fresh (`buckets == 0`); non-empty tables keep list order and the
+    /// count.
     fn clone(&self) -> Self {
-        if self.order.is_empty() {
+        if self.index.is_empty() {
             Self::new()
         } else {
             Self {
-                order: self.order.clone(),
-                present: self.present.clone(),
+                slots: self.slots.clone(),
+                free: self.free.clone(),
+                head: self.head,
+                index: self.index.clone(),
+                chain_head: self.chain_head.clone(),
                 buckets: self.buckets,
             }
         }
     }
 }
 
-impl CxxSet {
+impl<V> Default for CxxTable<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<V> CxxTable<V> {
     fn new() -> Self {
         Self {
-            order: Vec::new(),
-            present: BTreeSet::new(),
+            slots: Vec::new(),
+            free: Vec::new(),
+            head: NO_SLOT,
+            index: HashMap::new(),
+            chain_head: HashMap::new(),
             buckets: 0,
         }
     }
 
     fn len(&self) -> usize {
-        self.order.len()
+        self.index.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.order.is_empty()
+        self.index.is_empty()
     }
 
-    fn contains(&self, key: &usize) -> bool {
-        self.present.contains(key)
+    /// Bucket count (test-only inspection).
+    #[cfg(test)]
+    fn buckets(&self) -> usize {
+        self.buckets
     }
 
-    /// C++ `insert`: no-op (returns `false`) when the key is present.
-    fn insert(&mut self, key: usize) -> bool {
-        if self.present.contains(&key) {
+    fn contains_key(&self, key: &usize) -> bool {
+        self.index.contains_key(key)
+    }
+
+    /// The value of a live slot (every slot named by `index` is live).
+    fn live_value(&self, slot: usize) -> &V {
+        self.slots[slot]
+            .value
+            .as_ref()
+            .expect("indexed slot holds a value")
+    }
+
+    /// Mutable form of [`CxxTable::live_value`].
+    fn live_value_mut(&mut self, slot: usize) -> &mut V {
+        self.slots[slot]
+            .value
+            .as_mut()
+            .expect("indexed slot holds a value")
+    }
+
+    fn get(&self, key: &usize) -> Option<&V> {
+        self.index.get(key).map(|slot| self.live_value(*slot))
+    }
+
+    fn get_mut(&mut self, key: &usize) -> Option<&mut V> {
+        let slot = *self.index.get(key)?;
+        Some(self.live_value_mut(slot))
+    }
+
+    /// Links a detached slot at the list front.
+    fn link_front(&mut self, slot: usize) {
+        let old_head = self.head;
+        self.slots[slot].prev = NO_SLOT;
+        self.slots[slot].next = old_head;
+        if old_head != NO_SLOT {
+            self.slots[old_head].prev = slot;
+        }
+        self.head = slot;
+    }
+
+    /// Links a detached slot immediately before `at`.
+    fn link_before(&mut self, slot: usize, at: usize) {
+        let prev = self.slots[at].prev;
+        self.slots[slot].prev = prev;
+        self.slots[slot].next = at;
+        self.slots[at].prev = slot;
+        if prev != NO_SLOT {
+            self.slots[prev].next = slot;
+        } else {
+            self.head = slot;
+        }
+    }
+
+    /// Detaches a linked slot (neighbors/head fixed; the slot's own links
+    /// go stale — `alloc_slot` overwrites them on reuse).
+    fn unlink(&mut self, slot: usize) {
+        let prev = self.slots[slot].prev;
+        let next = self.slots[slot].next;
+        if prev != NO_SLOT {
+            self.slots[prev].next = next;
+        } else {
+            self.head = next;
+        }
+        if next != NO_SLOT {
+            self.slots[next].prev = prev;
+        }
+    }
+
+    /// Takes a slot for a fresh key (recycled or appended); the slot comes
+    /// back detached with its key/value stored.
+    fn alloc_slot(&mut self, key: usize, value: V) -> usize {
+        let slot = self.free.pop().unwrap_or_else(|| {
+            self.slots.push(CxxSlot {
+                key: 0,
+                value: None,
+                prev: NO_SLOT,
+                next: NO_SLOT,
+            });
+            self.slots.len() - 1
+        });
+        self.slots[slot] = CxxSlot {
+            key,
+            value: Some(value),
+            prev: NO_SLOT,
+            next: NO_SLOT,
+        };
+        slot
+    }
+
+    /// Grow step: the `size + 1 > bc * max_load` trigger plus
+    /// `__rehash_unique(max(2 * bc + !is_pow2(bc), size + 1))`, verbatim
+    /// from the previous `cxx_maybe_rehash` (the C++ float spell agrees
+    /// below 2^24 elements).
+    fn grow_rehash_if_needed(&mut self) {
+        if self.index.len() + 1 > self.buckets {
+            let arg = (2 * self.buckets + usize::from(!cxx_is_hash_pow2(self.buckets)))
+                .max(self.index.len() + 1);
+            let grown = if arg == 1 {
+                2
+            } else if arg & (arg - 1) != 0 {
+                cxx_next_prime(arg)
+            } else {
+                arg
+            };
+            debug_assert!(grown > self.buckets);
+            self.buckets = grown;
+            self.regroup();
+        }
+    }
+
+    /// `__do_rehash` unique-keys path in O(n): regroups the list in place
+    /// under the new bucket count.
+    ///
+    /// Closed form of the previous splice loop (proved equivalent by the
+    /// randomized old-vs-new differential test): one walk in iteration
+    /// order tracks `prev` (the chain of the last appended arrival) and
+    /// each chain's run. An arrival appends to its run when its chain
+    /// equals `prev` or the chain is new (updating `prev`); a returning
+    /// chain's arrival prepends instead (the splice arm, which leaves
+    /// `prev` untouched). Runs keep creation order; each run holds its
+    /// prepended arrivals reversed, then its appended arrivals in order.
+    /// Slots are relaid out in the regrouped order (iteration stays cache
+    /// friendly) and both lookups rebuilt.
+    fn regroup(&mut self) {
+        if self.index.is_empty() {
+            return;
+        }
+        // Pass 1: classify arrivals, count runs. Chains are dense in
+        // `[0, buckets)`, so a Vec table replaces hashing; at regroup
+        // time `buckets <= len` (the trigger fired), bounding the table.
+        struct Run {
+            rank: usize,
+            prepended: usize,
+            appended: usize,
+        }
+        let mut runs: Vec<Option<Run>> = Vec::new();
+        runs.resize_with(self.buckets, || None);
+        let mut chain_order: Vec<usize> = Vec::new();
+        let mut prev: Option<usize> = None;
+        let mut cursor = self.head;
+        while cursor != NO_SLOT {
+            let chain = cxx_constrain_hash(self.slots[cursor].key, self.buckets);
+            cursor = self.slots[cursor].next;
+            let fresh = runs[chain].is_none();
+            let run = runs[chain].get_or_insert_with(|| {
+                let rank = chain_order.len();
+                chain_order.push(chain);
+                Run {
+                    rank,
+                    prepended: 0,
+                    appended: 0,
+                }
+            });
+            if fresh || Some(chain) == prev {
+                run.appended += 1;
+                prev = Some(chain);
+            } else {
+                run.prepended += 1;
+            }
+        }
+        // Pass 2: lay out segments (runs in creation order) and place
+        // every slot with per-run cursors — the prepend cursor runs down
+        // from its sub-segment end (arrivals land reversed), the append
+        // cursor runs up from its sub-segment start.
+        let mut base_of_rank = vec![0usize; chain_order.len()];
+        let mut base = 0;
+        for (rank, chain) in chain_order.iter().enumerate() {
+            base_of_rank[rank] = base;
+            let run = runs[*chain].as_ref().expect("counted chain has a run");
+            base += run.prepended + run.appended;
+        }
+        debug_assert_eq!(base, self.index.len());
+        let mut cursors: Vec<(usize, usize)> = chain_order
+            .iter()
+            .enumerate()
+            .map(|(rank, chain)| {
+                let run = runs[*chain].as_ref().expect("counted chain has a run");
+                (
+                    base_of_rank[rank] + run.prepended,
+                    base_of_rank[rank] + run.prepended,
+                )
+            })
+            .collect();
+        let mut final_order = vec![NO_SLOT; self.index.len()];
+        let mut seen = vec![false; chain_order.len()];
+        let mut prev: Option<usize> = None;
+        let mut cursor = self.head;
+        while cursor != NO_SLOT {
+            let slot = cursor;
+            let chain = cxx_constrain_hash(self.slots[slot].key, self.buckets);
+            cursor = self.slots[slot].next;
+            let rank = runs[chain].as_ref().expect("placed chain was counted").rank;
+            // Same rule and walk as pass 1, so the classification agrees.
+            if !seen[rank] || Some(chain) == prev {
+                seen[rank] = true;
+                prev = Some(chain);
+                let at = cursors[rank].1;
+                cursors[rank].1 += 1;
+                final_order[at] = slot;
+            } else {
+                cursors[rank].0 -= 1;
+                let at = cursors[rank].0;
+                final_order[at] = slot;
+            }
+        }
+        debug_assert!(final_order.iter().all(|slot| *slot != NO_SLOT));
+        // Pass 3: relay out slots in regrouped order, rebuild lookups.
+        let mut new_slots: Vec<CxxSlot<V>> = Vec::with_capacity(final_order.len());
+        for (new_idx, old_slot) in final_order.iter().enumerate() {
+            let node = &mut self.slots[*old_slot];
+            new_slots.push(CxxSlot {
+                key: node.key,
+                value: Some(node.value.take().expect("regroup walks live slots")),
+                prev: if new_idx == 0 { NO_SLOT } else { new_idx - 1 },
+                next: if new_idx + 1 == final_order.len() {
+                    NO_SLOT
+                } else {
+                    new_idx + 1
+                },
+            });
+        }
+        self.slots = new_slots;
+        self.free.clear();
+        self.head = 0;
+        self.index.clear();
+        for (new_idx, node) in self.slots.iter().enumerate() {
+            self.index.insert(node.key, new_idx);
+        }
+        self.chain_head.clear();
+        for (rank, chain) in chain_order.iter().enumerate() {
+            self.chain_head.insert(*chain, base_of_rank[rank]);
+        }
+    }
+
+    /// Fresh-key insert with the C++ order effects (rehash, then
+    /// front-of-chain placement). The key must be absent. Returns the slot
+    /// the key landed on.
+    fn insert_fresh(&mut self, key: usize, value: V) -> usize {
+        debug_assert!(!self.index.contains_key(&key));
+        self.grow_rehash_if_needed();
+        let chain = cxx_constrain_hash(key, self.buckets);
+        let slot = self.alloc_slot(key, value);
+        if let Some(&head_slot) = self.chain_head.get(&chain) {
+            self.link_before(slot, head_slot);
+        } else {
+            self.link_front(slot);
+        }
+        self.chain_head.insert(chain, slot);
+        self.index.insert(key, slot);
+        slot
+    }
+
+    /// C++ `insert`/`emplace`: keeps the old value (returns `false`) when
+    /// the key is present.
+    fn insert_new(&mut self, key: usize, value: V) -> bool {
+        if self.index.contains_key(&key) {
             return false;
         }
-        cxx_maybe_rehash(&mut self.order, &mut self.buckets);
-        let at = cxx_insert_position(&self.order, self.buckets, key);
-        self.order.insert(at, key);
-        self.present.insert(key);
+        self.insert_fresh(key, value);
         true
     }
 
-    fn remove(&mut self, key: &usize) -> bool {
-        if !self.present.remove(key) {
-            return false;
+    /// C++ `operator[] = value`: overwrites when present (no order change),
+    /// inserts (with the same order effects) when absent.
+    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
+    fn set(&mut self, key: usize, value: V) {
+        if let Some(&slot) = self.index.get(&key) {
+            self.slots[slot].value = Some(value);
+            return;
         }
-        // Unlink: survivors keep order, the count never shrinks (`remove`).
-        if let Some(at) = self.order.iter().position(|k| k == key) {
-            debug_assert!(self.order[at] == *key);
-            self.order.remove(at);
+        self.insert_fresh(key, value);
+    }
+
+    /// C++ `operator[]` for read-mutate: default-inserts on absence.
+    fn get_or_default(&mut self, key: usize) -> &mut V
+    where
+        V: Default,
+    {
+        if !self.index.contains_key(&key) {
+            self.insert_fresh(key, V::default());
         }
-        true
+        let slot = self.index[&key];
+        self.live_value_mut(slot)
+    }
+
+    fn remove(&mut self, key: &usize) -> Option<V> {
+        let slot = self.index.remove(key)?;
+        let chain = cxx_constrain_hash(*key, self.buckets);
+        let next = self.slots[slot].next;
+        self.unlink(slot);
+        // Runs stay contiguous across unlink, so when the erased node led
+        // its chain the successor (iff it shares the chain) is the new
+        // head; otherwise the chain just lost its only node.
+        if self.chain_head.get(&chain) == Some(&slot) {
+            let next_shares =
+                next != NO_SLOT && cxx_constrain_hash(self.slots[next].key, self.buckets) == chain;
+            if next_shares {
+                self.chain_head.insert(chain, next);
+            } else {
+                self.chain_head.remove(&chain);
+            }
+        }
+        let value = self.slots[slot].value.take();
+        self.free.push(slot);
+        value
     }
 
     /// `clear`: empties the table but keeps the bucket count.
     #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn clear(&mut self) {
-        self.order.clear();
-        self.present.clear();
+        self.slots.clear();
+        self.free.clear();
+        self.head = NO_SLOT;
+        self.index.clear();
+        self.chain_head.clear();
     }
 
-    fn iter(&self) -> std::slice::Iter<'_, usize> {
-        self.order.iter()
+    /// First key in list order (`nextMap.begin()`), or `None` when empty.
+    fn first_key(&self) -> Option<&usize> {
+        if self.head == NO_SLOT {
+            None
+        } else {
+            Some(&self.slots[self.head].key)
+        }
+    }
+}
+
+/// Borrowed keys in list order.
+struct CxxSetIter<'a> {
+    slots: &'a [CxxSlot<()>],
+    cursor: usize,
+    remaining: usize,
+}
+
+impl<'a> Iterator for CxxSetIter<'a> {
+    type Item = &'a usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 || self.cursor == NO_SLOT {
+            return None;
+        }
+        let node = &self.slots[self.cursor];
+        self.cursor = node.next;
+        self.remaining -= 1;
+        Some(&node.key)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for CxxSetIter<'a> {}
+
+/// Borrowed `(key, value)` pairs in list order.
+struct CxxMapIter<'a, V> {
+    slots: &'a [CxxSlot<V>],
+    cursor: usize,
+    remaining: usize,
+}
+
+impl<'a, V> Iterator for CxxMapIter<'a, V> {
+    type Item = (&'a usize, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 || self.cursor == NO_SLOT {
+            return None;
+        }
+        let node = &self.slots[self.cursor];
+        self.cursor = node.next;
+        self.remaining -= 1;
+        Some((
+            &node.key,
+            node.value.as_ref().expect("listed slot holds a value"),
+        ))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl<'a, V> ExactSizeIterator for CxxMapIter<'a, V> {}
+
+/// Emulated `std::unordered_set<size_t>` (see [`CxxTable`]): iteration
+/// yields list order, like the C++ iterators.
+#[derive(Clone, Debug, Default)]
+struct CxxSet {
+    table: CxxTable<()>,
+}
+
+impl CxxSet {
+    fn new() -> Self {
+        Self {
+            table: CxxTable::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.table.is_empty()
+    }
+
+    fn contains(&self, key: &usize) -> bool {
+        self.table.contains_key(key)
+    }
+
+    /// C++ `insert`: no-op (returns `false`) when the key is present.
+    fn insert(&mut self, key: usize) -> bool {
+        self.table.insert_new(key, ())
+    }
+
+    fn remove(&mut self, key: &usize) -> bool {
+        self.table.remove(key).is_some()
+    }
+
+    /// `clear`: empties the table but keeps the bucket count.
+    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
+    fn clear(&mut self) {
+        self.table.clear();
+    }
+
+    fn iter(&self) -> CxxSetIter<'_> {
+        CxxSetIter {
+            slots: &self.table.slots,
+            cursor: self.table.head,
+            remaining: self.table.len(),
+        }
+    }
+
+    /// Iteration order as a vector (test-only inspection).
+    #[cfg(test)]
+    fn order_vec(&self) -> Vec<usize> {
+        self.iter().copied().collect()
+    }
+
+    /// Bucket count (test-only inspection).
+    #[cfg(test)]
+    fn buckets(&self) -> usize {
+        self.table.buckets()
     }
 }
 
 impl<'a> IntoIterator for &'a CxxSet {
     type Item = &'a usize;
-    type IntoIter = std::slice::Iter<'a, usize>;
+    type IntoIter = CxxSetIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.order.iter()
+        self.iter()
     }
 }
 
@@ -456,117 +851,53 @@ impl Extend<usize> for CxxSet {
     }
 }
 
-/// Emulated `std::unordered_map<size_t, V>`: same list/count machine as
-/// [`CxxSet`], with values stored inline so iteration needs no lookup.
+/// Emulated `std::unordered_map<size_t, V>` (see [`CxxTable`]).
 /// There is deliberately no `insert` or `entry` (see the section note);
 /// every write names its C++ counterpart.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct CxxMap<V> {
-    order: Vec<(usize, V)>,
-    index: BTreeMap<usize, usize>,
-    buckets: usize,
+    table: CxxTable<V>,
 }
-
-impl<V: Clone> Clone for CxxMap<V> {
-    /// Copy ctor (see [`CxxSet`]): empty tables copy fresh (`bc == 0`).
-    fn clone(&self) -> Self {
-        if self.order.is_empty() {
-            Self::new()
-        } else {
-            Self {
-                order: self.order.clone(),
-                index: self.index.clone(),
-                buckets: self.buckets,
-            }
-        }
-    }
-}
-
-/// Borrowed `(key, value)` pairs in list order.
-struct CxxMapIter<'a, V> {
-    inner: std::slice::Iter<'a, (usize, V)>,
-}
-
-impl<'a, V> Iterator for CxxMapIter<'a, V> {
-    type Item = (&'a usize, &'a V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(key, value)| (key, value))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<'a, V> ExactSizeIterator for CxxMapIter<'a, V> {}
 
 impl<V> CxxMap<V> {
     fn new() -> Self {
         Self {
-            order: Vec::new(),
-            index: BTreeMap::new(),
-            buckets: 0,
+            table: CxxTable::new(),
         }
     }
 
     #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn len(&self) -> usize {
-        self.order.len()
+        self.table.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.order.is_empty()
+        self.table.is_empty()
     }
 
     fn contains_key(&self, key: &usize) -> bool {
-        self.index.contains_key(key)
+        self.table.contains_key(key)
     }
 
     fn get(&self, key: &usize) -> Option<&V> {
-        self.index.get(key).map(|at| &self.order[*at].1)
+        self.table.get(key)
     }
 
     fn get_mut(&mut self, key: &usize) -> Option<&mut V> {
-        let at = *self.index.get(key)?;
-        Some(&mut self.order[at].1)
-    }
-
-    /// Insert the key at list position `at`, shifting later indices.
-    fn insert_at(&mut self, at: usize, key: usize, value: V) {
-        for slot in self.index.values_mut() {
-            if *slot >= at {
-                *slot += 1;
-            }
-        }
-        self.order.insert(at, (key, value));
-        self.index.insert(key, at);
-    }
-
-    /// The key list, for the shared order helpers.
-    fn key_list(&self) -> Vec<usize> {
-        self.order.iter().map(|(key, _)| *key).collect()
+        self.table.get_mut(key)
     }
 
     /// C++ `insert`/`emplace`: keeps the old value (returns `false`) when
     /// the key is present.
     fn insert_new(&mut self, key: usize, value: V) -> bool {
-        if self.index.contains_key(&key) {
-            return false;
-        }
-        self.insert_fresh(key, value);
-        true
+        self.table.insert_new(key, value)
     }
 
     /// C++ `operator[] = value`: overwrites when present, inserts (with the
     /// same order effects) when absent.
     #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn set(&mut self, key: usize, value: V) {
-        if let Some(at) = self.index.get(&key) {
-            self.order[*at].1 = value;
-            return;
-        }
-        self.insert_fresh(key, value);
+        self.table.set(key, value)
     }
 
     /// C++ `operator[]` for read-mutate: default-inserts on absence.
@@ -574,75 +905,47 @@ impl<V> CxxMap<V> {
     where
         V: Default,
     {
-        if let Some(&at) = self.index.get(&key) {
-            return &mut self.order[at].1;
-        }
-        let at = self.insert_fresh(key, V::default());
-        &mut self.order[at].1
-    }
-
-    /// Fresh-key insert with the C++ order effects (rehash, then
-    /// front-of-chain placement). The key must be absent. Returns the list
-    /// position the key landed on.
-    fn insert_fresh(&mut self, key: usize, value: V) -> usize {
-        debug_assert!(!self.index.contains_key(&key));
-        let mut keys = self.key_list();
-        if cxx_maybe_rehash(&mut keys, &mut self.buckets) {
-            self.reorder_like(&keys);
-        }
-        let at = cxx_insert_position(&self.key_list(), self.buckets, key);
-        self.insert_at(at, key, value);
-        at
-    }
-
-    /// Reorder value pairs (and the index) to match a regrouped key list.
-    fn reorder_like(&mut self, keys: &[usize]) {
-        debug_assert_eq!(keys.len(), self.order.len());
-        let mut pairs: BTreeMap<usize, (usize, V)> = BTreeMap::new();
-        for (key, value) in std::mem::take(&mut self.order) {
-            pairs.insert(key, (key, value));
-        }
-        let mut reordered = Vec::with_capacity(keys.len());
-        for key in keys {
-            if let Some(pair) = pairs.remove(key) {
-                reordered.push(pair);
-            }
-        }
-        debug_assert!(pairs.is_empty() && reordered.len() == keys.len());
-        self.order = reordered;
-        self.index.clear();
-        for (at, (key, _)) in self.order.iter().enumerate() {
-            self.index.insert(*key, at);
-        }
+        self.table.get_or_default(key)
     }
 
     fn remove(&mut self, key: &usize) -> Option<V> {
-        let at = self.index.remove(key)?;
-        debug_assert!(at < self.order.len() && self.order[at].0 == *key);
-        for slot in self.index.values_mut() {
-            if *slot > at {
-                *slot -= 1;
-            }
-        }
-        Some(self.order.remove(at).1)
+        self.table.remove(key)
     }
 
     /// `clear`: empties the table but keeps the bucket count.
     #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn clear(&mut self) {
-        self.order.clear();
-        self.index.clear();
+        self.table.clear()
     }
 
     fn iter(&self) -> CxxMapIter<'_, V> {
         CxxMapIter {
-            inner: self.order.iter(),
+            slots: &self.table.slots,
+            cursor: self.table.head,
+            remaining: self.table.len(),
         }
     }
 
     /// First key in list order (`nextMap.begin()`), or `None` when empty.
     fn first_key(&self) -> Option<&usize> {
-        self.order.first().map(|(key, _)| key)
+        self.table.first_key()
+    }
+
+    /// Iteration order as a vector (test-only inspection).
+    #[cfg(test)]
+    fn order_vec(&self) -> Vec<(usize, V)>
+    where
+        V: Clone,
+    {
+        self.iter()
+            .map(|(key, value)| (*key, value.clone()))
+            .collect()
+    }
+
+    /// Bucket count (test-only inspection).
+    #[cfg(test)]
+    fn buckets(&self) -> usize {
+        self.table.buckets()
     }
 }
 
@@ -6406,15 +6709,15 @@ mod cxx_hash_tests {
                     }
                     "EI" => {
                         let pos = parse_usize(op[2]);
-                        assert!(pos < set.order.len(), "line: {line}");
+                        assert!(pos < set.order_vec().len(), "line: {line}");
                         let key = parse_usize(op[3].strip_prefix("key=").unwrap());
-                        assert_eq!(set.order[pos], key, "line: {line}");
+                        assert_eq!(set.order_vec()[pos], key, "line: {line}");
                         assert!(set.remove(&key), "line: {line}");
                         let next = op[4].strip_prefix("next=").unwrap();
                         if next == "END" {
-                            assert_eq!(set.order.len(), pos, "line: {line}");
+                            assert_eq!(set.order_vec().len(), pos, "line: {line}");
                         } else {
-                            assert_eq!(set.order[pos], parse_usize(next), "line: {line}");
+                            assert_eq!(set.order_vec()[pos], parse_usize(next), "line: {line}");
                         }
                     }
                     "C" => set.clear(),
@@ -6430,9 +6733,9 @@ mod cxx_hash_tests {
                     "CHECK" => {
                         let id = parse_usize(op[2]);
                         let snap = &set_snaps[id];
-                        assert_eq!(snap.buckets, bc, "line: {line}");
+                        assert_eq!(snap.buckets(), bc, "line: {line}");
                         assert_eq!(snap.len(), n, "line: {line}");
-                        assert_eq!(snap.order, parse_order_set(tail), "line: {line}");
+                        assert_eq!(snap.order_vec(), parse_order_set(tail), "line: {line}");
                         continue;
                     }
                     "RANGE" | "INIT" => {
@@ -6440,16 +6743,16 @@ mod cxx_hash_tests {
                         let elems: Vec<usize> =
                             op[3..3 + count].iter().map(|t| parse_usize(t)).collect();
                         let fresh: CxxSet = elems.into_iter().collect();
-                        assert_eq!(fresh.buckets, bc, "line: {line}");
+                        assert_eq!(fresh.buckets(), bc, "line: {line}");
                         assert_eq!(fresh.len(), n, "line: {line}");
-                        assert_eq!(fresh.order, parse_order_set(tail), "line: {line}");
+                        assert_eq!(fresh.order_vec(), parse_order_set(tail), "line: {line}");
                         continue;
                     }
                     _ => panic!("unknown set op: {line}"),
                 }
-                assert_eq!(set.buckets, bc, "line: {line}");
+                assert_eq!(set.buckets(), bc, "line: {line}");
                 assert_eq!(set.len(), n, "line: {line}");
-                assert_eq!(set.order, parse_order_set(tail), "line: {line}");
+                assert_eq!(set.order_vec(), parse_order_set(tail), "line: {line}");
             } else {
                 map_ops += 1;
                 match op[1] {
@@ -6487,15 +6790,15 @@ mod cxx_hash_tests {
                     }
                     "EI" => {
                         let pos = parse_usize(op[2]);
-                        assert!(pos < map.order.len(), "line: {line}");
+                        assert!(pos < map.len(), "line: {line}");
                         let key = parse_usize(op[3].strip_prefix("key=").unwrap());
-                        assert_eq!(map.order[pos].0, key, "line: {line}");
+                        assert_eq!(map.order_vec()[pos].0, key, "line: {line}");
                         assert!(map.remove(&key).is_some(), "line: {line}");
                         let next = op[4].strip_prefix("next=").unwrap();
                         if next == "END" {
-                            assert_eq!(map.order.len(), pos, "line: {line}");
+                            assert_eq!(map.len(), pos, "line: {line}");
                         } else {
-                            assert_eq!(map.order[pos].0, parse_usize(next), "line: {line}");
+                            assert_eq!(map.order_vec()[pos].0, parse_usize(next), "line: {line}");
                         }
                     }
                     "C" => map.clear(),
@@ -6516,9 +6819,9 @@ mod cxx_hash_tests {
                     "CHECK" => {
                         let id = parse_usize(op[2]);
                         let snap = &map_snaps[id];
-                        assert_eq!(snap.buckets, bc, "line: {line}");
+                        assert_eq!(snap.buckets(), bc, "line: {line}");
                         assert_eq!(snap.len(), n, "line: {line}");
-                        let pairs: Vec<(usize, usize)> = snap.order.to_vec();
+                        let pairs: Vec<(usize, usize)> = snap.order_vec();
                         assert_eq!(pairs, parse_order_map(tail), "line: {line}");
                         continue;
                     }
@@ -6529,17 +6832,17 @@ mod cxx_hash_tests {
                             let key = parse_usize(token);
                             fresh.insert_new(key, (key % 100003) * 10 + 1);
                         }
-                        assert_eq!(fresh.buckets, bc, "line: {line}");
+                        assert_eq!(fresh.buckets(), bc, "line: {line}");
                         assert_eq!(fresh.len(), n, "line: {line}");
-                        let pairs: Vec<(usize, usize)> = fresh.order.to_vec();
+                        let pairs: Vec<(usize, usize)> = fresh.order_vec();
                         assert_eq!(pairs, parse_order_map(tail), "line: {line}");
                         continue;
                     }
                     _ => panic!("unknown map op: {line}"),
                 }
-                assert_eq!(map.buckets, bc, "line: {line}");
+                assert_eq!(map.buckets(), bc, "line: {line}");
                 assert_eq!(map.len(), n, "line: {line}");
-                let pairs: Vec<(usize, usize)> = map.order.to_vec();
+                let pairs: Vec<(usize, usize)> = map.order_vec();
                 assert_eq!(pairs, parse_order_map(tail), "line: {line}");
             }
         }
@@ -6599,8 +6902,8 @@ mod cxx_hash_tests {
         for i in 0..20 {
             map.insert_new(i * 3, i * 100);
         }
-        assert_eq!(map.buckets, 23);
-        let keys: Vec<usize> = map.order.iter().map(|(k, _)| *k).collect();
+        assert_eq!(map.buckets(), 23);
+        let keys: Vec<usize> = map.iter().map(|(k, _)| *k).collect();
         assert_eq!(
             keys,
             vec![
@@ -6609,18 +6912,18 @@ mod cxx_hash_tests {
         );
         // 999 lands in 33's chain (both = 10 mod 23): ahead of 33.
         map.set(999, 5);
-        let keys: Vec<usize> = map.order.iter().map(|(k, _)| *k).collect();
+        let keys: Vec<usize> = map.iter().map(|(k, _)| *k).collect();
         assert_eq!(keys[8], 999);
         assert_eq!(keys[9], 33);
         // 1000 opens a chain with the head (both = 11 mod 23): new head.
         map.get_or_default(1000);
-        assert_eq!(map.order[0].0, 1000);
-        assert_eq!(map.order[1].0, 57);
+        assert_eq!(map.order_vec()[0].0, 1000);
+        assert_eq!(map.order_vec()[1].0, 57);
         // Copies preserve order and count; the copy then diverges alone.
         let mut copy = map.clone();
-        assert_eq!(copy.buckets, map.buckets);
+        assert_eq!(copy.buckets(), map.buckets());
         copy.set(7, 700);
-        let copy_keys: Vec<usize> = copy.order.iter().map(|(k, _)| *k).collect();
+        let copy_keys: Vec<usize> = copy.iter().map(|(k, _)| *k).collect();
         let pos33 = copy_keys.iter().position(|k| *k == 33).unwrap();
         assert_eq!(copy_keys[pos33 + 1], 7);
         assert_eq!(copy_keys[pos33 + 2], 30);
@@ -6630,19 +6933,215 @@ mod cxx_hash_tests {
         for i in 0..12 {
             set.insert(i * 23);
         }
-        assert_eq!(set.buckets, 23);
+        assert_eq!(set.buckets(), 23);
         assert_eq!(
-            set.order,
+            set.order_vec(),
             vec![253, 230, 207, 184, 161, 138, 115, 92, 69, 46, 23, 0]
         );
         // Erase unlinks; clear keeps the count; reuse continues there.
         assert!(set.remove(&0));
         assert!(!set.remove(&999999));
-        assert_eq!(set.buckets, 23);
+        assert_eq!(set.buckets(), 23);
         set.clear();
-        assert_eq!(set.buckets, 23);
+        assert_eq!(set.buckets(), 23);
         assert!(set.is_empty());
         set.insert(42);
-        assert_eq!(set.order, vec![42]);
+        assert_eq!(set.order_vec(), vec![42]);
+    }
+
+    /// Randomized old-vs-new differential test (lane/par-single-island
+    /// scaffolding — deleted with `cxx_reference` once the new containers
+    /// are proven): replays seeded op sequences against the pre-change
+    /// implementation and asserts identical orders, bucket counts, return
+    /// values, and lookups after every step.
+    #[test]
+    fn cxx_containers_differential() {
+        use crate::cxx_reference::{RefMap, RefSet};
+
+        /// xorshift64* (std-only deterministic RNG).
+        struct Rng(u64);
+        impl Rng {
+            fn next(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x >> 12;
+                x ^= x << 25;
+                x ^= x >> 27;
+                self.0 = x;
+                x.wrapping_mul(0x2545_f491_4f6c_dd1d)
+            }
+            fn below(&mut self, n: usize) -> usize {
+                (self.next() % n as u64) as usize
+            }
+        }
+
+        fn check_sets(old: &RefSet, new: &CxxSet, context: &str) {
+            assert_eq!(old.buckets(), new.buckets(), "buckets {context}");
+            assert_eq!(old.len(), new.len(), "len {context}");
+            assert_eq!(old.is_empty(), new.is_empty(), "empty {context}");
+            let old_order: Vec<usize> = old.iter().copied().collect();
+            assert_eq!(old_order, new.order_vec(), "order {context}");
+        }
+
+        fn check_maps(old: &RefMap<usize>, new: &CxxMap<usize>, context: &str) {
+            assert_eq!(old.buckets(), new.buckets(), "buckets {context}");
+            assert_eq!(old.len(), new.len(), "len {context}");
+            assert_eq!(old.is_empty(), new.is_empty(), "empty {context}");
+            assert_eq!(old.first_key(), new.first_key(), "first {context}");
+            let old_order: Vec<(usize, usize)> =
+                old.iter().map(|(key, value)| (*key, *value)).collect();
+            assert_eq!(old_order, new.order_vec(), "order {context}");
+            for (key, value) in &old_order {
+                assert_eq!(old.get(key), new.get(key), "get {key} {context}");
+                assert_eq!(Some(*value), new.get(key).copied(), "val {key} {context}");
+            }
+        }
+
+        const SEEDS: u64 = 6;
+        const STEPS: usize = 6000;
+        const KEYSPACE: usize = 2000;
+        for seed in 0..SEEDS {
+            let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15).wrapping_add(1));
+            let mut old_set = RefSet::new();
+            let mut new_set = CxxSet::new();
+            let mut old_map = RefMap::new();
+            let mut new_map: CxxMap<usize> = CxxMap::new();
+            for step in 0..STEPS {
+                let context = format!("seed {seed} step {step}");
+                match rng.below(100) {
+                    0..40 => {
+                        let key = rng.below(KEYSPACE);
+                        assert_eq!(
+                            old_set.insert(key),
+                            new_set.insert(key),
+                            "set insert {context}"
+                        );
+                    }
+                    40..60 => {
+                        let key = rng.below(KEYSPACE);
+                        assert_eq!(
+                            old_set.remove(&key),
+                            new_set.remove(&key),
+                            "set remove {context}"
+                        );
+                    }
+                    60..72 => {
+                        let key = rng.below(KEYSPACE);
+                        let value = key.wrapping_mul(31).wrapping_add(7);
+                        assert_eq!(
+                            old_map.insert_new(key, value),
+                            new_map.insert_new(key, value),
+                            "map insert {context}"
+                        );
+                    }
+                    72..80 => {
+                        let key = rng.below(KEYSPACE);
+                        assert_eq!(
+                            old_map.remove(&key),
+                            new_map.remove(&key),
+                            "map remove {context}"
+                        );
+                    }
+                    80..85 => {
+                        let key = rng.below(KEYSPACE);
+                        let value = rng.below(100000);
+                        old_map.set(key, value);
+                        new_map.set(key, value);
+                        assert_eq!(
+                            old_map.get(&key),
+                            new_map.get(&key),
+                            "map set/get {context}"
+                        );
+                    }
+                    85..90 => {
+                        let key = rng.below(KEYSPACE);
+                        assert_eq!(old_map.get(&key), new_map.get(&key), "map get {context}");
+                        assert_eq!(
+                            old_set.contains(&key),
+                            new_set.contains(&key),
+                            "set contains {context}"
+                        );
+                        assert_eq!(
+                            old_map.contains_key(&key),
+                            new_map.contains_key(&key),
+                            "map contains {context}"
+                        );
+                    }
+                    90..93 => {
+                        if rng.below(2) == 0 {
+                            old_set.clear();
+                            new_set.clear();
+                        } else {
+                            old_map.clear();
+                            new_map.clear();
+                        }
+                    }
+                    _ => {
+                        if rng.below(2) == 0 {
+                            let old_clone = old_set.clone();
+                            let new_clone = new_set.clone();
+                            check_sets(&old_clone, &new_clone, &format!("clone {context}"));
+                            if rng.below(2) == 0 {
+                                old_set = old_clone;
+                                new_set = new_clone;
+                            }
+                        } else {
+                            let old_clone = old_map.clone();
+                            let new_clone = new_map.clone();
+                            check_maps(&old_clone, &new_clone, &format!("clone {context}"));
+                            if rng.below(2) == 0 {
+                                old_map = old_clone;
+                                new_map = new_clone;
+                            }
+                        }
+                    }
+                }
+                if step % 150 == 0 {
+                    check_sets(&old_set, &new_set, &context);
+                    check_maps(&old_map, &new_map, &context);
+                }
+            }
+            check_sets(&old_set, &new_set, &format!("seed {seed} final"));
+            check_maps(&old_map, &new_map, &format!("seed {seed} final"));
+        }
+
+        // Scale case: production-size tables (sequential + strided bulk
+        // inserts, then full drains), exercising big-table regroup paths.
+        for stride in [1, 7, 127] {
+            let mut old_map = RefMap::new();
+            let mut new_map: CxxMap<usize> = CxxMap::new();
+            for i in 0..8000 {
+                let key = (i * stride) % 200003;
+                assert_eq!(
+                    old_map.insert_new(key, i),
+                    new_map.insert_new(key, i),
+                    "scale insert stride {stride} i {i}"
+                );
+            }
+            check_maps(&old_map, &new_map, &format!("scale stride {stride} full"));
+            for i in 0..8000 {
+                let key = (i * stride) % 200003;
+                assert_eq!(
+                    old_map.remove(&key),
+                    new_map.remove(&key),
+                    "scale remove stride {stride} i {i}"
+                );
+            }
+            check_maps(
+                &old_map,
+                &new_map,
+                &format!("scale stride {stride} drained"),
+            );
+            // Reuse after drain (buckets kept, slots recycled).
+            for i in 0..3000 {
+                let key = (i * 13 + 5) % 200003;
+                assert_eq!(
+                    old_map.insert_new(key, i),
+                    new_map.insert_new(key, i),
+                    "scale reuse stride {stride} i {i}"
+                );
+            }
+            check_maps(&old_map, &new_map, &format!("scale stride {stride} reused"));
+        }
+        println!("cxx_containers_differential: {SEEDS} seeds x {STEPS} steps + scale cases green");
     }
 }
