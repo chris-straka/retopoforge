@@ -311,11 +311,18 @@ and QtAwesome deleted as dead code before the removal.
       forensics, engine bisection): C++ values derive from UB —
       EPX-by-UB in the oracle, never match; exclude the input class in
       main-lane e2e. No C++ fix (being replaced).
-- [ ] Merge-five-faces path divergence (found by e2e forensics): Rust
-      extractor systematically skips five-merges C++ takes (30/30 vs
-      0/777 stderr counts) with byte-identical meshes today — diagnose
-      the path difference post-switch (same mesh, different route;
-      seven-splits preventively allowlisted, same pattern).
+- [x] Merge-five-faces path divergence (found by e2e forensics;
+      verdict PORT BUG, fixed on `lane/merge-five`): was NOT a path
+      divergence — the Rust merge always ran (trace: pentagons 5:2→0
+      and 5:4→0 with no print), only its stderr print was gated on the
+      parked `progress_handler` (`extract()` parks it in an `Arc`
+      while the merge runs, so `diagnose()` saw `None`). Fix gates the
+      print on the passed `progress` handle (`Some` exactly when the
+      outer handler exists — the C++ gate). e2e allowlist arm removed,
+      counts match via census/robust tiers (mode-sensitive, as on the
+      C++ side itself). Seven-splits stay allowlisted: their gates are
+      verified identical with the handler intact, so that 5/0 is
+      genuinely state-driven — separate follow-up.
 - [x] Density-aware pole placement (research → production
       2026-10-01, `lane/dipole-production`,
       `docs/dipole-production.md`): was "strong localized refinement
