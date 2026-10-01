@@ -309,9 +309,12 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Density-aware pole placement (research): strong localized
       refinement saturates (~2.3x for 4x asks) because poles are
       sizing-unaware. Placing poles for the density field would unlock
-      the full 4x. Post-switch: feed it the port's QPX/FFX
-      robustness-only lists — they map exactly where rounding noise
-      flips integer decisions today.
+      the full 4x. NOTE (2026-10-01 spike follow-up): QPX/FFX are
+      case-level tiers, not spatial flip maps — nothing to place poles
+      from; sizing-aware rounding exonerated on cube (wall is
+      continuous-infeasibility); adaptivity fight quantified; dipole
+      insertion still the only structural candidate. See
+      `docs/density-poles-spike.md`.
 - [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only
