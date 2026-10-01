@@ -138,3 +138,21 @@ Practical consequences:
   `retopo` per core (e.g. `xargs -P`) to saturate a workstation.
 - Peak RSS (~1.5 GiB for a 250k-triangle input at 50k quads) is the
   per-process budget to plan parallel batches against.
+
+## Rust port note (lane/par-single-island, 2026-10-01)
+
+The C++ profile above no longer describes the Rust port's bottleneck
+shape. The port's `CxxSet`/`CxxMap` libc++ order emulation was O(n)
+per op, which made dragon-50k take >20 min (99.9% of samples in
+`CxxMap<CxxSet>::insert_fresh`). The lane replaced it with O(1)
+exact-order containers (index-linked slots, fixed-seed integer
+hasher, Vec chain heads, O(n) closed-form regroup), converted the
+fixpoint passes' per-round `BTreeMap` rebuilds to sorted-vector
+indexes (identical keys/values/order), and parallelized the disjoint
+data-parallel loops over scoped threads (`crate::par`: frame-field
+eigensolves/bases/final field, smooth+project, remeshed-vertex UVs,
+per-face fixpoint remaps with serial ordered validation). Dragon-50k
+is now 22.3 s (C++: 22.7 s); dragon-5k 7.9 s -> 1.8 s. All changes
+are bit-exact (bitwise-identical outputs on 10 bench cases, strict
+run-to-run determinism incl. stderr sequences) and stay green on
+`bench/run.py --check` plus the full `cargo test` suite.
