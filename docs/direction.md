@@ -29,6 +29,16 @@ effort on human face/hand topology.
 
 ## Engine direction: patch-layout back end
 
+**Update 2026-10-01 (decision): do NOT build the rewrite yet.** On a real
+AI character (owner corpus, 150k-tri input), at matched counts (~13.5k
+quads) against QuadWild + Bi-MDF's best edge-flow config: ours 6.3%
+irregular vs 7.8%, 10 vs 18 degrees corner error, equal mean surface
+error; QuadWild wins worst-case error (2.0% vs 3.2%) and has 0 non-quads
+(ours 186). The owner's visual check agreed ours looked cleaner. Do the
+targeted fixes in `~/Games/hll/tools/roadmap.md` section 2 instead;
+revisit the patch back end only if a second character reverses this.
+The plan below stays as the fallback.
+
 Evidence (`docs/igm-validity-spike.md`): the current back end (least-
 squares cover -> one-shot rounding -> heuristic extraction) produces
 folded uv maps, integer layouts that cannot be untangled, and tilings
