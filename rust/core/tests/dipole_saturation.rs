@@ -2,8 +2,9 @@
 //
 // Runs the finger fixtures in tests/fixtures/finger-*.obj (procedural
 // curved thin tubes, see gen_finger_fixtures.py) through AutoRemesher
-// with tip masks at several asks, and reports HONEST metrics per the
-// spike's metric warnings (docs/density-poles-spike.md):
+// with tip masks at several asks, each ask both with dipoles off and
+// with dipoles auto, and reports HONEST metrics per the spike's metric
+// warnings (docs/density-poles-spike.md):
 //
 //   faceAbs  = masked inside quads / plain inside quads (absolute gain)
 //   linear   = sqrt(plain inside mean area / masked inside mean area)
@@ -13,7 +14,7 @@
 //
 // plus a valence census (pole-identity check: dipole insertion must
 // move the inside irregular-vert counts; sizing-only runs keep the
-// pole set identical).
+// pole set identical) and the per-island dipole flip counts.
 //
 // Regions (must match gen_finger_fixtures.py):
 //   TIP_Y  = 2.20  masked "inside" region: output quad centroid y > TIP_Y
@@ -26,11 +27,13 @@
 // cross-talk between concurrent remeshes.)
 //
 // Assertions are weak sanity bands only (success, nonzero, no total
-// collapse); this harness MEASURES, it does not pin. Baseline numbers
-// live in docs/dipole-fixtures-baseline.md.
+// collapse, no lost islands, dipole gating: off/plain/mild place
+// nothing, auto 3x/4x place something); this harness MEASURES, it does
+// not pin. Baseline numbers live in docs/dipole-fixtures-baseline.md.
 
 use retopo_core::auto_remesher::AutoRemesher;
 use retopo_core::obj_reader::load_obj_positions_and_triangles;
+use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector3::Vector3;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -114,6 +117,8 @@ struct RunMetrics {
     total_verts: usize,
     inside_poles: Census, // valence census over masked-region output verts
     total_poles: Census,
+    island_quads: Vec<usize>, // per-island output (a 0 here is a lost island)
+    dipole_flips: usize,      // total dipole flips placed over all islands
 }
 
 fn poly_area(verts: &[Vector3], poly: &[usize]) -> f64 {
@@ -142,6 +147,7 @@ fn measure(
     verts: &[Vector3],
     tris: &[Vec<usize>],
     mask: Option<&[f64]>,
+    dipoles: DipoleConfig,
 ) -> RunMetrics {
     let mut remesher = AutoRemesher::new(verts, tris);
     remesher.set_target_triangle_count(TARGET_TRIS);
@@ -149,6 +155,7 @@ fn measure(
     if let Some(m) = mask {
         remesher.set_density_multipliers(m);
     }
+    remesher.set_dipoles(dipoles);
     assert!(remesher.remesh(), "remesh failed for {}", fix.file());
     let out_v = remesher.remeshed_vertices();
     let out_q = remesher.remeshed_quads();
@@ -221,6 +228,8 @@ fn measure(
         total_verts: out_v.len(),
         inside_poles,
         total_poles,
+        island_quads: remesher.island_output_quad_counts().to_vec(),
+        dipole_flips: remesher.island_dipole_counts().iter().sum(),
     }
 }
 
@@ -245,16 +254,26 @@ fn saturation_curve(fix: Fixture) {
         TARGET_TRIS / 2
     );
     println!(
-        "ask  | inQ  inMeanArea | ctlQ ctlMeanArea | totalQ/V | faceAbs linear totalFrac | ratio! | inV3/inV5 totV3/totV5"
+        "ask      | inQ  inMeanArea | ctlQ ctlMeanArea | totalQ/V | faceAbs linear totalFrac | ratio! | inV3/inV5 totV3/totV5 | isl/dip"
     );
     println!(
-        "-----|-----------------------------------------------------------|------------------|------|------------------"
+        "---------|-----------------------------------------------------------|------------------|------|---------------------------|--------"
     );
 
-    let plain = measure(fix, &verts, &tris, None);
+    // Plain with dipoles auto: the unmasked run must gate to a no-op.
+    let plain = measure(fix, &verts, &tris, None, DipoleConfig::automatic());
     print_row("plain", &plain, None);
     assert!(plain.inside.quads > 0, "plain run: empty inside region");
     assert!(plain.control.quads > 0, "plain run: empty control region");
+    assert!(
+        plain.island_quads.iter().all(|&q| q > 0),
+        "plain run: lost island {:?}",
+        plain.island_quads
+    );
+    assert_eq!(
+        plain.dipole_flips, 0,
+        "plain run: unmasked must place no dipoles"
+    );
 
     for ask in ASKS {
         let mask: Vec<f64> = verts
@@ -263,18 +282,41 @@ fn saturation_curve(fix: Fixture) {
             .collect();
         let n = mask.iter().filter(|m| **m != 1.0).count();
         assert!(n > 0, "mask selects no input verts");
-        let m = measure(fix, &verts, &tris, Some(&mask));
-        print_row(&format!("{ask:.1}x"), &m, Some(&plain));
-        // Weak sanity bands only: harness measures, docs pin.
-        assert!(m.inside.quads > 0, "ask {ask}: empty inside region");
-        assert!(m.control.quads > 0, "ask {ask}: empty control region");
-        let total_frac = m.total_quads as f64 / plain.total_quads as f64;
-        assert!(
-            total_frac > 0.4,
-            "ask {ask}: total collapse ({total_frac:.2}, plain {}, masked {})",
-            plain.total_quads,
-            m.total_quads
-        );
+        for (mode, dipoles) in [
+            ("off", DipoleConfig::off()),
+            ("auto", DipoleConfig::automatic()),
+        ] {
+            let m = measure(fix, &verts, &tris, Some(&mask), dipoles);
+            print_row(&format!("{ask:.1}x/{mode}"), &m, Some(&plain));
+            // Weak sanity bands only: harness measures, docs pin.
+            assert!(m.inside.quads > 0, "ask {ask}/{mode}: empty inside region");
+            assert!(
+                m.control.quads > 0,
+                "ask {ask}/{mode}: empty control region"
+            );
+            assert!(
+                m.island_quads.iter().all(|&q| q > 0),
+                "ask {ask}/{mode}: lost island {:?}",
+                m.island_quads
+            );
+            let total_frac = m.total_quads as f64 / plain.total_quads as f64;
+            assert!(
+                total_frac > 0.4,
+                "ask {ask}/{mode}: total collapse ({total_frac:.2}, plain {}, masked {})",
+                plain.total_quads,
+                m.total_quads
+            );
+            // Gating: off rows never place; auto places exactly on sharp
+            // asks (the 1.5 gate fires at ~3x, skips <= 2x).
+            if mode == "off" || ask < 2.5 {
+                assert_eq!(m.dipole_flips, 0, "ask {ask}/{mode}: must place no dipoles");
+            } else {
+                assert!(
+                    m.dipole_flips > 0,
+                    "ask {ask}/{mode}: sharp step must place dipoles"
+                );
+            }
+        }
     }
     println!("(!) ratio = inside/control conflated ratio: mixes face gain with");
     println!("    control-side collapse. Compare faceAbs + totalFrac instead.");
@@ -303,7 +345,7 @@ fn print_row(label: &str, m: &RunMetrics, plain: Option<&RunMetrics>) {
         }
     };
     println!(
-        "{label:>4} | {:>3} {:>10.6} | {:>3} {:>11.6} | {:>9} | {face_abs} {linear} {total_frac} | {ratio_note} | {:>3}/{:<3} {:>3}/{:<3}",
+        "{label:>8} | {:>3} {:>10.6} | {:>3} {:>11.6} | {:>9} | {face_abs} {linear} {total_frac} | {ratio_note} | {:>3}/{:<3} {:>3}/{:<3} | {:?}/{}",
         m.inside.quads,
         mean_area(&m.inside),
         m.control.quads,
@@ -313,6 +355,8 @@ fn print_row(label: &str, m: &RunMetrics, plain: Option<&RunMetrics>) {
         m.inside_poles.v5,
         m.total_poles.v3,
         m.total_poles.v5,
+        m.island_quads,
+        m.dipole_flips,
     );
 }
 
@@ -323,12 +367,14 @@ fn fixture_inputs_are_clean() {
     for fix in [Fixture::Single, Fixture::Split, Fixture::Fused] {
         let (verts, tris) = load_fixture(fix.file());
         let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut directed: HashMap<(usize, usize), usize> = HashMap::new();
         let mut vol = 0.0;
         for t in &tris {
             assert_eq!(t.len(), 3, "{}: non-triangle input", fix.file());
             let (a, b, c) = (t[0], t[1], t[2]);
             for (u, v) in [(a, b), (b, c), (c, a)] {
                 *edges.entry((u.min(v), u.max(v))).or_insert(0) += 1;
+                *directed.entry((u, v)).or_insert(0) += 1;
             }
             let (ax, ay, az) = (verts[a].x(), verts[a].y(), verts[a].z());
             let (bx, by, bz) = (verts[b].x(), verts[b].y(), verts[b].z());
@@ -337,6 +383,14 @@ fn fixture_inputs_are_clean() {
         }
         let bad = edges.values().filter(|n| **n != 2).count();
         assert_eq!(bad, 0, "{}: {bad} non-manifold edges", fix.file());
+        // Orientation consistency: every directed edge needs exactly one
+        // opposite (the 2026-10-01 pole fans passed the undirected check
+        // while splitting into their own orientation islands).
+        let flipped = directed
+            .iter()
+            .filter(|(e, n)| **n != 1 || directed.get(&(e.1, e.0)) != Some(&1))
+            .count();
+        assert_eq!(flipped, 0, "{}: {flipped} flipped edges", fix.file());
         assert!(vol > 0.0, "{}: non-positive volume", fix.file());
         let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
         let (mut masked, mut control) = (0, 0);
@@ -369,6 +423,51 @@ fn fixture_inputs_are_clean() {
             ymin,
             ymax
         );
+    }
+}
+
+#[test]
+fn unmasked_and_mild_identical_with_dipoles_enabled() {
+    // Bitwise control: dipoles auto must be bit-identical to off wherever
+    // the gate cannot fire (unmasked; mild 2x step below the 1.5 gate).
+    let (verts, tris) = load_fixture(Fixture::Single.file());
+    let mild: Vec<f64> = verts
+        .iter()
+        .map(|v| {
+            if Fixture::Single.masked(v.x(), v.y()) {
+                2.0
+            } else {
+                1.0
+            }
+        })
+        .collect();
+    for (name, mask) in [("plain", None), ("mild-2x", Some(mild.as_slice()))] {
+        let run = |dipoles: DipoleConfig| {
+            let mut r = AutoRemesher::new(&verts, &tris);
+            r.set_target_triangle_count(TARGET_TRIS);
+            r.set_quiet(true);
+            if let Some(m) = mask {
+                r.set_density_multipliers(m);
+            }
+            r.set_dipoles(dipoles);
+            assert!(r.remesh(), "{name}: remesh failed");
+            assert_eq!(
+                r.island_dipole_counts().iter().sum::<usize>(),
+                0,
+                "{name}: gate must place nothing"
+            );
+            (r.remeshed_vertices().to_vec(), r.remeshed_quads().to_vec())
+        };
+        let (av, aq) = run(DipoleConfig::off());
+        let (bv, bq) = run(DipoleConfig::automatic());
+        assert_eq!(aq, bq, "{name}: quad connectivity must match bit-for-bit");
+        assert_eq!(av.len(), bv.len(), "{name}: vertex count must match");
+        for (a, b) in av.iter().zip(bv.iter()) {
+            assert_eq!(a.x().to_bits(), b.x().to_bits(), "{name}: x bits");
+            assert_eq!(a.y().to_bits(), b.y().to_bits(), "{name}: y bits");
+            assert_eq!(a.z().to_bits(), b.z().to_bits(), "{name}: z bits");
+        }
+        println!("{name}: off == auto bitwise ({} quads)", aq.len());
     }
 }
 

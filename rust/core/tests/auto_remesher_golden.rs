@@ -10,6 +10,7 @@
 // the symmetry getters.
 use retopo_core::auto_remesher::{AutoRemesher, ModelType};
 use retopo_core::mesh_separator::MeshSeparator;
+use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector3::Vector3;
 
 fn build_box(offset: f64) -> (Vec<Vector3>, Vec<Vec<usize>>) {
@@ -111,6 +112,40 @@ fn two_boxes_two_productive_counters() {
 }
 
 #[test]
+fn starved_sliver_reports_zero_counter() {
+    // A dust-scale island starves under the global scaling and yields no
+    // quads; the 0 count must be reported (never silently absorbed), so
+    // the CLI's `Failed islands` and harness island rows can see it.
+    // (Dipole-spike quirk 2: the "silent" 0-output island on the old
+    // finger fixtures was area starvation, and it was counted.)
+    let (mut vertices, mut triangles) = build_box(0.0);
+    let s = 0.01;
+    let o = 10.0;
+    vertices.extend([
+        Vector3::new(o, o, o),
+        Vector3::new(o + s, o, o),
+        Vector3::new(o, o + s, o),
+        Vector3::new(o, o, o + s),
+    ]);
+    triangles.extend([
+        vec![8, 10, 9],
+        vec![8, 9, 11],
+        vec![8, 11, 10],
+        vec![9, 10, 11],
+    ]);
+    let mut islands = Vec::new();
+    MeshSeparator::split_to_islands(&triangles, &mut islands);
+    assert_eq!(islands.len(), 2);
+    let mut remesher = AutoRemesher::new(&vertices, &triangles);
+    remesher.set_target_triangle_count(800);
+    assert!(remesher.remesh());
+    let counts = remesher.island_output_quad_counts();
+    assert_eq!(counts.len(), 2);
+    assert!(counts[0] > 0);
+    assert_eq!(counts[1], 0, "starved sliver must report a 0 count");
+}
+
+#[test]
 fn one_box_single_counter() {
     let (vertices, triangles) = build_box(0.0);
     let mut remesher = AutoRemesher::new(&vertices, &triangles);
@@ -155,6 +190,7 @@ fn setters_cover_the_full_cli_surface() {
     r.set_sharp_polylines(vec![]);
     r.set_feature_polylines(vec![]);
     r.set_density_multipliers(&[]);
+    r.set_dipoles(DipoleConfig::automatic());
     r.set_scaling(1.5);
     r.set_model_type(ModelType::HardSurface);
     r.set_gradient_adaptivity(0.7);
@@ -233,6 +269,17 @@ fn symmetry_fallback_reports_minus_one() {
     r.set_symmetry_enabled(true);
     assert!(r.remesh());
     assert_eq!(r.symmetry_plane_axis(), -1);
+}
+
+#[test]
+fn dipole_default_is_automatic() {
+    // Product default (no C++ counterpart): automatic placement. The
+    // differential oracles pin off explicitly; this pins the shipped
+    // default itself. See docs/dipole-production.md for the evidence.
+    let (v, t) = build_box(0.0);
+    let r = AutoRemesher::new(&v, &t);
+    assert_eq!(r.dipoles(), DipoleConfig::automatic());
+    assert!(r.island_dipole_counts().is_empty());
 }
 
 #[test]

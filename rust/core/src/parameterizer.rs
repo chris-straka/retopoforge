@@ -59,7 +59,7 @@ use crate::density::Density;
 use crate::frame_field::FrameField;
 use crate::guides::Guides;
 use crate::progress::ProgressHandler;
-use crate::quad_parameterizer::QuadParameterizer;
+use crate::quad_parameterizer::{DipoleConfig, QuadParameterizer};
 use crate::singularity_simplifier::SingularitySimplifier;
 use crate::surface_mesh::SurfaceMesh;
 use crate::symmetry::{Symmetry, SymmetryPlane};
@@ -274,6 +274,13 @@ pub struct Parameterizer<'a> {
     guide_polylines: Option<&'a [Vec<Vector3>]>,
     sharp_polylines: Option<&'a [Vec<Vector3>]>,
     density_field: Vec<f64>,
+    // Dipole insertion has no C++ counterpart: the engine-leaf default
+    // is off (differential oracles pin the no-dipole path without
+    // touching this); AutoRemesher owns the product default and always
+    // sets it before parameterize().
+    dipoles: DipoleConfig,
+    // Dipole flips applied by the last parameterize() (0 on failure).
+    dipole_flips: usize,
     // Restructure: the C++ owns a `std::function` here; the wrap is an
     // `Arc` so the cover-progress remap below can own a clone (the
     // `'static` box cannot capture a borrow of this field). Unobservable:
@@ -310,6 +317,8 @@ impl<'a> Parameterizer<'a> {
             guide_polylines: None,
             sharp_polylines: None,
             density_field: Vec::new(),
+            dipoles: DipoleConfig::off(),
+            dipole_flips: 0,
             progress_handler: None,
         }
     }
@@ -389,6 +398,19 @@ impl<'a> Parameterizer<'a> {
     /// Mirrors `setDensityField`.
     pub fn set_density_field(&mut self, field: Vec<f64>) {
         self.density_field = field;
+    }
+
+    /// Dipole-insertion config (no C++ counterpart; engine-leaf default
+    /// off — see the field comment).
+    pub fn set_dipoles(&mut self, config: DipoleConfig) {
+        self.dipoles = config;
+    }
+
+    /// Dipole flips applied by the last `parameterize` (0 when disabled,
+    /// unmasked, mild, or on failure).
+    #[must_use]
+    pub fn dipole_flips(&self) -> usize {
+        self.dipole_flips
     }
 
     /// Mirrors `setProgressHandler`.
@@ -501,6 +523,7 @@ impl<'a> Parameterizer<'a> {
     /// Runs the full parameterization (mirrors `Parameterizer::parameterize`;
     /// `false` mirrors every C++ `false` return).
     pub fn parameterize(&mut self) -> bool {
+        self.dipole_flips = 0;
         // The AUTO_REMESHER_DEV obj dump is compiled out of the C++ too
         // (the macro is never defined by the build).
 
@@ -694,14 +717,18 @@ impl<'a> Parameterizer<'a> {
             &face_scaling_v,
             remap.as_ref(),
             sharps_arg,
-            // EXPERIMENTAL SPIKE (lane/dipole-mechanism): raw mask for the
-            // env-gated dipole insertion (no-op when the var is unset).
+            // Raw mask for the dipole insertion (no-op unless configured).
             &density,
+            self.dipoles,
         );
         let cover = match cover {
             Some(cover) => cover,
-            None => return false,
+            None => {
+                self.dipole_flips = 0;
+                return false;
+            }
         };
+        self.dipole_flips = cover.dipole_flips;
         report_progress(
             self.progress_handler.as_ref(),
             0.99,

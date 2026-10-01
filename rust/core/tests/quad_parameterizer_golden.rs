@@ -6,7 +6,7 @@
 // 1e-6 with exact structural facts (ok, rotations, singulars, progress
 // alias sequence, which pins the MILS rounding iteration count).
 use retopo_core::progress::ProgressHandler;
-use retopo_core::quad_parameterizer::{ParameterizeResult, QuadParameterizer};
+use retopo_core::quad_parameterizer::{DipoleConfig, ParameterizeResult, QuadParameterizer};
 use retopo_core::vector3::Vector3;
 use std::sync::{Arc, Mutex};
 
@@ -93,6 +93,7 @@ fn run_with_prog(
         Some(&handler),
         sharps,
         &[],
+        DipoleConfig::off(),
     );
     let aliases = events.lock().unwrap().clone();
     (got, aliases)
@@ -504,12 +505,38 @@ fn golden_invalid_inputs_return_none() {
     let quad_t = vec![vec![0, 1, 2], vec![0, 2, 3]];
     // Empty vertices / empty triangles.
     assert!(
-        QuadParameterizer::parameterize(&[], &tri, &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
-            .is_none()
+        QuadParameterizer::parameterize(
+            &[],
+            &tri,
+            &[],
+            1.0,
+            90.0,
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[],
+            DipoleConfig::off()
+        )
+        .is_none()
     );
     assert!(
-        QuadParameterizer::parameterize(&one, &[], &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
-            .is_none()
+        QuadParameterizer::parameterize(
+            &one,
+            &[],
+            &[],
+            1.0,
+            90.0,
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[],
+            DipoleConfig::off()
+        )
+        .is_none()
     );
     // Non-positive scaling.
     assert!(
@@ -524,7 +551,8 @@ fn golden_invalid_inputs_return_none() {
             &[],
             None,
             None,
-            &[]
+            &[],
+            DipoleConfig::off()
         )
         .is_none()
     );
@@ -540,7 +568,8 @@ fn golden_invalid_inputs_return_none() {
             &[],
             None,
             None,
-            &[]
+            &[],
+            DipoleConfig::off()
         )
         .is_none()
     );
@@ -559,7 +588,8 @@ fn golden_invalid_inputs_return_none() {
             &[],
             None,
             None,
-            &[]
+            &[],
+            DipoleConfig::off()
         )
         .is_none()
     );
@@ -575,7 +605,8 @@ fn golden_invalid_inputs_return_none() {
             &[],
             None,
             None,
-            &[]
+            &[],
+            DipoleConfig::off()
         )
         .is_none()
     );
@@ -604,6 +635,7 @@ fn golden_none_progress_matches_recording() {
         None,
         None,
         &[],
+        DipoleConfig::off(),
     )
     .expect("bare solve must succeed");
     let (recorded, aliases) =

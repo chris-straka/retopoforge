@@ -164,7 +164,8 @@ port, creature volume/auto-placement). Toolbox siblings, no contest.
       mask file, budget-preserving renormalization; strong localized
       refinement saturates (~2.3x for 4x asks — integer-grid pole
       saturation), mild masks realize nearly fully, coarsening fully.
-      Full 4x needs density-aware pole placement (future engine work).
+      Density-aware pole placement has now landed (default-on dipoles,
+      `docs/dipole-production.md` — 4x faceAbs up to 2.04x on fingers).
       Blender vertex-group (weight-paint) export done (see Exoside parity).
 - [ ] Hands (DEFERRED to last, 2026-10-01: owner's call — build
       once everything else is tip-top, if at all): fused fingers are
@@ -278,8 +279,10 @@ and QtAwesome deleted as dead code before the removal.
       quad baseline must be the standalone QuadriFlow build, not a
       modifier
 - [ ] Thin-feature detail allocation (fingers, face): owner-verified
-      15k hero still starves thin regions; needs the density-aware
-      pole placement research below, validated on finger-like fixtures
+      15k hero still starves thin regions; the density-aware pole
+      placement below has now landed (default-on dipoles, validated on
+      finger-like fixtures) — needs owner eyes on whether the hero's
+      thin regions fill in with a sharp mask
 - [x] Pole pinch cleanup: stray non-manifold verts at sphere poles
       (2 verts found in character hair via Select Non-Manifold);
       find and fix the degenerate-cap source
@@ -313,28 +316,25 @@ and QtAwesome deleted as dead code before the removal.
       0/777 stderr counts) with byte-identical meshes today — diagnose
       the path difference post-switch (same mesh, different route;
       seven-splits preventively allowlisted, same pattern).
-- [ ] Density-aware pole placement (research): strong localized
-      refinement saturates (~2.3x for 4x asks) because poles are
-      sizing-unaware. Placing poles for the density field would unlock
-      the full 4x. NOTE (2026-10-01 spike follow-up): QPX/FFX are
-      case-level tiers, not spatial flip maps — nothing to place poles
-      from; sizing-aware rounding exonerated on cube (wall is
-      continuous-infeasibility); adaptivity fight quantified; dipole
-      insertion still the only structural candidate. See
-      `docs/density-poles-spike.md`. VALIDATED 2026-10-01
-      (`lane/dipole-mechanism`, `docs/dipole-mechanism-spike.md`):
-      env-gated prototype; dipole rings open the continuous gradient
-      (+10% finger-single, dose-responsive) and convert to refinement
-      (4x faceAbs 1.18→1.45, total 0.92→0.99). Follow-up: production
-      placement (auto rings + dose, offset rings for shared
-      boundaries, sliver guards) — not done here.
-- [ ] Dipole-spike quirks (flagged 2026-10-01, fix in production
-      pass): (1) `gen_finger_fixtures.py` "closed manifold" assertion
-      misses orientation consistency — finger fixtures split into 3-6
-      orientation-islands; (2) one island's cover solve fails silently
-      (no `Failed islands` increment — that counter tracks input/output
-      drops, pre-existing semantics). Both pollute absolute totals;
-      comparisons in the spike were apples-to-apples regardless.
+- [x] Density-aware pole placement (research → production
+      2026-10-01, `lane/dipole-production`,
+      `docs/dipole-production.md`): was "strong localized refinement
+      saturates (~2.3x for 4x asks) because poles are sizing-unaware".
+      Shipped automatic dipole rings off raw density steps (per-ring
+      line-ending dose, offset-everywhere placement rule, sliver/speck
+      guards), CLI `--dipoles off|auto` defaulting to auto, quirks
+      fixed, oracles re-tiered. Finger fixtures (re-tiered baselines
+      in `docs/dipole-fixtures-baseline.md`): 4x faceAbs off→auto
+      single 1.70→2.04, split 1.57→1.70, fused 1.33→1.52; all six
+      sharp rows improve, unmasked/mild runs bit-identical via gating.
+- [x] Dipole-spike quirks (flagged + fixed 2026-10-01, production
+      pass): (1) pole fans opposed the side quads — fan order fixed,
+      directed-edge pairing asserted in generator + harness, fixtures
+      regenerated (verts identical); (2) "silent cover failure"
+      forensically cleared — instrumented runs show parameterize +
+      extract both succeed (0-quad island is area starvation) and the
+      `Failed islands` counter DOES catch it; harness now prints +
+      asserts per-island counts, CLI/golden tests pin the accounting.
 - [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only

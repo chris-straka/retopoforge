@@ -2172,6 +2172,27 @@ fn arg_case(bins: &Bins, name: &str, args: &[&str], failures: &mut Vec<String>) 
     let rs_err = normalize_bytes(&rs.stderr, "");
     // Usage goes to stdout on some error paths; argv0-normalize it there.
     let _ = (&mut cpp_out, &mut rs_out);
+    // Post-switch tier: strip the Rust-only --dipole* help lines (plus
+    // their continuations) from the Rust side. The C++ is frozen without
+    // dipoles, so byte-identical help is impossible by design; the
+    // comparison covers everything else.
+    let mut stripped: Vec<String> = Vec::with_capacity(rs_out.len());
+    let mut dropping = false;
+    for line in rs_out {
+        if line.starts_with("  --dipole") {
+            dropping = true;
+            continue;
+        }
+        if dropping {
+            if line.starts_with("  -") {
+                dropping = false;
+            } else {
+                continue;
+            }
+        }
+        stripped.push(line);
+    }
+    let rs_out = stripped;
     if cpp.code != rs.code || cpp_out != rs_out || cpp_err != rs_err {
         failures.push(format!(
             "{name}: skew (exit {:?}/{:?})\n--- cpp out ---\n{}\n--- rs out ---\n{}\n--- cpp err ---\n{}\n--- rs err ---\n{}",

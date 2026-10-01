@@ -107,7 +107,11 @@ def close_tube(verts, rings):
     verts.append((cx, y0, cz))
     for j in range(SEGS):
         j2 = (j + 1) % SEGS
-        tris.append((base, rings[0][j2], rings[0][j]))
+        # Fan edge rings[0][j]->rings[0][j2] opposes the side quad's
+        # rings[0][j2]->rings[0][j] (tri (a[j], b[j2], a[j2])); the
+        # pre-2026-10-01 order matched it, splitting the fan into its
+        # own orientation island.
+        tris.append((base, rings[0][j], rings[0][j2]))
     # Tip pole.
     top = rings[-1]
     y1 = verts[top[0]][1]
@@ -117,7 +121,9 @@ def close_tube(verts, rings):
     verts.append((cx, y1 + 0.02, cz))
     for j in range(SEGS):
         j2 = (j + 1) % SEGS
-        tris.append((tip, top[j], top[j2]))
+        # Fan edge top[j2]->top[j] opposes the side quad's
+        # top[j]->top[j2] (tri (a[j], b[j], b[j2])); same fix as base.
+        tris.append((tip, top[j2], top[j]))
     return tris
 
 
@@ -162,6 +168,17 @@ def check_manifold(verts, tris):
     return bad
 
 
+def check_orientation(tris):
+    """Directed-edge pairing: every directed edge needs exactly one
+    opposite. Undirected-manifold + positive-volume still passes with
+    flipped fans (the 2026-10-01 pole-fan bug); this catches it."""
+    seen = {}
+    for a, b, c in tris:
+        for u, v in ((a, b), (b, c), (c, a)):
+            seen[(u, v)] = seen.get((u, v), 0) + 1
+    return [e for e, n in seen.items() if n != 1 or seen.get((e[1], e[0]), 0) != 1]
+
+
 def write_obj(path, verts, tris):
     with open(path, "w") as f:
         f.write("# procedural finger fixture (gen_finger_fixtures.py)\n")
@@ -197,13 +214,16 @@ def main():
     for name, (verts, tris) in fixtures:
         vol = signed_volume(verts, tris)
         bad = check_manifold(verts, tris)
+        flipped = check_orientation(tris)
         ys = [y for (_, y, _) in verts]
         xs = [x for (x, _, _) in verts]
         print(f"{name}: verts={len(verts)} tris={len(tris)} "
               f"vol={vol:.4f} x=[{min(xs):.2f},{max(xs):.2f}] "
-              f"y=[{min(ys):.2f},{max(ys):.2f}] bad_edges={len(bad)}")
+              f"y=[{min(ys):.2f},{max(ys):.2f}] bad_edges={len(bad)} "
+              f"flipped={len(flipped)}")
         assert vol > 0, f"{name}: non-positive volume, winding is inward?"
         assert not bad, f"{name}: {len(bad)} non-manifold edges"
+        assert not flipped, f"{name}: {len(flipped)} orientation-flipped edges"
         write_obj(os.path.join(args.out, name + ".obj"), verts, tris)
         if args.ask is not None:
             m = mask_for(verts, name, args.ask)
