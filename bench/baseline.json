@@ -42,12 +42,12 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.253,
+      "wall_seconds": 0.442,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 827,
-      "quads": 811,
-      "non_quads": 18,
+      "verts": 696,
+      "quads": 680,
+      "non_quads": 12,
       "errors": [],
       "error_count": 0
     },

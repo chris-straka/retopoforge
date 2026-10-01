@@ -320,3 +320,11 @@ and QtAwesome deleted as dead code before the removal.
       top bottleneck is "merging shared five edge faces" (5.5s on
       dragon-50k). Profile-guided; quality-gated (no --check regressions).
       Natural post-switch Rust work (fearless concurrency).
+- [ ] beast/tiny 680-vs-779 mode split (found at switch, 2026-10-01):
+      Rust emits 680 quads where C++ emits 779 (both deterministic,
+      both mesh-valid; decimation counts agree 8000/8000, split is
+      downstream). Baseline re-pointed at Rust numbers pending
+      verdict; forensics lane open: bisect decimated-mesh identity,
+      then isotropic/param/extract stages via scratch intermediate
+      dumps; compare geometric fidelity (Hausdorff-ish), not just
+      counts. Bug -> fix + re-verify; mode -> document + keep.
