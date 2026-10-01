@@ -15,7 +15,7 @@
 //   asserted: backend (Eigen-vs-faer) noise in the curl correction feeds
 //   the cover and exceeds 1e-6 there, or flips an integer rounding cliff.
 use retopo_core::progress::ProgressHandler;
-use retopo_core::quad_parameterizer::QuadParameterizer;
+use retopo_core::quad_parameterizer::{DipoleConfig, QuadParameterizer};
 use retopo_core::vector3::Vector3;
 use std::sync::{Arc, Mutex};
 
@@ -261,6 +261,9 @@ fn differential_replay() {
             Some(&handler),
             sharps_arg,
             &[],
+            // Parity tier: the C++ has no dipoles, so the differential
+            // oracle pins the no-dipole path explicitly.
+            DipoleConfig::off(),
         );
         if strict {
             strict_cases += 1;

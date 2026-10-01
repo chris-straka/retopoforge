@@ -6,7 +6,7 @@
 // sides. Run release: cargo test --release -p retopo_core --test
 // quad_parameterizer_timing
 use retopo_core::progress::ProgressHandler;
-use retopo_core::quad_parameterizer::QuadParameterizer;
+use retopo_core::quad_parameterizer::{DipoleConfig, QuadParameterizer};
 use retopo_core::vector3::Vector3;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -68,6 +68,7 @@ fn timing_cover_solve() {
             None,
             None,
             &[],
+            DipoleConfig::off(),
         );
         assert!(r.is_some(), "warmup solve must succeed");
     }
@@ -96,6 +97,7 @@ fn timing_cover_solve() {
             Some(&handler),
             None,
             &[],
+            DipoleConfig::off(),
         );
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
         let result = result.expect("timing solve must succeed");

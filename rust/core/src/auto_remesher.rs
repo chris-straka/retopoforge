@@ -87,6 +87,7 @@ use crate::mesh_separator::MeshSeparator;
 use crate::parameterizer::Parameterizer;
 use crate::progress::ProgressHandler;
 use crate::quad_extractor::QuadExtractor;
+use crate::quad_parameterizer::DipoleConfig;
 use crate::symmetry::{Symmetry, SymmetryPlane};
 use crate::vector2::Vector2;
 use crate::vector3::Vector3;
@@ -747,6 +748,9 @@ struct ParameterizationThread<'a> {
     // remesher after a failed extract, and empty quads).
     remeshed_vertices: Vec<Vector3>,
     remeshed_quads: Vec<Vec<usize>>,
+    // Dipole flips applied on this island (captured off the parameterizer
+    // even when extraction later yields nothing).
+    dipoles_placed: usize,
     // Copied from AutoRemesher::m_computeRemeshedUvs before the parallel
     // loop (the worker below is not a member, so it cannot read it).
     compute_vertex_uvs: bool,
@@ -774,6 +778,8 @@ pub struct AutoRemesher {
     progress: Arc<ProgressState>,
     phase_report: Vec<String>,
     island_output_quad_counts: Vec<usize>,
+    island_dipole_counts: Vec<usize>,
+    dipoles: DipoleConfig,
     scaling: f64,
     target_triangle_count: usize,
     voxel_size: f64,
@@ -824,6 +830,11 @@ impl AutoRemesher {
             progress: Arc::new(ProgressState::new()),
             phase_report: Vec::new(),
             island_output_quad_counts: Vec::new(),
+            island_dipole_counts: Vec::new(),
+            // Product default for dipole insertion (no C++ counterpart;
+            // see set_dipoles). Off until offset rings validate end to
+            // end — the saturation harness opts in explicitly per row.
+            dipoles: DipoleConfig::off(),
             scaling: 0.0,
             target_triangle_count: 0,
             voxel_size: 0.0,
@@ -1066,6 +1077,27 @@ impl AutoRemesher {
     #[must_use]
     pub fn island_output_quad_counts(&self) -> &[usize] {
         &self.island_output_quad_counts
+    }
+
+    /// Per-island dipole flips applied by the last `remesh` (island
+    /// order, alongside `island_output_quad_counts`; all zeros when
+    /// dipoles are off, unmasked, or mild).
+    #[must_use]
+    pub fn island_dipole_counts(&self) -> &[usize] {
+        &self.island_dipole_counts
+    }
+
+    /// Dipole-insertion config (no C++ counterpart). Default off: enable
+    /// explicitly (CLI `--dipoles auto`) for density-boundary singularity
+    /// rings on sharp masked steps.
+    pub fn set_dipoles(&mut self, config: DipoleConfig) {
+        self.dipoles = config;
+    }
+
+    /// The current dipole-insertion config.
+    #[must_use]
+    pub fn dipoles(&self) -> DipoleConfig {
+        self.dipoles
     }
 
     /// Mirrors `calculateAverageEdgeLength` (dead code on both sides:
@@ -1645,6 +1677,7 @@ impl AutoRemesher {
     /// is rejected.
     pub fn remesh(&mut self) -> bool {
         self.island_output_quad_counts.clear();
+        self.island_dipole_counts.clear();
         // Validate inputs before any sizing math. In particular a zero
         // target triangle count would divide by zero in
         // initializeVoxelSize().
@@ -1926,6 +1959,7 @@ impl AutoRemesher {
                 captured_vertex_uvs: Vec::new(),
                 remeshed_vertices: Vec::new(),
                 remeshed_quads: Vec::new(),
+                dipoles_placed: 0,
                 compute_vertex_uvs: self.compute_remeshed_uvs,
             })
             .collect();
@@ -1974,6 +2008,9 @@ impl AutoRemesher {
                 if !island.resampled_density.is_empty() {
                     parameterizer.set_density_field(island.resampled_density.clone());
                 }
+                // Always set (the product default flows down even when it
+                // is off: the leaf default must never shadow it).
+                parameterizer.set_dipoles(this.dipoles);
                 // (No try/catch counterpart: the port signals failure
                 // through the `bool` return, so there is nothing to catch —
                 // and the C++ `Island N: parameterization failed` stderr
@@ -1985,6 +2022,7 @@ impl AutoRemesher {
                     .fetch_add(t1.duration_since(t0).as_micros() as i64, Ordering::SeqCst);
 
                 if parameterize_succeeded {
+                    thread.dipoles_placed = parameterizer.dipole_flips();
                     this.update_progress(thread.island_index, ISLAND_PARAMETERIZE_END, None);
                     // `take_triangle_uvs` is `Some` on every success path
                     // (the C++ `if (uvs)` null branch is unreachable after
@@ -2079,8 +2117,12 @@ impl AutoRemesher {
         self.remeshed_quads.clear();
         self.remeshed_vertex_uvs.clear();
         self.island_output_quad_counts = vec![0; parameterization_threads.len()];
+        self.island_dipole_counts = vec![0; parameterization_threads.len()];
         let mut island_uv_spans: Vec<(usize, usize)> = Vec::new();
         for thread in &parameterization_threads {
+            // Dipole counts merge for every island (placement happens in
+            // parameterize(), even when extraction later yields nothing).
+            self.island_dipole_counts[thread.island_index] = thread.dipoles_placed;
             // (The C++ null-remesher skip: `remeshed_quads` stays empty when
             // the island produced nothing, subsuming both C++ skip cases.)
             if thread.remeshed_quads.is_empty() {
