@@ -33,19 +33,23 @@
 //! - `AUTO_REMESHER_DEV` obj-dump blocks are compiled out (the flag is not
 //!   in the build definitions) and are not mirrored.
 //!
-//! FMA transcription (mandatory audit, done 2026-10-01 on brew Clang 23
-//! ARM64 `-O3`, the same toolchain as the vectors lane): Clang fuses
-//! EVERY `p +/- q*r` shape by default, including single-product-plus-add
-//! (`v + d*s` -> `fma(d, s, v)`) and subtractions (`v - d*s` ->
-//! `fma(-d, s, v)`, `a*b - c*d` -> `fma(a, b, c*-d)`). Two products added
-//! fuse the FIRST and compute the second separately
-//! (`a*(1-r)+b*r` -> `fma(a, 1-r, b*r)`); longer left-nested chains fuse
-//! outside-in (`a+ab*v+ac*w` -> `fma(ac, w, fma(ab, v, a))`). Verified both
-//! in isolated probes and in the full `-O3` IR of `quadextractor.cpp`
-//! (528 `llvm.fmuladd` sites, of which the vector-internal ones are already
-//! mirrored by [`crate::vector2`]/[`crate::vector3`]). Every remaining
-//! site below uses explicit [`f64::mul_add`], either inline or through the
-//! `lerp_fused`/`add_scaled`/`sub_scaled` helpers.
+//! FMA transcription (mandatory audit, redone 2026-10-01 on brew Clang 23
+//! ARM64 `-O3` after the oracle rejected the first audit — see below):
+//! BARE-SCALAR `p +/- q*r` shapes fuse (first product fused: `p*b + q*d`
+//! -> `fma(p, b, q*d)`, `v + d*s` -> `fma(d, s, v)`), but Vector2/3
+//! OPERATOR expressions never do: `a*(1-r)+b*r`, `v+d*s`, `v-d*s`,
+//! `a+ab*v+ac*w` and `a-ab*v-ac*w` through the (inlined) `operator*` /
+//! `operator+` / `operator-` temporaries all compile to plain fmul/fadd/
+//! fsub chains (probe-verified per shape; the temporaries break the
+//! fusion patterns). The first (wrong) audit assumed the vector shapes
+//! fused like the scalar ones and transcribed them with explicit
+//! `mul_add`; the differential oracle caught it (200/218 cases off by
+//! 1ulp on connection endpoints). Rule used below: vector shapes go
+//! through the crate operators untouched (Rust never fuses implicitly,
+//! so the operator expression is already bitwise); bare-scalar mul-add
+//! shapes use explicit [`f64::mul_add`] via `fma_first`/`fma_first_sub`
+//! or inline. The vector-internal fusions (dot, length) are already
+//! mirrored by [`crate::vector2`]/[`crate::vector3`].
 //!
 //! Inline mirrors (NOT owned by this lane; delete when the sibling joins):
 //!
@@ -70,61 +74,43 @@ use std::f64::consts::PI;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// FMA helpers: exact transcriptions of the fused caller-level expressions
-// (see the module FMA note). Each mirrors one C++ expression shape.
+// Caller-level vector-expression helpers: each mirrors one C++ expression
+// shape through the crate operators (see the module FMA note: the vector
+// shapes are UNFUSED on both sides, so the operator expression is already
+// bitwise). Scalar mul-add shapes use `fma_first`/`fma_first_sub`/inline
+// `mul_add` (those DO fuse in the C++).
 // ---------------------------------------------------------------------------
 
-/// `a * (1 - ratio) + b * ratio` as the IR fuses it:
-/// `fma(a, 1 - ratio, b * ratio)` per component.
+/// `a * (1 - ratio) + b * ratio` via the crate operators (unfused, like
+/// the C++; `1 - ratio` with the C++ int literal equals `1.0 - ratio`).
 #[inline]
-fn lerp_fused_vec3(a: Vector3, b: Vector3, ratio: f64) -> Vector3 {
-    let t = 1.0 - ratio;
-    Vector3::new(
-        a.x().mul_add(t, b.x() * ratio),
-        a.y().mul_add(t, b.y() * ratio),
-        a.z().mul_add(t, b.z() * ratio),
-    )
+fn lerp_vec3(a: Vector3, b: Vector3, ratio: f64) -> Vector3 {
+    a * (1.0 - ratio) + b * ratio
 }
 
-/// `Vector2` form of [`lerp_fused_vec3`].
+/// `Vector2` form of [`lerp_vec3`].
 #[inline]
-fn lerp_fused_vec2(a: Vector2, b: Vector2, ratio: f64) -> Vector2 {
-    let t = 1.0 - ratio;
-    Vector2::new(
-        a.x().mul_add(t, b.x() * ratio),
-        a.y().mul_add(t, b.y() * ratio),
-    )
+fn lerp_vec2(a: Vector2, b: Vector2, ratio: f64) -> Vector2 {
+    a * (1.0 - ratio) + b * ratio
 }
 
-/// `v + d * s` as the IR fuses it: `fma(d, s, v)` per component.
+/// `v + d * s` via the crate operators (unfused, like the C++).
 #[inline]
 fn add_scaled_vec3(v: Vector3, d: Vector3, s: f64) -> Vector3 {
-    Vector3::new(
-        d.x().mul_add(s, v.x()),
-        d.y().mul_add(s, v.y()),
-        d.z().mul_add(s, v.z()),
-    )
+    v + d * s
 }
 
-/// `v - d * s` as the IR fuses it: `fma(-d, s, v)` per component.
+/// `v - d * s` via the crate operators (unfused, like the C++).
 #[inline]
 fn sub_scaled_vec3(v: Vector3, d: Vector3, s: f64) -> Vector3 {
-    Vector3::new(
-        (-d.x()).mul_add(s, v.x()),
-        (-d.y()).mul_add(s, v.y()),
-        (-d.z()).mul_add(s, v.z()),
-    )
+    v - d * s
 }
 
-/// `a + ab * v + ac * w` (left-nested) as the IR fuses it:
-/// `fma(ac, w, fma(ab, v, a))` per component.
+/// `a + ab * v + ac * w` (left-nested, as written) via the crate
+/// operators (unfused, like the C++).
 #[inline]
 fn add_two_scaled_vec3(a: Vector3, ab: Vector3, v: f64, ac: Vector3, w: f64) -> Vector3 {
-    Vector3::new(
-        ac.x().mul_add(w, ab.x().mul_add(v, a.x())),
-        ac.y().mul_add(w, ab.y().mul_add(v, a.y())),
-        ac.z().mul_add(w, ab.z().mul_add(v, a.z())),
-    )
+    a + ab * v + ac * w
 }
 
 /// `p * b + q * d` with the FIRST product fused: `fma(p, b, q * d)`.
@@ -1613,13 +1599,13 @@ impl<'a> QuadExtractor<'a> {
                                 }
                             }
                             let point = CrossPoint {
-                                // FMA: fused lerp (see module note).
-                                position3: lerp_fused_vec3(
+                                // Unfused operator lerp (see module FMA note).
+                                position3: lerp_vec3(
                                     self.vertices[corner_indices[from_index]],
                                     self.vertices[corner_indices[to_index]],
                                     ratio,
                                 ),
-                                position2: lerp_fused_vec2(
+                                position2: lerp_vec2(
                                     corner_uvs[from_index],
                                     corner_uvs[to_index],
                                     ratio,
@@ -1684,13 +1670,13 @@ impl<'a> QuadExtractor<'a> {
                                         } else {
                                             let ratio =
                                                 (segment_position - from_position) / distance;
-                                            // FMA: fused lerps.
-                                            let position3 = lerp_fused_vec3(
+                                            // Unfused operator lerps (see module FMA note).
+                                            let position3 = lerp_vec3(
                                                 segment[from_index].position3,
                                                 segment[to_index].position3,
                                                 ratio,
                                             );
-                                            let position2 = lerp_fused_vec2(
+                                            let position2 = lerp_vec2(
                                                 segment[from_index].position2,
                                                 segment[to_index].position2,
                                                 ratio,
@@ -1930,13 +1916,13 @@ impl<'a> QuadExtractor<'a> {
             } else if edge_ratio > 1.0 {
                 edge_ratio = 1.0;
             }
-            // FMA: `from + edgeVector * edgeRatio`.
+            // Unfused `from + edgeVector * edgeRatio` (see module FMA note).
             let point_on_edge = add_scaled_vec3(from, edge_vector, edge_ratio);
             let distance = Vector3::dot_product(&(point_on_edge - position), &direction);
             if distance <= tolerance || distance >= nearest_distance {
                 continue;
             }
-            // FMA: `position + direction * distance`.
+            // Unfused `position + direction * distance` (see module FMA note).
             let point_on_ray = add_scaled_vec3(position, direction, distance);
             let miss = point_on_edge - point_on_ray;
             let miss_triangle = &triangles[info.triangle_index];
@@ -1945,7 +1931,7 @@ impl<'a> QuadExtractor<'a> {
                 &vertices[miss_triangle[1]],
                 &vertices[miss_triangle[2]],
             );
-            // FMA: `miss - missNormal * dot`.
+            // Unfused `miss - missNormal * dot` (see module FMA note).
             let projected_miss =
                 sub_scaled_vec3(miss, miss_normal, Vector3::dot_product(&miss, &miss_normal));
             if projected_miss.length() > tolerance {
@@ -2148,7 +2134,7 @@ impl<'a> QuadExtractor<'a> {
                 seed_tail = cross_points[current];
             }
             let mut seed_direction = singular_position - seed_tail;
-            // FMA: `seedDirection - coneNormal * dot`.
+            // Unfused `seedDirection - coneNormal * dot` (see module FMA note).
             seed_direction = sub_scaled_vec3(
                 seed_direction,
                 cone_normal,
@@ -2222,7 +2208,7 @@ impl<'a> QuadExtractor<'a> {
                         &self.vertices[triangle[1]],
                         &self.vertices[triangle[2]],
                     );
-                    // FMA: `walkDirection - triangleNormal * dot`.
+                    // Unfused `walkDirection - triangleNormal * dot` (see module FMA note).
                     let flattened = sub_scaled_vec3(
                         walk_direction,
                         triangle_normal,
@@ -2681,7 +2667,7 @@ impl<'a> QuadExtractor<'a> {
                     center += self.remeshed_vertices[*neighbor];
                 }
                 center /= neighbors[i].len() as f64;
-                // FMA: `v + smoothFactor * (center - v)`.
+                // Unfused `v + smoothFactor * (center - v)` (see module FMA note).
                 *smoothed = add_scaled_vec3(
                     self.remeshed_vertices[i],
                     center - self.remeshed_vertices[i],
