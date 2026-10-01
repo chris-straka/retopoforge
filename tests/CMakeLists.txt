@@ -209,3 +209,11 @@ target_compile_definitions(test_cli_engine_quiet PRIVATE
 add_dependencies(test_cli_engine_quiet retopo)
 set_tests_properties(test_cli_engine_quiet PROPERTIES TIMEOUT 600)
 
+# Differential oracle dump for the quadextractor Rust port (rs-quadextractor).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/quadextractor_diff.txt for
+# rust/core/tests/quad_extractor_diff.rs.
+add_executable(quadextractor_diff_dump quadextractor_diff_dump.cpp)
+set_target_properties(quadextractor_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(quadextractor_diff_dump PRIVATE retopo_core)
+

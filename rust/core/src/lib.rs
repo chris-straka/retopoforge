@@ -12,3 +12,5 @@ pub mod progress;
 // Wave 2 foundation (ported by the coordinator, unblocks the fan-out):
 pub mod vector2;
 pub mod vector3;
+// Wave 2 lanes (one line per lane; the coordinator joins branches):
+pub mod quad_extractor;
