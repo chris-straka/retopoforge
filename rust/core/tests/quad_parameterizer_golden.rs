@@ -548,12 +548,36 @@ fn golden_invalid_inputs_return_none() {
     let bad2 = vec![vec![0, 1, 2], vec![0, 1]];
     let bad4 = vec![vec![0, 1, 2], vec![0, 1, 2, 3]];
     assert!(
-        QuadParameterizer::parameterize(&quad_v, &bad2, &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
-            .is_none()
+        QuadParameterizer::parameterize(
+            &quad_v,
+            &bad2,
+            &[],
+            1.0,
+            90.0,
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[]
+        )
+        .is_none()
     );
     assert!(
-        QuadParameterizer::parameterize(&quad_v, &bad4, &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
-            .is_none()
+        QuadParameterizer::parameterize(
+            &quad_v,
+            &bad4,
+            &[],
+            1.0,
+            90.0,
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            &[]
+        )
+        .is_none()
     );
 }
 
