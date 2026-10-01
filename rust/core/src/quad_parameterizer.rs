@@ -706,6 +706,269 @@ fn add_rotation_constraints(
     }
 }
 
+// ===== EXPERIMENTAL SPIKE (lane/dipole-mechanism; NOT production) =====
+// Hypothesis (docs/density-poles-spike.md): solve_quad_cover skips the
+// wheel-constraint rows at vertices with nonzero corner-rotation sum, so a
+// ring of dipole (+1/-1) singularities along the density boundary should
+// lift the transition-flux conservation that makes sizing-gradient jumps
+// infeasible in the continuous solution. Everything in this section is
+// gated on RETOPO_DIPOLES / RETOPO_DIPOLE_DEBUG and is a no-op when the
+// vars are unset (byte-identical behavior, deterministic stderr otherwise).
+fn dipole_debug_enabled() -> bool {
+    std::env::var_os("RETOPO_DIPOLE_DEBUG").is_some()
+}
+
+/// Per-vertex corner-rotation sums (same fold as build_result_uv).
+fn dipole_vertex_sums(mesh: &SurfaceMesh, rotation: &[i32]) -> Vec<i32> {
+    let mut sums = vec![0i32; mesh.vertex_count()];
+    for v in 0..mesh.vertex_count() {
+        let mut sum = 0i32;
+        for &c in mesh.corners_around_vertex(v) {
+            sum = (sum + rotation[c]) % 4;
+        }
+        sums[v] = sum;
+    }
+    sums
+}
+
+fn dipole_is_interior(mesh: &SurfaceMesh, v: usize) -> bool {
+    mesh.corners_around_vertex(v)
+        .iter()
+        .all(|&c| mesh.opposite_corner(c) != SurfaceMesh::NPOS)
+}
+
+/// Flip the matching across one interior edge: +1 at corner_vertex(c),
+/// -1 at corner_vertex(opposite(c)). Antisymmetry is preserved mod 4 and
+/// values stay in 0..3 (several folds below use non-normalizing `% 4`).
+/// Returns the (+1, -1) endpoints.
+fn dipole_flip_edge(mesh: &SurfaceMesh, rotation: &mut [i32], c: usize) -> (usize, usize) {
+    let oc = mesh.opposite_corner(c);
+    debug_assert!(oc != SurfaceMesh::NPOS);
+    rotation[c] = (rotation[c] + 1) % 4;
+    rotation[oc] = (rotation[oc] + 3) % 4;
+    (mesh.corner_vertex(c), mesh.corner_vertex(oc))
+}
+
+/// Insert dipole pairs along the density boundary by flipping corner
+/// rotations. Runs AFTER curl correction (field/sizing stay identical to
+/// baseline) and BEFORE seam computation + cover solve, so the only change
+/// downstream is cover topology (wheel skips, seams, singularities).
+/// Spec: RETOPO_DIPOLES="loop[:every[:ratio]]" (ring along the boundary,
+/// alternating charges, every k-th edge) or "radial[...]" (edges crossing
+/// the boundary, greedy disjoint, +1 on the denser-side endpoint).
+fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: &[f64]) {
+    let spec = match std::env::var("RETOPO_DIPOLES") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let mut mode = "loop";
+    let mut every = 2usize;
+    let mut ratio = 1.5f64;
+    for (i, part) in spec.split(':').enumerate() {
+        match i {
+            0 => mode = part,
+            1 => every = part.parse().unwrap_or(2).max(1),
+            2 => ratio = part.parse().unwrap_or(1.5),
+            _ => {}
+        }
+    }
+    if face_scaling.len() != mesh.face_count() {
+        eprintln!(
+            "DIPOLEDBG no face_scaling ({}/{})",
+            face_scaling.len(),
+            mesh.face_count()
+        );
+        return;
+    }
+    // Boundary vertices: incident face scalings span more than `ratio`.
+    // Note dense == SMALLER edge scale (edge_scale_for = 1/sqrt(density)).
+    let mut boundary = vec![false; mesh.vertex_count()];
+    for v in 0..mesh.vertex_count() {
+        if !dipole_is_interior(mesh, v) {
+            continue;
+        }
+        let mut lo = f64::INFINITY;
+        let mut hi = 0.0f64;
+        for &c in mesh.corners_around_vertex(v) {
+            let m = face_scaling[mesh.corner_face(c)];
+            lo = lo.min(m);
+            hi = hi.max(m);
+        }
+        if lo > 0.0 && hi / lo > ratio {
+            boundary[v] = true;
+        }
+    }
+    let n_boundary = boundary.iter().filter(|&&b| b).count();
+    let mut sums = dipole_vertex_sums(mesh, rotation);
+    let n_sing_before = sums.iter().filter(|&&s| s != 0).count();
+    let mut used = vec![false; mesh.vertex_count()];
+    let mut flips: Vec<(usize, usize)> = Vec::new();
+    // Directed edge -> corner index (deterministic BTreeMap lookups only).
+    let mut edge_corner = std::collections::BTreeMap::new();
+    for c in 0..mesh.corner_count() {
+        if mesh.opposite_corner(c) == SurfaceMesh::NPOS {
+            continue;
+        }
+        edge_corner.insert(
+            (
+                mesh.corner_vertex(c),
+                mesh.corner_vertex(mesh.next_corner(c)),
+            ),
+            c,
+        );
+    }
+    if mode == "radial" {
+        for c in 0..mesh.corner_count() {
+            let oc = mesh.opposite_corner(c);
+            if oc == SurfaceMesh::NPOS || oc < c {
+                continue;
+            }
+            let mf = face_scaling[mesh.corner_face(c)];
+            let mg = face_scaling[mesh.corner_face(oc)];
+            if mf <= 0.0 || mg <= 0.0 || mf.max(mg) / mf.min(mg) <= ratio {
+                continue;
+            }
+            let u = mesh.corner_vertex(c);
+            let w = mesh.corner_vertex(oc);
+            if used[u] || used[w] || sums[u] != 0 || sums[w] != 0 {
+                continue;
+            }
+            // +1 on the denser-side endpoint (smaller mean incident scale).
+            let mean = |v: usize| {
+                let fan = mesh.corners_around_vertex(v);
+                fan.iter().map(|&k| face_scaling[mesh.corner_face(k)]).sum::<f64>()
+                    / fan.len().max(1) as f64
+            };
+            let (plus, _minus) = if (mean(u), u) <= (mean(w), w) { (u, w) } else { (w, u) };
+            let cc = if plus == u { c } else { oc };
+            let (a, b) = dipole_flip_edge(mesh, rotation, cc);
+            debug_assert!(a == plus);
+            sums[a] = (sums[a] + 1) % 4;
+            sums[b] = (sums[b] + 3) % 4;
+            used[a] = true;
+            used[b] = true;
+            flips.push((a, b));
+        }
+    } else {
+        // Loop mode: walk the boundary ring through edges whose endpoints
+        // are both boundary vertices, flip every k-th edge with +1 at the
+        // walk-first endpoint -> alternating +1/-1 ring, no gaps at k=2.
+        let mut neighbors: Vec<Vec<usize>> = vec![Vec::new(); mesh.vertex_count()];
+        for c in 0..mesh.corner_count() {
+            let oc = mesh.opposite_corner(c);
+            if oc == SurfaceMesh::NPOS || oc < c {
+                continue;
+            }
+            let u = mesh.corner_vertex(c);
+            let w = mesh.corner_vertex(oc);
+            if boundary[u] && boundary[w] {
+                neighbors[u].push(w);
+                neighbors[w].push(u);
+            }
+        }
+        for n in neighbors.iter_mut() {
+            n.sort_unstable();
+            n.dedup();
+        }
+        let start = (0..mesh.vertex_count()).find(|&v| boundary[v] && !neighbors[v].is_empty());
+        let mut walk: Vec<usize> = Vec::new();
+        if let Some(s0) = start {
+            let mut visited = vec![false; mesh.vertex_count()];
+            let mut cur = s0;
+            loop {
+                walk.push(cur);
+                visited[cur] = true;
+                match neighbors[cur].iter().find(|&&n| !visited[n]) {
+                    Some(&nxt) => cur = nxt,
+                    None => break,
+                }
+            }
+        }
+        for (i, edge) in walk.windows(2).enumerate() {
+            if i % every != 0 {
+                continue;
+            }
+            let (a, b) = (edge[0], edge[1]);
+            if used[a] || used[b] || sums[a] != 0 || sums[b] != 0 {
+                continue;
+            }
+            let Some(&cc) = edge_corner.get(&(a, b)) else {
+                continue;
+            };
+            let (pa, pb) = dipole_flip_edge(mesh, rotation, cc);
+            debug_assert!(pa == a && pb == b);
+            sums[pa] = (sums[pa] + 1) % 4;
+            sums[pb] = (sums[pb] + 3) % 4;
+            used[pa] = true;
+            used[pb] = true;
+            flips.push((pa, pb));
+        }
+        eprintln!(
+            "DIPOLEDBG mode=loop boundary_verts={n_boundary} walk_len={} flips={} sing_before={n_sing_before} sing_after={}",
+            walk.len(),
+            flips.len(),
+            sums.iter().filter(|&&s| s != 0).count(),
+        );
+        return;
+    }
+    eprintln!(
+        "DIPOLEDBG mode=radial boundary_verts={n_boundary} flips={} sing_before={n_sing_before} sing_after={}",
+        flips.len(),
+        sums.iter().filter(|&&s| s != 0).count(),
+    );
+}
+
+/// Per-iteration UV-gradient probe (spike protocol): mean uv-lines per
+/// world unit over dense faces (fs <= geometric mid) vs coarse faces.
+/// Iteration 0 solves purely continuous (nothing fixed yet); iteration 1
+/// rounds + fixes all integers. Stderr only, no state touched.
+fn dipole_log_cover_gradients(
+    s: &MixedIntegerLeastSquares,
+    mesh: &SurfaceMesh,
+    face_scaling: &[f64],
+    iteration: usize,
+) {
+    if !dipole_debug_enabled() || face_scaling.len() != mesh.face_count() {
+        return;
+    }
+    let mut lo = f64::INFINITY;
+    let mut hi = 0.0f64;
+    for &m in face_scaling {
+        lo = lo.min(m);
+        hi = hi.max(m);
+    }
+    if !(lo > 0.0 && hi > lo) {
+        return;
+    }
+    let mid = (lo * hi).sqrt();
+    let (mut dg, mut dn, mut cg, mut cn) = (0.0, 0usize, 0.0, 0usize);
+    for f in 0..mesh.face_count() {
+        let mut g = 0.0;
+        for l in 0..3 {
+            let c = 3 * f + l;
+            let n = mesh.next_corner(c);
+            let du = s.value(2 * n) - s.value(2 * c);
+            let dv = s.value(2 * n + 1) - s.value(2 * c + 1);
+            let len = mesh.edge_vector(c).length().max(1e-12);
+            g += du.hypot(dv) / len;
+        }
+        g /= 3.0;
+        if face_scaling[f] <= mid {
+            dg += g;
+            dn += 1;
+        } else {
+            cg += g;
+            cn += 1;
+        }
+    }
+    eprintln!(
+        "DIPOLEDBG cover-iter={iteration} dense-lpu={:.3} (n={dn}) coarse-lpu={:.3} (n={cn})",
+        dg / dn.max(1) as f64,
+        cg / cn.max(1) as f64,
+    );
+}
+// ===== END EXPERIMENTAL SPIKE =====
+
 /// Mirrors `solveQuadCover`, returning the solved values (`None` when a
 /// rounding iteration fails or the system never converges, exactly where
 /// the C++ returns `false`).
@@ -894,6 +1157,9 @@ fn solve_quad_cover(ctx: &CoverContext, progress: Option<&dyn Fn(f32, &str)>) ->
         if !s.solve_iteration() {
             return None;
         }
+        // EXPERIMENTAL SPIKE (lane/dipole-mechanism): env-gated stderr
+        // probe, no state touched.
+        dipole_log_cover_gradients(&s, mesh, face_scaling, iteration);
         if s.converged() {
             break;
         }
@@ -1018,7 +1284,9 @@ impl QuadParameterizer {
         brush_field_along_spanning_tree(&mesh, &normals, &mut field);
 
         progress(0.14, "Computing corner rotations");
-        let rotation = compute_corner_rotations(&mesh, &field, &normals);
+        // EXPERIMENTAL SPIKE (lane/dipole-mechanism): `mut` only for the
+        // env-gated maybe_insert_dipoles below (no-op when unset).
+        let mut rotation = compute_corner_rotations(&mesh, &field, &normals);
         let corner_constraints =
             compute_corner_constraints(&mesh, &field, &normals, hard_edge_degrees, sharps);
         if track_directional_scale {
@@ -1044,6 +1312,9 @@ impl QuadParameterizer {
             &mut active_scaling_v,
             &mut field,
         );
+        // EXPERIMENTAL SPIKE (lane/dipole-mechanism): env-gated dipole
+        // insertion after curl correction, before seam + cover solve.
+        maybe_insert_dipoles(&mesh, &mut rotation, face_scaling);
         let seam = compute_seam(&mesh, &rotation);
 
         let ctx = CoverContext {
