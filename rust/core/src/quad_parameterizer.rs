@@ -32,6 +32,12 @@
 //! quarter-turn fusion is provably unobservable (it multiplies by exact
 //! +1/-1/0 constants, where fused and unfused round identically), but it is
 //! mirrored anyway.
+//!
+//! Sincos audit (Release machine code, `___sincos_stret` relocs): all four
+//! adjacent `cos`/`sin` pairs fuse (cpp:179-180, 201 unrolled x3, 219,
+//! 402), each mirrored with [`crate::double_utils::joint_sin_cos`] below.
+//! No other `sin`/`cos` pair exists in the TU (the `acos`/`exp` calls are
+//! lone and unfused).
 
 use crate::guides::Guides;
 use crate::progress::ProgressHandler;
@@ -275,8 +281,10 @@ fn smooth_cross_field(
             );
             let field_angle = Vector3::dot_product(&edge, &perpendicular)
                 .atan2(Vector3::dot_product(&edge, &field_direction));
-            alpha[2 * face_index] = (4.0 * field_angle).cos();
-            alpha[2 * face_index + 1] = (4.0 * field_angle).sin();
+            // Fused `sincos` in C++ (cpp:179-180, reloc 0x626c): joint call.
+            let (sn, cs) = crate::double_utils::joint_sin_cos(4.0 * field_angle);
+            alpha[2 * face_index] = cs;
+            alpha[2 * face_index + 1] = sn;
             locked[face_index] = true;
         }
     }
@@ -307,8 +315,8 @@ fn smooth_cross_field(
                     bf,
                 );
                 let d = Vector3::dot_product(&bg, &btf).atan2(Vector3::dot_product(&bg, &bf));
-                let cs = (4.0 * d).cos();
-                let sn = (4.0 * d).sin();
+                // Fused `sincos` in C++ (cpp:201, relocs 0x6ffc/0x7128/0x7254): joint call.
+                let (sn, cs) = crate::double_utils::joint_sin_cos(4.0 * d);
                 // FMA audit: the C++ fuses each line into one fmuladd with
                 // the FIRST product fused: `fma(cs, ax, sn * -ay)` and
                 // `fma(sn, ax, ay * cs)`; the `+=` stays a separate fadd.
@@ -331,10 +339,9 @@ fn smooth_cross_field(
             Vector3::cross_product(&normals[face_index], &field_direction),
             Vector3::new(0.0, 1.0, 0.0),
         );
-        field[face_index] = unit(
-            field_direction * field_angle.cos() + perpendicular * field_angle.sin(),
-            field_direction,
-        );
+        // Fused `sincos` in C++ (cpp:219, reloc 0x7dac): joint call.
+        let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
+        field[face_index] = unit(field_direction * cs + perpendicular * sn, field_direction);
     }
 }
 
@@ -575,10 +582,9 @@ fn apply_curl_correction(
     let scale_limit = 1.5f64.ln();
     for f in 0..face_count {
         let angle = correction[3 * f].min(limit).max(-limit);
-        field[f] = unit(
-            angle.cos() * field[f] + angle.sin() * perpendicular[f],
-            field[f],
-        );
+        // Fused `sincos` in C++ (cpp:402, reloc 0x1de4): joint call.
+        let (sn, cs) = crate::double_utils::joint_sin_cos(angle);
+        field[f] = unit(cs * field[f] + sn * perpendicular[f], field[f]);
         scaling_u[f] *= correction[3 * f + 1]
             .min(scale_limit)
             .max(-scale_limit)
