@@ -58,3 +58,6 @@ __pycache__/
 venv/
 *.ckpt
 *.safetensors
+
+# Rust build output
+rust/target/
