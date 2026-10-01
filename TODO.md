@@ -116,6 +116,20 @@ bit-identical counts), and new code adds zero new warnings.
       saturation), mild masks realize nearly fully, coarsening fully.
       Full 4x needs density-aware pole placement (future engine work).
       Blender weight-paint export still open.
+- [ ] Hands: fused fingers are fused in the AI input, so no remesher
+      setting can unfuse them — detect + warn + assist instead. Staged,
+      AFTER the Rust port (build Rust-first, no mirror oracle needed):
+      (1) mark-mode + fusion check: owner selects hand verts in
+      Blender (or auto-detect extremities later), tool measures finger
+      crotch depth / webbing and warns when fingers are stuck together,
+      with per-mesh suppress + a mittens mode (skip finger detection,
+      just refine hands); (2) auto-assist: feed a hand density mask +
+      valley guides into the same run automatically (no geometry edits,
+      failure mode is "no better" never "mangled"); (3) regional
+      pre-pass cleanup (weld/dust/nonmanifold repair scoped to the hand
+      region only). Never automatic finger surgery (cutting soup apart
+      invents worse artifacts). Test with procedural fused-vs-split
+      finger-tube fixtures (no game assets committed).
 
 ## Blender addon (the workflow goal)
 
