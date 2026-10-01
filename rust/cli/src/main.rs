@@ -1816,3 +1816,49 @@ fn main() {
     flush_stdout();
     std::process::exit(code);
 }
+
+#[cfg(test)]
+mod island_accounting_tests {
+    use super::*;
+
+    fn tri(a: usize, b: usize, c: usize) -> Vec<usize> {
+        vec![a, b, c]
+    }
+
+    #[test]
+    fn engine_counts_zero_means_failed() {
+        // Every 0-output island counts as failed, whatever stage ate it
+        // (empty resample, cover failure, or starved extraction).
+        let islands = vec![vec![tri(0, 1, 2)], vec![tri(3, 4, 5)], vec![tri(6, 7, 8)]];
+        let verts = vec![Vector3::new(0.0, 0.0, 0.0); 9];
+        assert_eq!(dropped_island_count(&[880, 112, 0], &islands, &verts, &verts), 1);
+        assert_eq!(dropped_island_count(&[5, 7, 9], &islands, &verts, &verts), 0);
+        assert_eq!(dropped_island_count(&[0, 0, 0], &islands, &verts, &verts), 3);
+    }
+
+    #[test]
+    fn bbox_fallback_catches_dropped_islands() {
+        // Length mismatch (defensive only: engine counts align 1:1 with
+        // input islands) falls back to the bbox heuristic.
+        let islands = vec![vec![tri(0, 1, 2)], vec![tri(3, 4, 5)]];
+        let input = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(50.0, 50.0, 50.0),
+            Vector3::new(51.0, 50.0, 50.0),
+            Vector3::new(50.0, 51.0, 50.0),
+        ];
+        let near_first = vec![Vector3::new(0.5, 0.5, 0.0)];
+        assert_eq!(
+            dropped_island_count(&[1], &islands, &input, &near_first),
+            1,
+            "far island with no nearby output counts as dropped"
+        );
+        let near_both = vec![
+            Vector3::new(0.5, 0.5, 0.0),
+            Vector3::new(50.5, 50.5, 50.0),
+        ];
+        assert_eq!(dropped_island_count(&[1], &islands, &input, &near_both), 0);
+    }
+}

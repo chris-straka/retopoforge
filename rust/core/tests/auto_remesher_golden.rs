@@ -111,6 +111,40 @@ fn two_boxes_two_productive_counters() {
 }
 
 #[test]
+fn starved_sliver_reports_zero_counter() {
+    // A dust-scale island starves under the global scaling and yields no
+    // quads; the 0 count must be reported (never silently absorbed), so
+    // the CLI's `Failed islands` and harness island rows can see it.
+    // (Dipole-spike quirk 2: the "silent" 0-output island on the old
+    // finger fixtures was area starvation, and it was counted.)
+    let (mut vertices, mut triangles) = build_box(0.0);
+    let s = 0.01;
+    let o = 10.0;
+    vertices.extend([
+        Vector3::new(o, o, o),
+        Vector3::new(o + s, o, o),
+        Vector3::new(o, o + s, o),
+        Vector3::new(o, o, o + s),
+    ]);
+    triangles.extend([
+        vec![8, 10, 9],
+        vec![8, 9, 11],
+        vec![8, 11, 10],
+        vec![9, 10, 11],
+    ]);
+    let mut islands = Vec::new();
+    MeshSeparator::split_to_islands(&triangles, &mut islands);
+    assert_eq!(islands.len(), 2);
+    let mut remesher = AutoRemesher::new(&vertices, &triangles);
+    remesher.set_target_triangle_count(800);
+    assert!(remesher.remesh());
+    let counts = remesher.island_output_quad_counts();
+    assert_eq!(counts.len(), 2);
+    assert!(counts[0] > 0);
+    assert_eq!(counts[1], 0, "starved sliver must report a 0 count");
+}
+
+#[test]
 fn one_box_single_counter() {
     let (vertices, triangles) = build_box(0.0);
     let mut remesher = AutoRemesher::new(&vertices, &triangles);

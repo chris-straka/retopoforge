@@ -114,6 +114,7 @@ struct RunMetrics {
     total_verts: usize,
     inside_poles: Census, // valence census over masked-region output verts
     total_poles: Census,
+    island_quads: Vec<usize>, // per-island output (a 0 here is a lost island)
 }
 
 fn poly_area(verts: &[Vector3], poly: &[usize]) -> f64 {
@@ -221,6 +222,7 @@ fn measure(
         total_verts: out_v.len(),
         inside_poles,
         total_poles,
+        island_quads: remesher.island_output_quad_counts().to_vec(),
     }
 }
 
@@ -255,6 +257,11 @@ fn saturation_curve(fix: Fixture) {
     print_row("plain", &plain, None);
     assert!(plain.inside.quads > 0, "plain run: empty inside region");
     assert!(plain.control.quads > 0, "plain run: empty control region");
+    assert!(
+        plain.island_quads.iter().all(|&q| q > 0),
+        "plain run: lost island {:?}",
+        plain.island_quads
+    );
 
     for ask in ASKS {
         let mask: Vec<f64> = verts
@@ -268,6 +275,11 @@ fn saturation_curve(fix: Fixture) {
         // Weak sanity bands only: harness measures, docs pin.
         assert!(m.inside.quads > 0, "ask {ask}: empty inside region");
         assert!(m.control.quads > 0, "ask {ask}: empty control region");
+        assert!(
+            m.island_quads.iter().all(|&q| q > 0),
+            "ask {ask}: lost island {:?}",
+            m.island_quads
+        );
         let total_frac = m.total_quads as f64 / plain.total_quads as f64;
         assert!(
             total_frac > 0.4,
@@ -303,7 +315,7 @@ fn print_row(label: &str, m: &RunMetrics, plain: Option<&RunMetrics>) {
         }
     };
     println!(
-        "{label:>4} | {:>3} {:>10.6} | {:>3} {:>11.6} | {:>9} | {face_abs} {linear} {total_frac} | {ratio_note} | {:>3}/{:<3} {:>3}/{:<3}",
+        "{label:>4} | {:>3} {:>10.6} | {:>3} {:>11.6} | {:>9} | {face_abs} {linear} {total_frac} | {ratio_note} | {:>3}/{:<3} {:>3}/{:<3} | isl={:?}",
         m.inside.quads,
         mean_area(&m.inside),
         m.control.quads,
@@ -313,6 +325,7 @@ fn print_row(label: &str, m: &RunMetrics, plain: Option<&RunMetrics>) {
         m.inside_poles.v5,
         m.total_poles.v3,
         m.total_poles.v5,
+        m.island_quads,
     );
 }
 
