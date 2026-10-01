@@ -3220,6 +3220,8 @@ impl<'a> QuadExtractor<'a> {
     fn smooth_and_project(
         &mut self,
         iterations: usize,
+        // TEMP-SWAP (flip to `Option<&CxxSet>` with smooth_around_vertices in
+        // the last chunk; membership-only use is already exact).
         movable_vertices: Option<&BTreeSet<usize>>,
     ) {
         if 0 == iterations
@@ -3230,8 +3232,7 @@ impl<'a> QuadExtractor<'a> {
             return;
         }
 
-        let mut neighbors: Vec<BTreeSet<usize>> =
-            vec![BTreeSet::new(); self.remeshed_vertices.len()];
+        let mut neighbors: Vec<CxxSet> = vec![CxxSet::new(); self.remeshed_vertices.len()];
         let mut edge_use_count: BTreeMap<(usize, usize), usize> = BTreeMap::new();
         for face in &self.remeshed_polygons {
             for i in 0..face.len() {
@@ -3637,7 +3638,7 @@ impl<'a> QuadExtractor<'a> {
     /// Shared `hasRepeatedVertex` lambda (repeated verbatim in every
     /// cleanup pass in the C++).
     fn has_repeated_vertex(face: &[usize]) -> bool {
-        let unique: BTreeSet<usize> = face.iter().copied().collect();
+        let unique: CxxSet = face.iter().copied().collect();
         unique.len() != face.len()
     }
 
