@@ -3107,20 +3107,17 @@ impl<'a> QuadExtractor<'a> {
     ) {
         self.diagnose(|| "Searching boundaries...\n".to_string());
 
-        let mut next_map: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        let mut next_map: CxxMap<CxxSet> = CxxMap::new();
         for (from, to) in half_edges {
             if half_edges.contains(&(*to, *from)) {
                 continue;
             }
-            next_map.entry(*from).or_default().insert(*to);
+            next_map.get_or_default(*from).insert(*to);
         }
 
         while !next_map.is_empty() {
-            // Restructure: `nextMap.begin()` (hash order) becomes the
-            // smallest key. Loops are discovered in a different order than
-            // the C++; the SET of loops is identical (each loop is walked
-            // deterministically from its start).
-            let Some(start_vertex) = next_map.keys().next().copied() else {
+            // libc++ `nextMap.begin()`: first node in hash order.
+            let Some(start_vertex) = next_map.first_key().copied() else {
                 break;
             };
             let mut loop_ = Vec::new();
