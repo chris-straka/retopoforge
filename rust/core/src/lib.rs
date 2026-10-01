@@ -9,3 +9,6 @@ pub mod double_utils;
 pub mod mesh_separator;
 pub mod obj_reader;
 pub mod progress;
+// Wave 2 foundation (ported by the coordinator, unblocks the fan-out):
+pub mod vector2;
+pub mod vector3;
