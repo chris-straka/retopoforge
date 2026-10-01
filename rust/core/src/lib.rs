@@ -30,3 +30,5 @@ pub mod frame_field;
 pub mod singularity_simplifier;
 // Wave 3 lane: rs-parameterizer (vendored SingularitySimplifier mirror deduped at join).
 pub mod parameterizer;
+// Wave 3 lane: rs-glb (port of cli/glb.*).
+pub mod glb;
