@@ -850,6 +850,12 @@ impl FromIterator<usize> for CxxSet {
     }
 }
 
+impl<const N: usize> From<[usize; N]> for CxxSet {
+    fn from(values: [usize; N]) -> Self {
+        values.into_iter().collect()
+    }
+}
+
 impl Extend<usize> for CxxSet {
     fn extend<I: IntoIterator<Item = usize>>(&mut self, iter: I) {
         for key in iter {
@@ -1279,7 +1285,7 @@ impl<'a> QuadExtractor<'a> {
 
         self.report(0.21, "Extracting edges");
         self.diagnose(|| "Extract edges...\n".to_string());
-        let mut edge_connect_map = BTreeMap::new();
+        let mut edge_connect_map: CxxMap<CxxSet> = CxxMap::new();
         Self::extract_edges(&connections, &mut edge_connect_map);
         if Self::collapse_short_edges(&mut cross_points, &mut edge_connect_map) {
             Self::simplify_graph(&mut edge_connect_map);
@@ -1292,7 +1298,7 @@ impl<'a> QuadExtractor<'a> {
         if std::env::var("QE_TRACE").is_ok() {
             eprintln!("TRACE collapse_graph: {} nodes", edge_connect_map.len());
             for (node, neighbors) in &edge_connect_map {
-                eprintln!("TRACE   {node}: {neighbors:?}");
+                eprintln!("TRACE   {node}: {:?}", neighbors.order);
             }
             for (i, v) in cross_points.iter().enumerate() {
                 eprintln!("TRACE   xp{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
@@ -1463,25 +1469,24 @@ impl<'a> QuadExtractor<'a> {
 
     fn extract_edges(
         connections: &BTreeSet<(usize, usize)>,
-        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
+        edge_connect_map: &mut CxxMap<CxxSet>,
     ) {
         for (first, second) in connections {
-            edge_connect_map.entry(*first).or_default().insert(*second);
-            edge_connect_map.entry(*second).or_default().insert(*first);
+            edge_connect_map.get_or_default(*first).insert(*second);
+            edge_connect_map.get_or_default(*second).insert(*first);
         }
         Self::simplify_graph(edge_connect_map);
     }
 
-    fn simplify_graph(graph: &mut BTreeMap<usize, BTreeSet<usize>>) {
+    fn simplify_graph(graph: &mut CxxMap<CxxSet>) {
         loop {
-            let mut delay_pairs = BTreeMap::new();
+            let mut delay_pairs: CxxMap<(usize, usize)> = CxxMap::new();
             // Restructure: the C++ erases vertices while iterating the map.
-            // Erasure does not change any remaining vertex's degree or
-            // neighbor set (rewiring happens after the scan), so scanning a
+            // Erasure only unlinks (libc++ `remove` keeps survivors in
+            // order), and rewiring happens after the scan, so scanning a
             // snapshot and erasing as the scan goes visits the same
-            // vertices with the same neighbor pairs in the same order.
-            // (Order itself is sorted here vs hash order in C++; the graph
-            // that survives is isomorphic — see the module note.)
+            // vertices with the same neighbor pairs in the same emulated
+            // order as the C++ visit-and-erase.
             let mut snapshot = Vec::new();
             for (vertex, neighbors) in graph.iter() {
                 if neighbors.len() != 2 {
@@ -1500,7 +1505,9 @@ impl<'a> QuadExtractor<'a> {
                 {
                     continue;
                 }
-                delay_pairs.insert(vertex, (first_neighbor, second_neighbor));
+                // C++ `insert`: each vertex is visited (hence scheduled) at
+                // most once per round, so keep-old and overwrite agree.
+                delay_pairs.insert_new(vertex, (first_neighbor, second_neighbor));
                 graph.remove(&vertex);
             }
             if delay_pairs.is_empty() {
@@ -1511,13 +1518,15 @@ impl<'a> QuadExtractor<'a> {
                     neighbors.remove(vertex);
                     neighbors.insert(*second);
                 } else {
-                    graph.insert(*first, BTreeSet::from([*second]));
+                    // C++ `operator[]` then erase (no-op on the fresh set)
+                    // then insert: the key is absent, so build it directly.
+                    graph.insert_new(*first, CxxSet::from([*second]));
                 }
                 if let Some(neighbors) = graph.get_mut(second) {
                     neighbors.remove(vertex);
                     neighbors.insert(*first);
                 } else {
-                    graph.insert(*second, BTreeSet::from([*first]));
+                    graph.insert_new(*second, CxxSet::from([*first]));
                 }
             }
         }
@@ -1525,7 +1534,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn remove_single_endpoints(
         _cross_points: &mut [Vector3],
-        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
+        edge_connect_map: &mut CxxMap<CxxSet>,
     ) -> bool {
         let mut removed = false;
         let mut endpoints = Vec::new();
@@ -1563,7 +1572,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn collapse_triangles(
         cross_points: &mut [Vector3],
-        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
+        edge_connect_map: &mut CxxMap<CxxSet>,
     ) -> bool {
         let mut triangles = BTreeSet::new();
         for (level0, neighbors) in edge_connect_map.iter() {
@@ -1631,7 +1640,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn collapse_short_edges(
         cross_points: &mut [Vector3],
-        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
+        edge_connect_map: &mut CxxMap<CxxSet>,
     ) -> bool {
         let mut total_length = 0.0;
         let mut edge_count = 0;
@@ -1686,7 +1695,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn collapse_edge(
         cross_points: &mut [Vector3],
-        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
+        edge_connect_map: &mut CxxMap<CxxSet>,
         edge: (usize, usize),
     ) {
         let has_forward = edge_connect_map
@@ -1701,28 +1710,22 @@ impl<'a> QuadExtractor<'a> {
         if !has_backward {
             return;
         }
-        let first_neighbors = edge_connect_map[&edge.0].clone();
+        // Copy of a non-empty set (it holds `edge.1`, checked above), so
+        // the copy keeps its order and count on both sides.
+        let Some(first_neighbors) = edge_connect_map.get(&edge.0).cloned() else {
+            return;
+        };
         cross_points[edge.1] = (cross_points[edge.0] + cross_points[edge.1]) * 0.5;
         for neighbor in &first_neighbors {
             if *neighbor == edge.1 {
                 continue;
             }
-            edge_connect_map
-                .entry(edge.1)
-                .or_default()
-                .insert(*neighbor);
-            edge_connect_map
-                .entry(*neighbor)
-                .or_default()
-                .insert(edge.1);
-            if let Some(set) = edge_connect_map.get_mut(neighbor) {
-                set.remove(&edge.0);
-            }
+            edge_connect_map.get_or_default(edge.1).insert(*neighbor);
+            edge_connect_map.get_or_default(*neighbor).insert(edge.1);
+            edge_connect_map.get_or_default(*neighbor).remove(&edge.0);
         }
         edge_connect_map.remove(&edge.0);
-        if let Some(set) = edge_connect_map.get_mut(&edge.1) {
-            set.remove(&edge.0);
-        }
+        edge_connect_map.get_or_default(edge.1).remove(&edge.0);
         let second_empty = edge_connect_map
             .get(&edge.1)
             .is_some_and(|set| set.is_empty());
@@ -1750,13 +1753,16 @@ impl<'a> QuadExtractor<'a> {
 
     fn ring_side(
         points: &[Vector3],
-        triangle_normals: &BTreeMap<usize, Vector3>,
+        triangle_normals: &CxxMap<Vector3>,
         corners: &[usize],
     ) -> i32 {
         let ring_normal = Self::ring_face_normal(points, corners);
         let mut original_normal = Vector3::default();
         for it in corners {
-            original_normal += triangle_normals[it];
+            // C++ `operator[]` read: every corner is present (the map is
+            // built over all points), and the table is never iterated, so
+            // the default-on-miss value below is exactly equivalent.
+            original_normal += triangle_normals.get(it).copied().unwrap_or_default();
         }
         let dot = Vector3::dot_product(&ring_normal, &original_normal.normalized());
         const DOT_THRESHOLD: f64 = 0.259; // > 75 or < 105 degrees
@@ -1775,7 +1781,7 @@ impl<'a> QuadExtractor<'a> {
     /// record the face, its corners (both windings) and its halfedges.
     fn try_add_face(
         points: &[Vector3],
-        triangle_normals: &BTreeMap<usize, Vector3>,
+        triangle_normals: &CxxMap<Vector3>,
         corners: &mut BTreeSet<(usize, usize, usize)>,
         half_edges: &mut BTreeSet<(usize, usize)>,
         quads: &mut Vec<Vec<usize>>,
@@ -1859,9 +1865,11 @@ impl<'a> QuadExtractor<'a> {
         &mut self,
         points: Vec<Vector3>,
         point_source_triangles: Vec<usize>,
-        edge_connect_map: BTreeMap<usize, BTreeSet<usize>>,
+        edge_connect_map: CxxMap<CxxSet>,
     ) {
-        let mut triangle_normals = BTreeMap::new();
+        // Never iterated (insert + `operator[]` reads only), but kept
+        // emulated like every C++ unordered container.
+        let mut triangle_normals: CxxMap<Vector3> = CxxMap::new();
         for (point_index, source) in point_source_triangles.iter().enumerate() {
             let triangle_vertices = &self.triangles[*source];
             let triangle_normal = Vector3::normal(
@@ -1869,7 +1877,8 @@ impl<'a> QuadExtractor<'a> {
                 &self.vertices[triangle_vertices[1]],
                 &self.vertices[triangle_vertices[2]],
             );
-            triangle_normals.insert(point_index, triangle_normal);
+            // C++ `insert` over fresh `point_index` keys.
+            triangle_normals.insert_new(point_index, triangle_normal);
         }
 
         let mut corners = BTreeSet::new();
