@@ -6,6 +6,8 @@
 
 // Wave 1 leaves land here:
 pub mod double_utils;
+pub mod iso_remesh_kernel;
+pub mod isotropic_remesher;
 pub mod mesh_separator;
 pub mod obj_reader;
 pub mod progress;
