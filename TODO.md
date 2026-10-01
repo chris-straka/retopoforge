@@ -320,17 +320,21 @@ and QtAwesome deleted as dead code before the removal.
       top bottleneck is "merging shared five edge faces" (5.5s on
       dragon-50k). Profile-guided; quality-gated (no --check regressions).
       Natural post-switch Rust work (fearless concurrency).
-- [ ] beast/tiny 680-vs-779 mode split (found at switch, 2026-10-01):
-      Rust emits 680 quads where C++ emits 779 (both deterministic,
-      both mesh-valid; decimation counts agree 8000/8000, split is
-      downstream). Baseline re-pointed at Rust numbers pending
-      verdict; forensics lane open: bisect decimated-mesh identity,
-      then isotropic/param/extract stages via scratch intermediate
-      dumps; compare geometric fidelity (Hausdorff-ish), not just
-      counts. Bug -> fix + re-verify; mode -> document + keep.
-      Data point (CI run 36846299121): Rust-on-Linux gives 772 on
-      beast/tiny (vs 680 mac-Rust, 779 mac-C++, 790 linux-C++) — three
-      cluster 772-790, mac-Rust alone at 680. FP-provenance cliff
-      (platform libm) is a live hypothesis alongside port bug; the
-      lane must determine which. Linux baseline re-pointed at
-      Rust-on-Linux actuals (same pending-verdict disclosure).
+- [x] beast/tiny 680-vs-779 mode split (found at switch, 2026-10-01;
+      verdict MODE 2026-10-01, no code change): stage-dump bisection
+      (adopted dead lane's env-gated harness) shows decimate +
+      resample dumps byte-identical, frame field at solver noise
+      (1570/2608 vecs differ, max 1.2e-14), then gross UV split.
+      Mechanism: singularity-simplifier greedy cancellation consumes
+      252 hop-tied candidates in sort order — Rust's stable sort keeps
+      index order, C++'s libc++ introsort scrambles ties (past the
+      documented <24-candidate regime where C++ order is "unspecified
+      anyway"). Singularities/charges identical 287/287 — the 1e-14
+      field noise flips NO integer; pure order divergence. Fidelity:
+      symmetric vertex-to-surface means 0.24% vs 0.27% of bbox diag,
+      in->out identical to 4 digits, areas within 0.6% — equal
+      quality, different tilings. Baselines stay Rust numbers.
+      Follow-up (open): Linux-Rust gives 772 (vs 680 mac-Rust) — same
+      deterministic sort, so the candidate/singularity SET likely
+      differs via libm-noise integer flip or meshopt codegen; needs a
+      Linux-side bisection. Both modes valid + baselined; not blocking.

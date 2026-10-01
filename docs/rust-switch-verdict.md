@@ -50,6 +50,16 @@ suite runs it on every `cargo test`.
   Same mesh today; post-switch diagnosis item (TODO).
 - Linux Rust path (`sincos` link) compiles by cfg but has no CI cover;
   product is Mac-only. The C++ sanitize job is unchanged.
+- Post-switch addendum (2026-10-01, beast/tiny 680-vs-779): stage-dump
+  bisection proved decimate+resample byte-identical and the frame
+  field at solver noise (max 1.2e-14, no integer flips); the split is
+  a pure ORDER divergence — the singularity simplifier greedily
+  consumes 252 hop-tied cancellation candidates in sort order, and
+  Rust's stable sort vs libc++'s introsort order ties differently
+  (past the documented <24-candidate regime). Fidelity equivalent
+  (0.24% vs 0.27% mean surface error). Bench re-pointed at Rust
+  numbers; no code change. (Linux-Rust gives 772 — same sort, so a
+  set-level flip there; needs Linux-side bisection, tracked in TODO.)
 
 ## What this unlocks (post-switch superiority batch)
 
