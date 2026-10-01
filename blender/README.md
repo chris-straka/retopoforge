@@ -102,7 +102,7 @@ sample count are restored afterwards.
 
 ## Install
 
-1. Build the CLI: `cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build`
+1. Build the CLI: `cargo build --locked --release -p retopo` (binary at `rust/target/release/retopo`)
 2. Zip the `blender/retopoforge/` directory (the folder containing
    `blender_manifest.toml`).
 3. In Blender: *Edit → Preferences → Extensions → Install from Disk*,
@@ -135,5 +135,5 @@ generation, and the high-to-low bake. It skips (exit 0) when no
 ## Licensing note
 
 This extension is GPL-3.0-or-later, as Blender requires of anything
-using its Python API. The C++ engine stays MIT: the extension talks to
+using its Python API. The Rust engine stays MIT: the extension talks to
 it only as a subprocess over OBJ files — never linked, never imported.

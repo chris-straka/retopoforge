@@ -1,24 +1,14 @@
 class Retopoforge < Formula
-  desc "Quad remesher: headless C++ engine + CLI + Blender extension"
+  desc "Quad remesher: Rust engine + CLI + Blender extension"
   homepage "https://github.com/chris-straka/retopoforge"
   url "https://github.com/chris-straka/retopoforge/archive/refs/heads/main.tar.gz"
-  version "0.2.0"
+  version "0.3.0"
   license "MIT"
 
-  depends_on "cmake" => :build
-  depends_on "ninja" => :build
-  depends_on "llvm" => :build
-  depends_on "tbb"
+  depends_on "rust" => :build
 
   def install
-    args = %W[
-      -DCMAKE_TOOLCHAIN_FILE=#{buildpath}/cmake/macos-llvm.cmake
-      -DRETOPO_LLVM_PREFIX=#{Formula["llvm"].opt_prefix}
-      -DCMAKE_BUILD_TYPE=Release
-    ]
-    system "cmake", "-S", ".", "-B", "build", "-G", "Ninja", *args
-    system "cmake", "--build", "build", "--target", "retopo"
-    bin.install "build/cli/retopo"
+    system "cargo", "install", *std_cargo_args(path: "rust/cli")
   end
 
   test do

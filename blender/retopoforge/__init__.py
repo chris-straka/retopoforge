@@ -59,6 +59,10 @@ def find_retopo_binary(explicit_path=""):
         return on_path
     here = os.path.dirname(os.path.abspath(__file__))
     for candidate in (
+        # Rust binary (the product since the 0.3.0 switch).
+        os.path.join(here, "..", "..", "rust", "target", "release", "retopo"),
+        os.path.join(here, "..", "..", "rust", "target", "debug", "retopo"),
+        # Legacy C++ build tree (kept as the oracle reference).
         os.path.join(here, "..", "..", "build", "cli", "retopo"),
         os.path.join(here, "..", "..", "build", "RetopoForge", "retopo"),
     ):

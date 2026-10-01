@@ -19,6 +19,46 @@ Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
 must report no regressions (quality bar: good remeshes, not
 bit-identical counts), and new code adds zero new warnings.
 
+## Rust port (landed on main; was `exp/rust-solvers`)
+
+Strangler-fig rewrite: Rust mirrors C++ module-by-module, each proven by
+a differential oracle (C++ dump + committed fixture + Rust replay) before
+joining. Equality is scaffolding, not the goal — the oracles become the
+regression net for post-switch improvements. Bar per lane: oracle green
+(exact/bitwise where deterministic; scale-aware 1e-6 + zero structural
+mismatches where float order legitimately varies; robustness-only sections
+with demonstrated mechanism where backend noise flips rounding — the
+QPX/FFX lists), `cargo test` green, fmt clean, timing recorded. Never
+push main from lanes (explicit refspec only); game assets never committed.
+
+- [x] Solvers first (calibration): CLS + MILS in `retopo_solvers` (faer),
+      9+5 goldens, 200+200 differential cases — verdict: viable
+- [x] Core batch, 18 modules: double_utils, progress, obj_reader,
+      mesh_separator, vector2+vector3 (FMA-exact, bitwise), position_key,
+      surface_mesh, density, symmetry, isotropic_remesher (+kernel),
+      quad_parameterizer, guides, frame_field, singularity_simplifier
+      (sincos-fusion root cause, bitwise oracle), parameterizer
+      (PPX-documented, vendored singularity deduped at join),
+      quad_extractor (libc++ hash emulation, 227-case bitwise oracle;
+      PositionKey/box-tree vendors deduped at join), autoremesher engine
+      (295-case oracle, sincos-bisection fix, meshopt stays C++ via FFI)
+- [x] Main lane joined (acceptance gate green: 50 arg + 20 IO +
+      37 remesh with adaptive C++ census; stderr story specced, not
+      restored — see gap precedent; hex-float/nan(payload) specified
+      divergence)
+- [x] CLI glb IO joined (std-only reader, byte-identical writer;
+      14/235 transform-path cases scale-aware, fmuladd has no bitwise
+      contract there)
+- [x] Port complete: 20/20 (18 core + 2 solvers) + glb; main-lane
+      end-to-end run is the acceptance gate for the whole port
+- [x] Switch: Rust `cargo test --locked` gated in CI, verdict in
+      `docs/rust-switch-verdict.md`, Blender addon + Homebrew formula
+      (0.3.0, rust-only) + bench default point at the Rust binary,
+      `rust/Cargo.lock` committed, C++ frozen as oracle reference
+- [ ] Post-switch superiority batch (equality proved — now beat C++):
+      sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
+      redesign (flags/errors/progress), single-island parallelism in Rust
+
 ## Game-asset pipeline (owner's core loop)
 
 - [x] AI-soup sliver output (was BLOCKER): fixed by weld-on-load +
@@ -88,7 +128,6 @@ bit-identical counts), and new code adds zero new warnings.
 - [ ] Direct UV projection: nearest-point UV copy where the remesh hugs
       the source (keeps original seams, skips re-bake)
 - [ ] Vertex-color / attribute transfer for non-textured AI outputs
-
 ## Rigging (separate repos, see docs/rigging-strategy.md)
 
 Character rigging lives outside this repo: `~/SWE/rigforge` (Rigify
@@ -116,7 +155,8 @@ port, creature volume/auto-placement). Toolbox siblings, no contest.
       props need crisp edges): engine `setSharpPolylines` (snapping
       post-resample, sharp-first frame locks winning ties over guides,
       corner marks, curl anchors) + CLI `--features` sharing the guide
-      file format. Blender sharp-marks export still open. Follow-up:
+      file format. Blender sharp-marks export done (see Engine backlog).
+      Follow-up:
       corner singularities under crossing sharps distort (full cage
       over-constrains); keep corner-mark radius small.
 - [x] Local density control (face/hands detail without blowing the
@@ -125,7 +165,21 @@ port, creature volume/auto-placement). Toolbox siblings, no contest.
       refinement saturates (~2.3x for 4x asks — integer-grid pole
       saturation), mild masks realize nearly fully, coarsening fully.
       Full 4x needs density-aware pole placement (future engine work).
-      Blender weight-paint export still open.
+      Blender vertex-group (weight-paint) export done (see Exoside parity).
+- [ ] Hands: fused fingers are fused in the AI input, so no remesher
+      setting can unfuse them — detect + warn + assist instead. Staged,
+      AFTER the Rust port (build Rust-first, no mirror oracle needed):
+      (1) mark-mode + fusion check: owner selects hand verts in
+      Blender (or auto-detect extremities later), tool measures finger
+      crotch depth / webbing and warns when fingers are stuck together,
+      with per-mesh suppress + a mittens mode (skip finger detection,
+      just refine hands); (2) auto-assist: feed a hand density mask +
+      valley guides into the same run automatically (no geometry edits,
+      failure mode is "no better" never "mangled"); (3) regional
+      pre-pass cleanup (weld/dust/nonmanifold repair scoped to the hand
+      region only). Never automatic finger surgery (cutting soup apart
+      invents worse artifacts). Test with procedural fused-vs-split
+      finger-tube fixtures (no game assets committed).
 
 ## Blender addon (the workflow goal)
 
@@ -243,10 +297,21 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Corner singularities under crossing sharps: full closed cages
       over-constrain and distort. Fix the corner-mark radius/strength
       handling (currently documented as "keep it small").
+- [ ] Case-156 C++ heap-OOB read on DENSITY-3 inputs (found by port
+      forensics, engine bisection): C++ values derive from UB —
+      EPX-by-UB in the oracle, never match; exclude the input class in
+      main-lane e2e. No C++ fix (being replaced).
+- [ ] Merge-five-faces path divergence (found by e2e forensics): Rust
+      extractor systematically skips five-merges C++ takes (30/30 vs
+      0/777 stderr counts) with byte-identical meshes today — diagnose
+      the path difference post-switch (same mesh, different route;
+      seven-splits preventively allowlisted, same pattern).
 - [ ] Density-aware pole placement (research): strong localized
       refinement saturates (~2.3x for 4x asks) because poles are
       sizing-unaware. Placing poles for the density field would unlock
-      the full 4x.
+      the full 4x. Post-switch: feed it the port's QPX/FFX
+      robustness-only lists — they map exactly where rounding noise
+      flips integer decisions today.
 - [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only
@@ -254,3 +319,4 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Single-island parallelism (research): one island uses ~1 core;
       top bottleneck is "merging shared five edge faces" (5.5s on
       dragon-50k). Profile-guided; quality-gated (no --check regressions).
+      Natural post-switch Rust work (fearless concurrency).

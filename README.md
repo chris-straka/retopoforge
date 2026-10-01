@@ -1,9 +1,11 @@
 # retopoforge
 
 retopoforge is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher)
-(MIT, by Jeremy HU) restructured around a **headless engine**: a C++ core
+(MIT, by Jeremy HU) restructured around a **headless engine**: a Rust core
 library, a `retopo` CLI, a Blender extension, and a benchmark/regression
-harness. There is no desktop app — Blender is the UI. Upstream is kept as
+harness. There is no desktop app — Blender is the UI. The original C++
+engine stays frozen in `core/`/`cli/` as the differential-test reference
+(see [docs/rust-switch-verdict.md](docs/rust-switch-verdict.md)). Upstream is kept as
 the `upstream` git remote as a read-only reference; this fork has
 structurally diverged, so upstream engine fixes are ported by hand when
 relevant, never git-merged.
@@ -16,31 +18,33 @@ brew install chris-straka/retopoforge/retopoforge
 ```
 
 This taps the repo itself (the formula lives in `Formula/`) and builds
-the `retopo` CLI from source (cmake, ninja, llvm, tbb are pulled in
-automatically), linking it onto your PATH as `retopo`. `brew update`
-keeps the tap current; `brew upgrade retopoforge` rebuilds on updates.
+the `retopo` CLI from source (rust is pulled in automatically), linking
+it onto your PATH as `retopo`. `brew update` keeps the tap current;
+`brew upgrade retopoforge` rebuilds on updates.
 
-## Build from source (one CMake build for everything)
+## Build from source (cargo; macOS-only product)
 
 ```bash
-# macOS prerequisites (macOS-only product; Linux exists in CI for
-# compile + test validation, Windows parked)
-brew install cmake tbb llvm ninja
+brew install rust
+cargo build --locked --release -p retopo
+```
 
-# macOS builds use Homebrew LLVM (AppleClang lacks C++ named modules);
-# Ninja is required (the only macOS generator supporting C++ modules)
+This builds the `retopo` CLI (`rust/target/release/retopo`). The
+frozen C++ tree (`core/`, `cli/`) still builds as the differential-test
+reference (needs Homebrew LLVM + Ninja + TBB):
+
+```bash
+brew install cmake tbb llvm ninja
 cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-This builds the `retopo` CLI (`build/cli/retopo`) and the test suite.
-
 ## CLI usage
 
 ```bash
-./build/cli/retopo --help
-./build/cli/retopo --input bench/models/armadillo.obj \
+./rust/target/release/retopo --help
+./rust/target/release/retopo --input bench/models/armadillo.obj \
     --output /tmp/armadillo-remeshed.obj --report /tmp/armadillo-report.txt \
     --target-quads 5000
 ```
@@ -80,18 +84,23 @@ Multi-output: `--lods 10000,5000,2000` emits a full LOD chain in one run
 directory:
 
 ```bash
-./build/cli/retopo --input bench/models/armadillo.obj --output /tmp/hero.obj --lods 10000,5000,2000
-./build/cli/retopo --input assets/ --output assets-retopo/
+./rust/target/release/retopo --input bench/models/armadillo.obj --output /tmp/hero.obj --lods 10000,5000,2000
+./rust/target/release/retopo --input assets/ --output assets-retopo/
 ```
 
 ## Tests
 
 ```bash
-ctest --test-dir build --output-on-failure
+cargo test --locked   # 60 Rust suites, incl. the C++-vs-Rust e2e oracle
+ctest --test-dir build --output-on-failure   # frozen C++ reference suite
 ```
 
-Fourteen unit tests cover engine components (vectors, mesh container,
-solvers, OBJ reader, welding, symmetry, guide curves, density, sharp
+The Rust suites prove every engine component against the C++
+differentially (module goldens + replay oracles), topped by the
+end-to-end CLI oracle (50 arg-matrix + 20 IO-failure + 37 remesh cases
+with a censused C++ reference). The C++ suite stays frozen: fourteen
+unit tests cover engine components (vectors, mesh container, solvers,
+OBJ reader, welding, symmetry, guide curves, density, sharp
 constraints, input validation); ten CLI tests drive the built binary end
 to end (round-trip, `--lods`/batch multi-output, `--quiet`, GLB
 input/output, symmetry, guides, UVs, density, nasty-corpus, sharp
@@ -107,7 +116,8 @@ bench/run.py --check bench/baseline.json   # fail on regression vs baseline
 bench/profile.py               # profile one production-size mesh (docs/perf.md)
 ```
 
-The suite runs `build/cli/retopo` over five models × two presets
+The suite runs `rust/target/release/retopo` over five models × two presets
+(override with `bench/run.py --binary`)
 (`--target-quads` 1000/5000), validates every output mesh, and records
 timings plus quad counts. A run regresses when it exits non-zero, its
 mesh fails validation, its quad count drops >5% below baseline, or its
@@ -162,22 +172,21 @@ cube, and asserts the mesh was replaced, is mostly quads, keeps the
 object transform bit-exact, records a report, and leaves no temp
 objects. It skips (exit 0) when no `retopo` binary is available.
 
-The extension is GPL-3.0-or-later, as Blender requires; the C++ engine
+The extension is GPL-3.0-or-later, as Blender requires; the Rust engine
 stays MIT — the extension talks to it only as a subprocess over OBJ
 files. See [docs/architecture.md](docs/architecture.md) and
 [blender/README.md](blender/README.md).
 
 ## Layout
 
-- `core/` — headless engine, built as the `retopo_core` static library:
-  18 C++23 named modules `retopo.core.*` (interface in `core/*.cppm`,
-  implementation in `core/*.cpp`, including the `symmetry`
-  mirror-constraint, `guides` guide-curve, and `density` local-density
-  modules), plus the two components not yet
-  converted: `core/autoremesher.h/.cpp` (pipeline orchestrator) and
-  `core/objreader.h/.cpp` (OBJ loader), reached via the
-  `<AutoRemesher/...>` forwarders in `core/include/`.
-- `cli/` — `retopo` CLI (`cli/main.cpp` + `cli/glb.*`).
+- `rust/` — the product: `retopo_core` + `retopo_solvers` libraries and
+  the `retopo` CLI binary (`rust/cli`), proven against the C++ by
+  differential oracles (see `docs/rust-switch-verdict.md`).
+- `core/` — frozen original C++ engine (20 C++23 named modules
+  `retopo.core.*`): builds as the `retopo_core` static library,
+  kept as the oracle reference, not the product.
+- `cli/` — frozen original C++ CLI (`cli/main.cpp` + `cli/glb.*`):
+  builds `build/cli/retopo` as the e2e reference binary.
 - `Formula/` — Homebrew formula for the CLI.
 - `blender/` — Blender extension (`blender/retopoforge/`) driving the
   CLI over a temp-OBJ round-trip, with a headless test in
@@ -197,8 +206,12 @@ and the engine/CLI/addon split.
 
 1. Headless engine + CLI + benchmarks (this fork's foundation, done)
 2. Blender addon driving the CLI (done, extension v0.2.0)
-3. C++23 modules + idiom modernization, gated by the benchmark suite
-4. Incremental engine improvements toward Exoside parity (see
+3. Rust rewrite of the engine + CLI, proven by differential oracles
+   (done — shipped in 0.3.0, see
+   [docs/rust-switch-verdict.md](docs/rust-switch-verdict.md))
+4. Post-switch superiority: sizing-aware rounding, single-island
+   parallelism, CLI UX, and the 6-7x perf gap — then incremental
+   engine improvements toward Exoside parity (see
    [docs/exoside-gap.md](docs/exoside-gap.md))
 
 ## Attribution

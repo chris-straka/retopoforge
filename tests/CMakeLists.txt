@@ -143,6 +143,75 @@ target_compile_definitions(test_cli_uv_atlas PRIVATE
 add_dependencies(test_cli_uv_atlas retopo)
 set_tests_properties(test_cli_uv_atlas PROPERTIES TIMEOUT 600)
 
+# Differential oracle dump for the vector2/vector3 port (wave 2
+# foundation). Build-only helper: run it and redirect stdout to
+# tests/fixtures/vector_diff.txt for rust/core/tests/vector_diff.rs.
+add_executable(vector_diff_dump vector_diff_dump.cpp)
+set_target_properties(vector_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(vector_diff_dump PRIVATE retopo_core)
+
+# Differential oracle dump for the Rust solvers calibration experiment.
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/solver_diff.txt for rust/solvers/tests/differential.rs.
+add_executable(solver_diff_dump solver_diff_dump.cpp)
+set_target_properties(solver_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(solver_diff_dump PRIVATE retopo_core)
+
+# Differential oracle dump for the double_utils + progress port (wave 1).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/double_progress_diff.txt for
+# rust/core/tests/double_progress_diff.rs.
+add_executable(double_progress_diff_dump double_progress_diff_dump.cpp)
+set_target_properties(double_progress_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(double_progress_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the meshseparator Rust port (wave 1).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/meshsep_diff.txt for rust/core/tests/mesh_separator_diff.rs.
+add_executable(meshsep_diff_dump meshsep_diff_dump.cpp)
+set_target_properties(meshsep_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(meshsep_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the obj_reader Rust port (rs-objreader lane).
+# Build-only helper (not a ctest test): run it with the fixtures dir and
+# redirect stdout to tests/fixtures/objreader_diff.txt for
+# rust/core/tests/obj_reader_diff.rs.
+add_executable(objreader_diff_dump objreader_diff_dump.cpp)
+set_target_properties(objreader_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(objreader_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the position_key Rust port (rs-positionkey lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/positionkey_diff.txt for
+# rust/core/tests/position_key_diff.rs.
+add_executable(positionkey_diff_dump positionkey_diff_dump.cpp)
+set_target_properties(positionkey_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(positionkey_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the surface_mesh Rust port (rs-surfacemesh lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/surfacemesh_diff.txt for rust/core/tests/surface_mesh_diff.rs.
+add_executable(surfacemesh_diff_dump surfacemesh_diff_dump.cpp)
+set_target_properties(surfacemesh_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(surfacemesh_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the symmetry Rust port (rs-symmetry lane).
+# Build-only helper (not a ctest test): build Release and redirect stdout
+# to tests/fixtures/symmetry_diff.txt for rust/core/tests/symmetry_diff.rs.
+add_executable(symmetry_diff_dump symmetry_diff_dump.cpp)
+set_target_properties(symmetry_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(symmetry_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the quad_parameterizer Rust port
+# (rs-quadparameterizer lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/quadparam_diff.txt for
+# rust/core/tests/quad_parameterizer_diff.rs.
+add_executable(quadparam_diff_dump quadparam_diff_dump.cpp)
+set_target_properties(quadparam_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(quadparam_diff_dump PRIVATE retopo_core)
+
+# Differential oracle dump for the isotropic_remesher Rust port
+# (rs-isotropicremesher lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/isoremesh_diff.txt for
+# rust/core/tests/isotropic_remesher_diff.rs.
+add_executable(isoremesh_diff_dump isoremesh_diff_dump.cpp)
+set_target_properties(isoremesh_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(isoremesh_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
 retopo_add_test(test_island_stats test_island_stats.cpp)
@@ -163,6 +232,51 @@ target_compile_definitions(test_pole_manifold PRIVATE
 add_dependencies(test_pole_manifold retopo)
 set_tests_properties(test_pole_manifold PROPERTIES TIMEOUT 600)
 
+# Differential oracle dump for the density Rust port (rs-density lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/density_diff.txt for rust/core/tests/density_diff.rs.
+add_executable(density_diff_dump density_diff_dump.cpp)
+set_target_properties(density_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(density_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the guides Rust port (rs-guides lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/guides_diff.txt for rust/core/tests/guides_diff.rs.
+add_executable(guides_diff_dump guides_diff_dump.cpp)
+set_target_properties(guides_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(guides_diff_dump PRIVATE retopo_core)
+
+# Differential oracle dump for the frame_field Rust port (rs-framefield
+# lane). Build-only helper (not a ctest test): run it and redirect stdout
+# to tests/fixtures/framefield_diff.txt for
+# rust/core/tests/frame_field_diff.rs.
+add_executable(framefield_diff_dump framefield_diff_dump.cpp)
+set_target_properties(framefield_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(framefield_diff_dump PRIVATE retopo_core)
+
+# Differential oracle dump for the singularitysimplifier Rust port
+# (rs-singularitysimplifier lane). Build-only helper (not a ctest test):
+# run it and redirect stdout to
+# tests/fixtures/singularitysimplifier_diff.txt for
+# rust/core/tests/singularity_simplifier_diff.rs.
+add_executable(singularitysimplifier_diff_dump singularitysimplifier_diff_dump.cpp)
+set_target_properties(singularitysimplifier_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(singularitysimplifier_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the parameterizer Rust port
+# (rs-parameterizer lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/parameterizer_diff.txt for
+# rust/core/tests/parameterizer_diff.rs.
+add_executable(parameterizer_diff_dump parameterizer_diff_dump.cpp)
+set_target_properties(parameterizer_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(parameterizer_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the glb Rust port (rs-glb lane).
+# Build-only helper (not a ctest test): run it with the fixtures dir and
+# redirect stdout to tests/fixtures/glb_diff.txt for
+# rust/core/tests/glb_diff.rs.
+add_executable(glb_diff_dump glb_diff_dump.cpp ../cli/glb.cpp)
+set_target_properties(glb_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_include_directories(glb_diff_dump PRIVATE ../thirdparty/cgltf)
+target_link_libraries(glb_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.
 retopo_add_test(test_cli_engine_quiet test_cli_engine_quiet.cpp)
@@ -173,4 +287,20 @@ target_compile_definitions(test_cli_engine_quiet PRIVATE
 )
 add_dependencies(test_cli_engine_quiet retopo)
 set_tests_properties(test_cli_engine_quiet PROPERTIES TIMEOUT 600)
+
+# Differential oracle dump for the quadextractor Rust port (rs-quadextractor).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/quadextractor_diff.txt for
+# rust/core/tests/quad_extractor_diff.rs.
+add_executable(quadextractor_diff_dump quadextractor_diff_dump.cpp)
+set_target_properties(quadextractor_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(quadextractor_diff_dump PRIVATE retopo_core)
+
+# Differential oracle dump for the auto_remesher Rust port
+# (rs-autoremesher lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/autoremesher_diff.txt for
+# rust/core/tests/auto_remesher_diff.rs.
+add_executable(autoremesher_diff_dump autoremesher_diff_dump.cpp)
+set_target_properties(autoremesher_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(autoremesher_diff_dump PRIVATE retopo_core)
 

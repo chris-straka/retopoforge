@@ -1,0 +1,11 @@
+[package]
+name = "retopo"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "retopo"
+path = "src/main.rs"
+
+[dependencies]
+retopo_core = { path = "../core" }
