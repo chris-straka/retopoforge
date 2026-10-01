@@ -19,6 +19,37 @@ Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
 must report no regressions (quality bar: good remeshes, not
 bit-identical counts), and new code adds zero new warnings.
 
+## Rust port (active workstream, `exp/rust-solvers`)
+
+Strangler-fig rewrite: Rust mirrors C++ module-by-module, each proven by
+a differential oracle (C++ dump + committed fixture + Rust replay) before
+joining. Equality is scaffolding, not the goal — the oracles become the
+regression net for post-switch improvements. Bar per lane: oracle green
+(exact/bitwise where deterministic; scale-aware 1e-6 + zero structural
+mismatches where float order legitimately varies; robustness-only sections
+with demonstrated mechanism where backend noise flips rounding — the
+QPX/FFX lists), `cargo test` green, fmt clean, timing recorded. Never
+push main from lanes (explicit refspec only); game assets never committed.
+
+- [x] Solvers first (calibration): CLS + MILS in `retopo_solvers` (faer),
+      9+5 goldens, 200+200 differential cases — verdict: viable
+- [x] Core batch, 15 modules: double_utils, progress, obj_reader,
+      mesh_separator, vector2+vector3 (FMA-exact, bitwise), position_key,
+      surface_mesh, density, symmetry, isotropic_remesher (+kernel),
+      quad_parameterizer, guides, frame_field, singularity_simplifier
+      (sincos-fusion root cause, bitwise oracle)
+- [ ] Finisher running: quad_extractor (largest module, mid-port)
+- [ ] Fresh lanes running: glb IO (std-only reader, byte-identical
+      writer), parameterizer (vendored singularity queries, dedup at join)
+- [ ] Queued behind deps: autoremesher engine (needs parameterizer +
+      quad_extractor), cli/main (needs engine; its end-to-end differential
+      run is the acceptance gate for the whole port)
+- [ ] Switch: gate Rust `cargo test` in CI, write the rewrite verdict,
+      point the Blender addon + Homebrew formula at the Rust binary
+- [ ] Post-switch superiority batch (equality proved — now beat C++):
+      sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
+      redesign (flags/errors/progress), single-island parallelism in Rust
+
 ## Game-asset pipeline (owner's core loop)
 
 - [x] AI-soup sliver output (was BLOCKER): fixed by weld-on-load +
@@ -106,7 +137,8 @@ bit-identical counts), and new code adds zero new warnings.
       props need crisp edges): engine `setSharpPolylines` (snapping
       post-resample, sharp-first frame locks winning ties over guides,
       corner marks, curl anchors) + CLI `--features` sharing the guide
-      file format. Blender sharp-marks export still open. Follow-up:
+      file format. Blender sharp-marks export done (see Engine backlog).
+      Follow-up:
       corner singularities under crossing sharps distort (full cage
       over-constrains); keep corner-mark radius small.
 - [x] Local density control (face/hands detail without blowing the
@@ -115,7 +147,7 @@ bit-identical counts), and new code adds zero new warnings.
       refinement saturates (~2.3x for 4x asks — integer-grid pole
       saturation), mild masks realize nearly fully, coarsening fully.
       Full 4x needs density-aware pole placement (future engine work).
-      Blender weight-paint export still open.
+      Blender vertex-group (weight-paint) export done (see Exoside parity).
 - [ ] Hands: fused fingers are fused in the AI input, so no remesher
       setting can unfuse them — detect + warn + assist instead. Staged,
       AFTER the Rust port (build Rust-first, no mirror oracle needed):
@@ -250,7 +282,9 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Density-aware pole placement (research): strong localized
       refinement saturates (~2.3x for 4x asks) because poles are
       sizing-unaware. Placing poles for the density field would unlock
-      the full 4x.
+      the full 4x. Post-switch: feed it the port's QPX/FFX
+      robustness-only lists — they map exactly where rounding noise
+      flips integer decisions today.
 - [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only
@@ -258,3 +292,4 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Single-island parallelism (research): one island uses ~1 core;
       top bottleneck is "merging shared five edge faces" (5.5s on
       dragon-50k). Profile-guided; quality-gated (no --check regressions).
+      Natural post-switch Rust work (fearless concurrency).
