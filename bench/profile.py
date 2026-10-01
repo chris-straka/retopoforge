@@ -7,7 +7,7 @@ wall time, peak RSS, output counts, and the engine's per-phase breakdown
 
 Usage:
     bench/profile.py [--model xyzrgb_dragon.obj] [--target-quads 50000]
-                     [--binary build/cli/retopo] [--repeat 3] [--json out.json]
+                     [--binary rust/target/release/retopo] [--repeat 3] [--json out.json]
 
 Threading: the engine exposes no thread-count knob (no CLI flag, no TBB
 global_control; TBB_NUM_THREADS has no effect), so there is no thread
@@ -29,7 +29,7 @@ except ImportError:
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(ROOT, "bench", "models")
-DEFAULT_BINARY = os.path.join(ROOT, "build", "cli", "retopo")
+DEFAULT_BINARY = os.path.join(ROOT, "rust", "target", "release", "retopo")
 
 PHASE_RE = re.compile(r"^(.*?):\s+([0-9]+(?:\.[0-9]+)?)\s+ms$")
 CORES_RE = re.compile(r"Cores kept busy across the parallel phase:\s+([0-9.]+)")
@@ -154,7 +154,7 @@ def main(argv):
             print(f"unknown arg: {argv[i]}", file=sys.stderr)
             return 2
     if not os.path.exists(binary):
-        print(f"binary not found: {binary} (build with cmake first)", file=sys.stderr)
+        print(f"binary not found: {binary} (build with: cargo build --release -p retopo)", file=sys.stderr)
         return 2
     if not os.path.exists(os.path.join(MODELS_DIR, model)):
         print(f"model not found: {model} (run bench/fetch_models.sh)", file=sys.stderr)

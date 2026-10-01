@@ -31,7 +31,7 @@ python3 bench/compare.py --help
 
 Defaults: models `armadillo.obj,fandisk.obj` from `bench/models/`,
 targets `1000,5000`. The retopo binary resolves from `--binary`, then
-`$RETOPO_BINARY`, then `build/cli/retopo`; Blender from `--blender`, then
+`$RETOPO_BINARY`, then `rust/target/release/retopo`; Blender from `--blender`, then
 `$BLENDER_BINARY`, then the stock macOS app path. Exit code is 0 when
 every retopo and blender-voxel case succeeds; a QuadriFlow skip or
 failure is recorded in the notes column and never fails the run.

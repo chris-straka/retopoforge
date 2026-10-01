@@ -1,35 +1,34 @@
 # retopoforge architecture
 
-Date: 2026-09-30. Sources: `CMakeLists.txt`, `cli/CMakeLists.txt`,
-`tests/CMakeLists.txt`, `cli/main.cpp`, `core/*.cppm`,
-`blender/retopoforge/__init__.py`,
-`blender/retopoforge/blender_manifest.toml`, `bench/run.py`,
-`bench/profile.py`.
+Date: 2026-10-01 (Rust-only tree). Sources: `rust/Cargo.toml`,
+`rust/core/src/lib.rs`, `rust/core/build.rs`, `rust/cli/src/main.rs`,
+`blender/retopoforge/__init__.py`, `bench/run.py`.
 
 ## The three pieces
 
 | Piece | Directory | Target | License |
 |---|---|---|---|
-| Engine | `core/` | `retopo_core` static library | MIT |
-| CLI | `cli/` | `retopo` binary | MIT |
+| Engine | `rust/core/` + `rust/solvers/` | `retopo_core`, `retopo_solvers` crates | MIT |
+| CLI | `rust/cli/` | `retopo` binary | MIT |
 | Blender extension | `blender/retopoforge/` | extension v0.2.0, Blender 4.2+ | GPL-3.0-or-later |
 
 (There is no desktop app: the upstream Qt shell was removed and Blender
-is the UI.)
+is the UI. The original C++ engine was the differential oracle for the
+1:1 port and has since been removed.)
 
 Dependency rules:
 
-- The engine depends on nothing else in the repo — only vendored
-  `thirdparty/` code (Eigen, isotropicremesher, meshoptimizer), the
-  system TBB install, and system libraries (Accelerate, zlib).
-- The CLI links `retopo_core`.
+- The engine depends on `faer` (linear algebra) and vendored
+  `thirdparty/meshoptimizer` (C++ decimator compiled in by
+  `rust/core/build.rs` through a small FFI). Nothing else in the repo.
+- The CLI depends on `retopo_core`; OBJ and GLB IO are std-only.
 - The Blender extension links against nothing: it drives the `retopo`
   binary as a subprocess over OBJ files. That subprocess boundary is
   also the license boundary — the GPL extension never links or imports
   the MIT engine.
-- `bench/run.py`, `bench/profile.py`, and the five `tests/test_cli_*`
-  suites treat the built CLI as a black box (binary path in, mesh out,
-  exit code + report parsed).
+- `bench/*.py` and the CLI contract test (`rust/cli/tests/cli_contract.rs`)
+  treat the built CLI as a black box (binary path in, mesh out, exit
+  code + report parsed).
 
 Data flow:
 
@@ -38,81 +37,28 @@ Blender mesh --wm.obj_export--> in_N.obj --retopo--> out_N.obj --wm.obj_import--
 bench/models/*.obj --retopo--> results JSON --check--> baseline verdict
 ```
 
-## The `retopo.core.*` module graph (18 modules)
+## Engine pipeline (`retopo_core`)
 
-One named module per converted component. The interface lives in
-`core/<name>.cppm`: copyright header, then `module;` plus third-party
-and not-yet-converted includes (global fragment), then
-`export module retopo.core.<name>;`, then the `export`ed declarations.
-The implementation stays in `core/<name>.cpp`, starting with `module;`
-+ includes and then `module <name>;`. Importers `import` exactly what
-they use — there is no transitive reliance. CMake lists each `.cppm` in
-the target's `FILE_SET CXX_MODULES`, and `CXX_SCAN_FOR_MODULES` is on
-for every target with importers (plain `.cpp` files would otherwise
-compile unscanned: no BMI flags, no build ordering).
+`auto_remesher` orchestrates, per input mesh:
 
-Leaf-first, with interface-level imports:
+1. Load + weld (`obj_reader` / `glb`, CLI side), split into islands
+   (`mesh_separator`), optional meshoptimizer decimation when an island
+   exceeds 8x the target triangle count.
+2. Isotropic remesh (`isotropic_remesher`, `iso_remesh_kernel`) to a
+   sizing-adaptive working mesh.
+3. Parameterize (`parameterizer`): cross field (`frame_field`, with
+   `guides` / sharp features as constraints, optional `symmetry`),
+   singularity cancellation (`singularity_simplifier`), density masks
+   (`density`), then the seamless quad cover (`quad_parameterizer`,
+   solved by `retopo_solvers::{constrained, mixed_integer}`; optional
+   dipole insertion along density steps).
+4. Quad extraction (`quad_extractor`, `position_key`) plus its topology
+   cleanup passes, then island merge and optional UV atlas.
 
-- `retopo.core.double_utils` (`double.cppm`) — leaf: floating-point
-  helpers.
-- `retopo.core.progress` (`progress.cppm`) — leaf: the
-  `ProgressHandler` callback type (`fraction` 0..1 plus step name;
-  handlers must be thread-safe, islands remesh on TBB workers).
-- `retopo.core.mesh_separator` (`meshseparator.cppm`) — no module
-  imports in its interface: connected-component splitting.
-- `retopo.core.constrained_least_squares`
-  (`constrainedleastsquares.cppm`) — no module imports in its
-  interface: constrained least-squares solver.
-- `retopo.core.vector2` (`vector2.cppm`) — imports `double_utils`.
-- `retopo.core.vector3` (`vector3.cppm`) — imports `double_utils`,
-  `vector2`. The most-imported module in the tree (engine, CLI, app).
-- `retopo.core.position_key` (`positionkey.cppm`) — imports `vector3`:
-  spatial hashing of vertex positions.
-- `retopo.core.surface_mesh` (`surfacemesh.cppm`) — imports `vector2`,
-  `vector3`: the half-edge-style mesh container.
-- `retopo.core.mixed_integer_least_squares`
-  (`mixedintegerleastsquares.cppm`) — imports
-  `constrained_least_squares`.
-- `retopo.core.frame_field` (`framefield.cppm`) — imports
-  `surface_mesh`, `vector3`.
-- `retopo.core.singularity_simplifier` (`singularitysimplifier.cppm`) —
-  imports `surface_mesh`, `vector3`.
-- `retopo.core.symmetry` (`symmetry.cppm`) — imports `vector3`:
-  mirror-plane detection/scoring plus frame-field and vertex
-  symmetrization. Imported by the `parameterizer` interface and by the
-  (unconverted) `autoremesher.h` orchestrator header.
-- `retopo.core.guides` (`guides.cppm`) — imports `vector3`:
-  guide-polyline proximity queries (influence radius, tangent lookup).
-  Imported by the `frame_field` implementation unit, which locks
-  near-guide faces to guide tangents as hard constraints in the
-  sharp-edge solve.
-- `retopo.core.density` (`density.cppm`) — imports `vector3`:
-  per-vertex multiplier normalization/clamping, edge-scale mapping,
-  nearest-neighbor resampling across retopology, and scaling-field
-  modulation with budget-preserving renormalization. Consumed by
-  `parameterizer` (modulation site) and the `autoremesher`
-  orchestrator (mask slicing + resampling across stages).
-- `retopo.core.parameterizer` (`parameterizer.cppm`) — imports
-  `progress`, `symmetry`, `vector2`, `vector3`.
-- `retopo.core.quad_parameterizer` (`quadparameterizer.cppm`) —
-  imports `progress`, `vector2`, `vector3`.
-- `retopo.core.quad_extractor` (`quadextractor.cppm`) — imports
-  `progress`, `vector2`, `vector3`.
-- `retopo.core.isotropic_remesher` (`isotropicremesher.cppm`) —
-  imports `progress`, `vector3`.
-
-Not yet converted (plain headers + implementation units, reached via
-the `<AutoRemesher/...>` forwarders in `core/include/`):
-
-- `core/autoremesher.h` / `core/autoremesher.cpp` — the pipeline
-  orchestrator (`AutoRemesher::AutoRemesher`: target counts, model
-  type, adaptivity/anisotropy, sharp/smooth angles, symmetry, `remesh()`).
-  The header imports `progress`, `symmetry`, `vector2`, and `vector3`;
-  the implementation unit imports `isotropic_remesher`,
-  `mesh_separator`, `parameterizer`, `quad_extractor`, and `symmetry`.
-- `core/objreader.h` / `core/objreader.cpp` — the OBJ loader
-  (`loadObjPositionsAndTriangles`, with ear-clip triangulation of
-  polygonal faces).
+Shared helpers: `vector2`, `vector3`, `double_utils`, `surface_mesh`
+(half-edge container), `progress` (thread-safe progress callbacks), and
+`par` (deterministic scoped-thread data parallelism; islands also run
+in parallel). Every stage is bit-deterministic run-to-run.
 
 ## The Blender temp-OBJ subprocess round-trip
 
@@ -153,7 +99,8 @@ completion.
 
 Binary resolution (`find_retopo_binary`): the explicit *Retopo CLI*
 path in the add-on preferences first, then `PATH`, then
-`build/cli/retopo` relative to a retopoforge checkout. The sidebar
+`rust/target/{release,debug}/retopo` relative to a retopoforge
+checkout. The sidebar
 panel (`VIEW_3D` / `UI` region, *RetopoForge* tab) shows a
 found/missing status box, the **Remesh Selected** button, the ten
 parameters (seven CLI flags plus *Apply Modifiers*, *Keep Original*,

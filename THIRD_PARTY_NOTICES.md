@@ -1,37 +1,23 @@
 # Third-party notices (retopoforge)
 
 retopoforge itself is MIT licensed (see `LICENSE`, copyright Jeremy HU and
-contributors). The binaries below additionally include or link the following
-third-party software. Full license texts live next to each dependency under
-`thirdparty/` and in digest form in `ACKNOWLEDGEMENTS.html`.
+contributors): the Rust engine is a port of Jeremy HU's AutoRemesher. The
+`retopo` binary additionally includes the following third-party software.
+Full license texts live in `ACKNOWLEDGEMENTS.html` (and next to the
+vendored source under `thirdparty/`).
 
-## Headless engine (`retopo` CLI and `retopo_core` library, CMake build)
+## `retopo` CLI and `retopo_core` library (cargo build)
 
 | Dependency | License | How it is used | Full text |
 |---|---|---|---|
-| Eigen | MPL 2.0 (some files BSD/MPL2-compatible) | Header-only linear algebra | `thirdparty/eigen/COPYING.*` |
-| oneTBB | Apache-2.0 | Linked from the system install (Homebrew `tbb` / apt `libtbb-dev`) | https://github.com/oneapi-src/oneTBB |
-| meshoptimizer | MIT | `simplifier.cpp`, `indexgenerator.cpp` compiled in | `thirdparty/meshoptimizer/LICENSE.md` |
-| isotropicremesher | MIT (Jeremy HU) | Compiled in | `thirdparty/isotropicremesher/LICENSE` |
-| cgltf v1.15 | MIT (Johannes Kuhlmann) | Header-only GLB input parser, CLI only | `thirdparty/cgltf/LICENSE` |
-| zlib | zlib license | Linked on Unix | system / `ACKNOWLEDGEMENTS.html` |
-| Apple Accelerate | System framework (macOS only) | BLAS/LAPACK via `Eigen/AccelerateSupport` | system |
+| meshoptimizer | MIT (Arseny Kapoulkine) | `simplifier.cpp`, `indexgenerator.cpp` compiled in via `rust/core/build.rs` | `thirdparty/meshoptimizer/LICENSE.md` |
+| isotropicremesher | MIT (Jeremy HU) | Ported to Rust (`iso_remesh_kernel.rs`, `isotropic_remesher.rs`) | `ACKNOWLEDGEMENTS.html` |
+| faer (MIT) and its dependency crates | Permissive per crate: mostly MIT and/or Apache-2.0, plus BSD-2-Clause, Unicode-3.0, Zlib, Unlicense options | Sparse/dense linear algebra for the solvers | crate sources; full set pinned in `rust/Cargo.lock` |
+| cc (build-time only) | MIT / Apache-2.0 | Compiles meshoptimizer; not shipped | crate source |
 
-None of the above is GPL. Eigen's MPL 2.0 is file-level copyleft only and
-explicitly permits distribution in larger MIT-licensed works; keep its
-`COPYING.*` notices with any binary distribution, plus TBB's Apache-2.0
-`NOTICE` attribution.
-
-## Qt desktop app (`retopoforge` target only)
-
-Everything above, plus:
-
-| Dependency | License | How it is used |
-|---|---|---|
-| Qt 5 / Qt 6 | LGPLv3 (dynamically linked) | GUI, OpenGL widgets |
-| QuantumCD dark Fusion palette | Credit (design reference) | Color values inspired by https://gist.github.com/QuantumCD/6245215 |
-
-Qt is used under the LGPL via dynamic linking; no GPL obligations arise from it.
+None of the above is GPL. The Blender extension (`blender/`) is
+GPL-3.0-or-later as Blender requires; it talks to the MIT engine only as a
+subprocess, never links it.
 
 ## Test and benchmark data (not shipped in binaries)
 
@@ -43,6 +29,6 @@ Qt is used under the LGPL via dynamic linking; no GPL obligations arise from it.
 Upstream AutoRemesher used GPL-licensed libraries (CoMISo, libQEx, CGAL)
 before version 1.0.0 and reimplemented them for its MIT relicense
 ("Relicense from GPLv3 to MIT (reimplemented MIT-incompatible dependencies)").
-Those dependencies are not present in this tree: `ACKNOWLEDGEMENTS.html` was
-audited at fork time and now lists only dependencies verified to be in the
-source tree or the build.
+Those dependencies are not present in this tree. The frozen C++ port of
+the engine (with Eigen, oneTBB, cgltf, zlib and Apple Accelerate) was
+removed after the Rust switch.

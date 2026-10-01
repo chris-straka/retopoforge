@@ -11,7 +11,7 @@ bench/profile.py                               # dragon, 50k quads, 3 runs
 bench/profile.py --repeat 1 --json /tmp/p.json # single run + JSON detail
 ```
 
-The profiler runs the built `build/cli/retopo` on one mesh, measures
+The profiler runs the built `rust/target/release/retopo` on one mesh, measures
 wall time and peak child RSS, and parses the engine's phase report off
 stderr. Exit code is 0 on success, 1 when a run fails, 2 on bad usage.
 
