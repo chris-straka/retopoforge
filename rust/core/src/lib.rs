@@ -24,5 +24,7 @@ pub mod symmetry;
 pub mod quad_parameterizer;
 // Wave 3 lane: rs-guides.
 pub mod guides;
-// Wave 3 lane: rs-framefield (+ private Guides mirrors, pending dedup).
+// Wave 3 lane: rs-framefield (vendored Guides mirrors deduped at join).
 pub mod frame_field;
+// Wave 3 lane: rs-singularitysimplifier.
+pub mod singularity_simplifier;
