@@ -6527,7 +6527,15 @@ impl<'a> QuadExtractor<'a> {
 
         let compacted = self.compact_vertices(&merged_vertices);
 
-        self.diagnose(|| format!("Merge shared five edge faces:{merge_count}\n"));
+        // Gate on the parked handler: the caller parks
+        // `self.progress_handler` in an `Arc` while this runs (borrow
+        // restructure), so `diagnose()` would stay silent here —
+        // `progress` is `Some` exactly when the outer handler exists
+        // (the C++ `m_progressHandler` gate), with
+        // `self.progress_handler` kept as the direct-call fallback.
+        if progress.is_some() || self.progress_handler.is_some() {
+            eprint!("Merge shared five edge faces:{merge_count}\n");
+        }
         self.rebuild_half_edges();
 
         // The two pentagons closed up around the merged point, pull the
