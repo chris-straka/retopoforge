@@ -33,11 +33,12 @@ push main from lanes (explicit refspec only); game assets never committed.
 
 - [x] Solvers first (calibration): CLS + MILS in `retopo_solvers` (faer),
       9+5 goldens, 200+200 differential cases — verdict: viable
-- [x] Core batch, 15 modules: double_utils, progress, obj_reader,
+- [x] Core batch, 16 modules: double_utils, progress, obj_reader,
       mesh_separator, vector2+vector3 (FMA-exact, bitwise), position_key,
       surface_mesh, density, symmetry, isotropic_remesher (+kernel),
       quad_parameterizer, guides, frame_field, singularity_simplifier
-      (sincos-fusion root cause, bitwise oracle)
+      (sincos-fusion root cause, bitwise oracle), parameterizer
+      (PPX-documented, vendored singularity deduped at join)
 - [ ] Finisher running: quad_extractor (largest module, mid-port)
 - [ ] Fresh lanes running: glb IO (std-only reader, byte-identical
       writer), parameterizer (vendored singularity queries, dedup at join)
