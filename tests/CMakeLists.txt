@@ -178,6 +178,14 @@ add_executable(objreader_diff_dump objreader_diff_dump.cpp)
 set_target_properties(objreader_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(objreader_diff_dump PRIVATE retopo_core)
 
+# Differential oracle dump for the isotropic_remesher Rust port
+# (rs-isotropicremesher lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/isoremesh_diff.txt for
+# rust/core/tests/isotropic_remesher_diff.rs.
+add_executable(isoremesh_diff_dump isoremesh_diff_dump.cpp)
+set_target_properties(isoremesh_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(isoremesh_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
 retopo_add_test(test_island_stats test_island_stats.cpp)
