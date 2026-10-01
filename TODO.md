@@ -282,6 +282,10 @@ and QtAwesome deleted as dead code before the removal.
 - [ ] Corner singularities under crossing sharps: full closed cages
       over-constrain and distort. Fix the corner-mark radius/strength
       handling (currently documented as "keep it small").
+- [ ] Case-156 C++ heap-OOB read on DENSITY-3 inputs (found by port
+      forensics, engine bisection): C++ values derive from UB —
+      EPX-by-UB in the oracle, never match; exclude the input class in
+      main-lane e2e. No C++ fix (being replaced).
 - [ ] Density-aware pole placement (research): strong localized
       refinement saturates (~2.3x for 4x asks) because poles are
       sizing-unaware. Placing poles for the density field would unlock
