@@ -37,12 +37,18 @@ REPORT_METRICS = ("quads", "yield", "irr_pct", "angdev_mean", "angdev_p95",
 
 
 def write_jittered(verts, faces, path, seed, diag):
+    # Identical positions get identical offsets: exports split vertices
+    # at uv seams, and independent jitter would unweld them (topology
+    # change, not noise).
     rng = random.Random(seed)
     eps = JITTER * diag
+    offsets = {}
     with open(path, "w") as f:
         for v in verts:
+            if v not in offsets:
+                offsets[v] = tuple((rng.random() - 0.5) * eps for _ in v)
             f.write("v %.17g %.17g %.17g\n" % tuple(
-                c + (rng.random() - 0.5) * eps for c in v))
+                c + o for c, o in zip(v, offsets[v])))
         for face in faces:
             f.write("f " + " ".join(str(i + 1) for i in face) + "\n")
 
