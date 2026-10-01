@@ -8,10 +8,11 @@
 //! - the TBB data-parallel loops run sequentially (every one is a disjoint
 //!   per-element write, so the C++ is already deterministic and the op order
 //!   per element is unchanged);
-//! - `Guides::influenceRadius` / `Guides::tangentNear` are private minimal
-//!   mirrors (the only guide queries this module calls): the guides lane
-//!   ports them concurrently, so this file stays self-contained until the
-//!   coordinator dedups it (see the vendored section below);
+//! - `Guides::influenceRadius` / `Guides::tangentNear` were private
+//!   minimal mirrors while the guides lane was in flight; both are
+//!   deduped against the joined sibling port now (the dedup also fixed
+//!   a latent NaN bug: the mirror used Rust `.min/.max`, the sibling
+//!   uses C++-exact `cxx_min/cxx_max`);
 //! - `Eigen::SelfAdjointEigenSolver<Matrix3d>` becomes a small self-contained
 //!   cyclic Jacobi eigensolver (no Eigen on the Rust side); the eigenvalue
 //!   index sort is a stable insertion sort, matching libc++/libstdc++
@@ -33,6 +34,7 @@
 //! restructure replaces algorithmically (nothing to fuse against); the
 //! oracle's 1e-6 tolerance covers its backend-class noise.
 
+use crate::guides::Guides;
 use crate::surface_mesh::SurfaceMesh;
 use crate::vector3::Vector3;
 use retopo_solvers::constrained::ConstrainedLeastSquares;
@@ -167,64 +169,6 @@ fn symmetric_eigen_3x3(matrix: &[[f64; 3]; 3]) -> Option<([f64; 3], [[f64; 3]; 3
     Some((values, v))
 }
 
-// ---- Vendored guides queries (pending coordinator dedup) ----
-// Minimal private mirrors of the exact `Guides` queries this module calls
-// (`Guides::influenceRadius`, `Guides::tangentNear`, 1:1 snake_cased per the
-// lane contract so the coordinator can rewire these call sites to the joined
-// guides port and re-run the oracle). The `tangent_near` body matches the
-// quadparameterizer lane's proven private mirror line for line.
-
-/// Private mirror of `Guides::influenceRadius`. Pending coordinator dedup.
-fn influence_radius(mesh: &SurfaceMesh) -> f64 {
-    6.0 * mesh.average_edge_length()
-}
-
-/// Private mirror of `Guides::tangentNear`. Pending coordinator dedup.
-fn tangent_near(
-    guides: &[Vec<Vector3>],
-    point: &Vector3,
-    normal: &Vector3,
-    radius: f64,
-) -> Vector3 {
-    if !(radius > 0.0) {
-        return Vector3::default();
-    }
-    let radius_squared = radius * radius;
-    let mut best_direction = Vector3::default();
-    let mut best_distance_squared = radius_squared;
-    let mut found = false;
-    for polyline in guides {
-        for i in 0..polyline.len().saturating_sub(1) {
-            let delta = polyline[i + 1] - polyline[i];
-            let length = delta.length();
-            if length <= 1e-12 {
-                continue;
-            }
-            let direction = delta / length;
-            let rel = *point - polyline[i];
-            let along = Vector3::dot_product(&rel, &direction).min(length).max(0.0);
-            let proj = polyline[i] + direction * along;
-            let diff = *point - proj;
-            let distance_squared = diff.length_squared();
-            if distance_squared < best_distance_squared {
-                best_distance_squared = distance_squared;
-                best_direction = direction;
-                found = true;
-            }
-        }
-    }
-    if !found {
-        return Vector3::default();
-    }
-    let tangent = best_direction - Vector3::dot_product(&best_direction, normal) * *normal;
-    if tangent.length() <= 0.5 {
-        return Vector3::default();
-    }
-    tangent.normalized()
-}
-
-// ---- End of vendored guides queries ----
-
 fn lock_guide_faces(
     mesh: &SurfaceMesh,
     facet_bases: &[FacetTangentBasis],
@@ -232,7 +176,7 @@ fn lock_guide_faces(
     periodic: &mut [f64],
     locked: &mut [bool],
 ) {
-    let radius = influence_radius(mesh);
+    let radius = Guides::influence_radius(mesh);
     for face_index in 0..mesh.face_count() {
         if locked[face_index] {
             continue;
@@ -242,7 +186,8 @@ fn lock_guide_faces(
             + *mesh.position(triangle[1])
             + *mesh.position(triangle[2]))
             / 3.0;
-        let tangent = tangent_near(guides, &centroid, &facet_bases[face_index].normal, radius);
+        let tangent =
+            Guides::tangent_near(guides, &centroid, &facet_bases[face_index].normal, radius);
         if tangent.length() <= 1e-12 {
             continue;
         }
@@ -274,7 +219,8 @@ fn lock_sharp_faces(
             + *mesh.position(triangle[1])
             + *mesh.position(triangle[2]))
             / 3.0;
-        let tangent = tangent_near(sharps, &centroid, &facet_bases[face_index].normal, radius);
+        let tangent =
+            Guides::tangent_near(sharps, &centroid, &facet_bases[face_index].normal, radius);
         if tangent.length() <= 1e-12 {
             continue;
         }
