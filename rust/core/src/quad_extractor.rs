@@ -1025,6 +1025,176 @@ impl<V> Extend<(usize, V)> for CxxMap<V> {
 }
 
 // ---------------------------------------------------------------------------
+// Sorted per-round indexes for the fixpoint passes.
+// ---------------------------------------------------------------------------
+//
+// The collapse/merge/cleanup passes rebuild adjacency maps over all faces
+// every round. `BTreeMap` builds malloc per entry (150k+ allocs/round at
+// 50k faces); these sorted-vector indexes collect (key, value) pairs in
+// face order, sort once, and group — identical keys, values, and order to
+// the `BTreeMap` builds (stable sort over face-ordered pairs keeps
+// face-index vecs ascending; neighbor pairs dedup to the same sets),
+// with a handful of allocations per round. Lookups are binary searches
+// with identical hit/miss/value behavior. Equivalence is proved by
+// `fixpoint_indexes_match_btree` plus the pipeline bitwise checks.
+
+/// Sorted `(edge, face)` groups: identical keys, face-index vecs
+/// (ascending face order), and group order to the per-round
+/// `BTreeMap<(usize, usize), Vec<usize>>` build.
+struct EdgeFaceIndex {
+    edges: Vec<(usize, usize)>,
+    starts: Vec<usize>,
+    faces: Vec<usize>,
+}
+
+impl EdgeFaceIndex {
+    fn build(polygons: &[Vec<usize>]) -> Self {
+        let mut pairs: Vec<((usize, usize), usize)> = Vec::new();
+        for (face_index, face) in polygons.iter().enumerate() {
+            for i in 0..face.len() {
+                pairs.push((
+                    QuadExtractor::edge_of(face[i], face[(i + 1) % face.len()]),
+                    face_index,
+                ));
+            }
+        }
+        // Stable: pairs start in face order, so each edge's group keeps
+        // ascending face order exactly like the serial `push` build.
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut edges = Vec::new();
+        let mut starts = Vec::new();
+        let mut faces = Vec::new();
+        let mut i = 0;
+        while i < pairs.len() {
+            let edge = pairs[i].0;
+            edges.push(edge);
+            starts.push(faces.len());
+            while i < pairs.len() && pairs[i].0 == edge {
+                faces.push(pairs[i].1);
+                i += 1;
+            }
+        }
+        starts.push(faces.len());
+        Self {
+            edges,
+            starts,
+            faces,
+        }
+    }
+
+    /// Faces incident to `edge` in ascending face order (`None` when absent).
+    fn get(&self, edge: &(usize, usize)) -> Option<&[usize]> {
+        let group = self.edges.binary_search(edge).ok()?;
+        Some(&self.faces[self.starts[group]..self.starts[group + 1]])
+    }
+
+    /// `(edge, faces)` groups in ascending edge order.
+    fn groups(&self) -> impl Iterator<Item = ((usize, usize), &[usize])> + '_ {
+        self.edges.iter().enumerate().map(|(group, edge)| {
+            (
+                *edge,
+                &self.faces[self.starts[group]..self.starts[group + 1]],
+            )
+        })
+    }
+}
+
+/// Sorted `(vertex, neighbor)` groups, deduped: identical keys and
+/// ascending neighbor order to the per-round
+/// `BTreeMap<usize, BTreeSet<usize>>` build.
+struct NeighborIndex {
+    verts: Vec<usize>,
+    starts: Vec<usize>,
+    neighbors: Vec<usize>,
+}
+
+impl NeighborIndex {
+    fn build(polygons: &[Vec<usize>]) -> Self {
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
+        for face in polygons {
+            for i in 0..face.len() {
+                let j = (i + 1) % face.len();
+                pairs.push((face[i], face[j]));
+                pairs.push((face[j], face[i]));
+            }
+        }
+        pairs.sort();
+        pairs.dedup();
+        let mut verts = Vec::new();
+        let mut starts = Vec::new();
+        let mut neighbors = Vec::new();
+        let mut i = 0;
+        while i < pairs.len() {
+            let vert = pairs[i].0;
+            verts.push(vert);
+            starts.push(neighbors.len());
+            while i < pairs.len() && pairs[i].0 == vert {
+                neighbors.push(pairs[i].1);
+                i += 1;
+            }
+        }
+        starts.push(neighbors.len());
+        Self {
+            verts,
+            starts,
+            neighbors,
+        }
+    }
+
+    /// Neighbors of `vertex` in ascending order (`None` when absent).
+    fn get(&self, vertex: &usize) -> Option<&[usize]> {
+        let group = self.verts.binary_search(vertex).ok()?;
+        Some(&self.neighbors[self.starts[group]..self.starts[group + 1]])
+    }
+
+    /// Neighbors of `vertex`, or an empty slice when absent (every face
+    /// vertex is present by construction; the empty case is unreachable
+    /// but total, unlike `BTreeMap` indexing).
+    fn get_or_empty(&self, vertex: &usize) -> &[usize] {
+        self.get(vertex).unwrap_or(&[])
+    }
+}
+
+/// Sorted `(vertex, face count)` runs: identical keys and counts to the
+/// per-round `BTreeMap<usize, usize>` vertex-face-count build.
+struct FaceCountIndex {
+    verts: Vec<usize>,
+    counts: Vec<usize>,
+}
+
+impl FaceCountIndex {
+    fn build(polygons: &[Vec<usize>]) -> Self {
+        let mut verts: Vec<usize> = Vec::new();
+        for face in polygons {
+            verts.extend(face.iter().copied());
+        }
+        verts.sort_unstable();
+        let mut keys = Vec::new();
+        let mut counts = Vec::new();
+        let mut i = 0;
+        while i < verts.len() {
+            let vert = verts[i];
+            let mut count = 0;
+            while i < verts.len() && verts[i] == vert {
+                count += 1;
+                i += 1;
+            }
+            keys.push(vert);
+            counts.push(count);
+        }
+        Self {
+            verts: keys,
+            counts,
+        }
+    }
+
+    fn get(&self, vertex: &usize) -> Option<&usize> {
+        let slot = self.verts.binary_search(vertex).ok()?;
+        Some(&self.counts[slot])
+    }
+}
+
+// ---------------------------------------------------------------------------
 // QuadExtractor.
 // ---------------------------------------------------------------------------
 
@@ -4186,28 +4356,16 @@ impl<'a> QuadExtractor<'a> {
         let mut collapsed_vertices = BTreeSet::new();
         let mut collapse_count = 0;
         loop {
-            let mut edge_faces: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
-            let mut vertex_neighbors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-            let mut vertex_face_counts: BTreeMap<usize, usize> = BTreeMap::new();
-            for (face_index, face) in self.remeshed_polygons.iter().enumerate() {
-                for i in 0..face.len() {
-                    let j = (i + 1) % face.len();
-                    edge_faces
-                        .entry(Self::edge_of(face[i], face[j]))
-                        .or_default()
-                        .push(face_index);
-                    vertex_neighbors.entry(face[i]).or_default().insert(face[j]);
-                    vertex_neighbors.entry(face[j]).or_default().insert(face[i]);
-                }
-                for vertex in face {
-                    *vertex_face_counts.entry(*vertex).or_default() += 1;
-                }
-            }
+            // Sorted-vector rebuild (identical keys/values/order to the
+            // `BTreeMap` builds, a handful of allocs instead of 200k+).
+            let edge_faces = EdgeFaceIndex::build(&self.remeshed_polygons);
+            let vertex_neighbors = NeighborIndex::build(&self.remeshed_polygons);
+            let vertex_face_counts = FaceCountIndex::build(&self.remeshed_polygons);
 
             // A three valence point on a border is what a border looks
             // like, not a defect
             let mut border_vertices = BTreeSet::new();
-            for (edge, faces) in &edge_faces {
+            for (edge, faces) in edge_faces.groups() {
                 if 2 == faces.len() {
                     continue;
                 }
@@ -4215,8 +4373,7 @@ impl<'a> QuadExtractor<'a> {
                 border_vertices.insert(edge.1);
             }
 
-            let neighbor_count = |vertex_neighbors: &BTreeMap<usize, BTreeSet<usize>>,
-                                  vertex: usize| {
+            let neighbor_count = |vertex_neighbors: &NeighborIndex, vertex: usize| {
                 vertex_neighbors
                     .get(&vertex)
                     .map_or(0, |neighbors| neighbors.len())
@@ -4318,15 +4475,15 @@ impl<'a> QuadExtractor<'a> {
             let added_position =
                 (self.remeshed_vertices[first] + self.remeshed_vertices[second]) * 0.5;
 
-            let mut rewritten = Vec::with_capacity(self.remeshed_polygons.len());
-            let mut affected = Vec::with_capacity(self.remeshed_polygons.len());
-            let mut valid = true;
-            for face_index in 0..self.remeshed_polygons.len() {
-                if !valid {
-                    break;
-                }
+            // Per-face remap is independent given the fixed collapse
+            // pair; validation keeps its serial face-order scan (same
+            // checks, same order, same early exit), so the outcome is
+            // identical.
+            let mut remapped: Vec<(Option<Vec<usize>>, bool)> =
+                vec![(None, false); self.remeshed_polygons.len()];
+            parallel_each(&mut remapped, |face_index, slot| {
                 if collapsing_face == face_index {
-                    continue;
+                    return;
                 }
                 let face = &self.remeshed_polygons[face_index];
                 let mut face_affected = false;
@@ -4337,9 +4494,8 @@ impl<'a> QuadExtractor<'a> {
                     }
                 }
                 if !face_affected {
-                    rewritten.push(face.clone());
-                    affected.push(false);
-                    continue;
+                    *slot = (Some(face.clone()), false);
+                    return;
                 }
                 let mut candidate = Vec::with_capacity(face.len());
                 for vertex in face {
@@ -4354,6 +4510,24 @@ impl<'a> QuadExtractor<'a> {
                 }
                 if candidate.len() > 1 && candidate[0] == candidate[candidate.len() - 1] {
                     candidate.pop();
+                }
+                *slot = (Some(candidate), true);
+            });
+            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
+            let mut affected = Vec::with_capacity(self.remeshed_polygons.len());
+            let mut valid = true;
+            for (face_index, (candidate, face_affected)) in remapped.into_iter().enumerate() {
+                if !valid {
+                    break;
+                }
+                let Some(candidate) = candidate else {
+                    continue;
+                };
+                let face = &self.remeshed_polygons[face_index];
+                if !face_affected {
+                    rewritten.push(candidate);
+                    affected.push(false);
+                    continue;
                 }
                 // The quad is the only face allowed to disappear, the fans
                 // around the pair keep every side they came in with
@@ -5796,7 +5970,7 @@ impl<'a> QuadExtractor<'a> {
     /// failure, so one `Option` carries the same outcome.
     fn walk_cleanup_route(
         polygons: &[Vec<usize>],
-        edge_faces: &BTreeMap<(usize, usize), Vec<usize>>,
+        edge_faces: &EdgeFaceIndex,
         start_face: usize,
         start_edge: (usize, usize),
     ) -> Option<CleanupRoute> {
@@ -5891,15 +6065,9 @@ impl<'a> QuadExtractor<'a> {
         let mut collapsed_vertices = BTreeSet::new();
         let mut collapse_count = 0;
         loop {
-            let mut edge_faces: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
-            for (face_index, face) in self.remeshed_polygons.iter().enumerate() {
-                for i in 0..face.len() {
-                    edge_faces
-                        .entry(Self::edge_of(face[i], face[(i + 1) % face.len()]))
-                        .or_default()
-                        .push(face_index);
-                }
-            }
+            // Sorted-vector rebuild (identical keys/values/order to the
+            // `BTreeMap` build, a handful of allocs instead of 100k+).
+            let edge_faces = EdgeFaceIndex::build(&self.remeshed_polygons);
 
             let mut route: Vec<(usize, usize)> = Vec::new();
             let mut route_faces = BTreeSet::new();
@@ -5950,11 +6118,12 @@ impl<'a> QuadExtractor<'a> {
                 );
             }
 
-            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
-            let mut touched_faces = BTreeSet::new();
-            let mut touched_edge_counts: BTreeMap<(usize, usize), usize> = BTreeMap::new();
-            let mut valid = true;
-            for face_index in 0..self.remeshed_polygons.len() {
+            // Per-face remap is independent given the fixed route maps;
+            // validation keeps its serial face-order scan (same checks,
+            // same order, same early exit), so the outcome is identical.
+            let mut remapped: Vec<(Vec<usize>, bool, bool)> =
+                vec![(Vec::new(), false, false); self.remeshed_polygons.len()];
+            parallel_each(&mut remapped, |face_index, slot| {
                 let face = &self.remeshed_polygons[face_index];
                 let mut candidate = Vec::with_capacity(face.len());
                 let mut touched = false;
@@ -5976,6 +6145,14 @@ impl<'a> QuadExtractor<'a> {
                 // the sink which gives up exactly one side
                 let dissolving = route_faces.contains(&face_index)
                     || (face_index == route_sink && 3 == face.len());
+                *slot = (candidate, touched, dissolving);
+            });
+            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
+            let mut touched_faces = BTreeSet::new();
+            let mut touched_edge_counts: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+            let mut valid = true;
+            for (face_index, (candidate, touched, dissolving)) in remapped.into_iter().enumerate() {
+                let face = &self.remeshed_polygons[face_index];
                 if dissolving {
                     if candidate.len() >= 3 {
                         valid = false;
@@ -6189,27 +6366,18 @@ impl<'a> QuadExtractor<'a> {
                     "Merging shared five edge faces",
                 );
             }
-            let mut edge_faces: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
-            let mut vertex_neighbors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-            for (face_index, face) in self.remeshed_polygons.iter().enumerate() {
-                for i in 0..face.len() {
-                    let j = (i + 1) % face.len();
-                    edge_faces
-                        .entry(Self::edge_of(face[i], face[j]))
-                        .or_default()
-                        .push(face_index);
-                    vertex_neighbors.entry(face[i]).or_default().insert(face[j]);
-                    vertex_neighbors.entry(face[j]).or_default().insert(face[i]);
-                }
-            }
+            // Sorted-vector rebuild (identical keys/values/order to the
+            // `BTreeMap` build, a handful of allocs instead of 150k+).
+            let edge_faces = EdgeFaceIndex::build(&self.remeshed_polygons);
+            let vertex_neighbors = NeighborIndex::build(&self.remeshed_polygons);
 
             let mut shared_edge = (0, 0);
             let mut found_shared = false;
-            for (edge, faces) in &edge_faces {
+            for (edge, faces) in edge_faces.groups() {
                 if 2 != faces.len() {
                     continue;
                 }
-                if rejected_edges.contains(edge) {
+                if rejected_edges.contains(&edge) {
                     continue;
                 }
                 let mut both_five_edges = true;
@@ -6223,15 +6391,16 @@ impl<'a> QuadExtractor<'a> {
                 if !both_five_edges {
                     continue;
                 }
-                // Present by construction (edge endpoints are used).
-                let mut neighbors = vertex_neighbors[&edge.0].clone();
-                neighbors.extend(vertex_neighbors[&edge.1].iter().copied());
+                // Endpoints are present by construction (used vertices).
+                let mut neighbors = BTreeSet::new();
+                neighbors.extend(vertex_neighbors.get_or_empty(&edge.0).iter().copied());
+                neighbors.extend(vertex_neighbors.get_or_empty(&edge.1).iter().copied());
                 neighbors.remove(&edge.0);
                 neighbors.remove(&edge.1);
                 if neighbors.len() > MAX_MERGED_VALENCE {
                     continue;
                 }
-                shared_edge = *edge;
+                shared_edge = edge;
                 found_shared = true;
                 break;
             }
@@ -6244,10 +6413,14 @@ impl<'a> QuadExtractor<'a> {
             let unmoved_vertex = self.remeshed_vertices.len();
             let keep_position =
                 (self.remeshed_vertices[keep] + self.remeshed_vertices[remove]) * 0.5;
-            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
-            let mut affected = Vec::with_capacity(self.remeshed_polygons.len());
-            let mut valid = true;
-            for face in &self.remeshed_polygons {
+            // Per-face remap is independent given the fixed (keep,
+            // remove) pair; validation keeps its serial face-order scan
+            // (same checks, same order, same early exit), so the outcome
+            // is identical.
+            let mut remapped: Vec<(Vec<usize>, bool)> =
+                vec![(Vec::new(), false); self.remeshed_polygons.len()];
+            parallel_each(&mut remapped, |face_index, slot| {
+                let face = &self.remeshed_polygons[face_index];
                 let mut face_affected = false;
                 for vertex in face {
                     if keep == *vertex || remove == *vertex {
@@ -6265,6 +6438,12 @@ impl<'a> QuadExtractor<'a> {
                 if candidate.len() > 1 && candidate[0] == candidate[candidate.len() - 1] {
                     candidate.pop();
                 }
+                *slot = (candidate, face_affected);
+            });
+            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
+            let mut affected = Vec::with_capacity(self.remeshed_polygons.len());
+            let mut valid = true;
+            for (face, (candidate, face_affected)) in self.remeshed_polygons.iter().zip(remapped) {
                 if face_affected {
                     // The two five edge faces become quads, no other face
                     // is allowed to degrade, otherwise the merge is
@@ -7192,5 +7371,99 @@ mod cxx_hash_tests {
             check_maps(&old_map, &new_map, &format!("scale stride {stride} reused"));
         }
         println!("cxx_containers_differential: {SEEDS} seeds x {STEPS} steps + scale cases green");
+    }
+
+    /// The sorted per-round indexes reproduce the `BTreeMap` builds
+    /// exactly: identical keys, values, group order, and lookup behavior
+    /// (hits, misses, and face-list order) over polygon soups including
+    /// degenerate faces.
+    #[test]
+    fn fixpoint_indexes_match_btree() {
+        let cases: Vec<Vec<Vec<usize>>> = vec![
+            vec![],
+            vec![vec![0, 1, 2]],
+            vec![vec![0, 1, 2, 3], vec![3, 2, 4], vec![4, 5, 6, 7, 8]],
+            // Shared edges in both windings, repeated vertices, a
+            // two-sided sliver, and an unused vertex id (9) for misses.
+            vec![
+                vec![0, 1, 2, 3],
+                vec![3, 2, 1, 0],
+                vec![2, 3, 4],
+                vec![4, 4, 5],
+                vec![6, 7],
+                vec![7, 6, 7],
+            ],
+            // A grid-ish strip (every interior edge shared by two faces).
+            (0..40)
+                .map(|r| (0..4).map(|c| r * 4 + c).collect::<Vec<_>>())
+                .collect(),
+        ];
+        for (case_index, polygons) in cases.iter().enumerate() {
+            let context = format!("case {case_index}");
+            // Reference: the exact serial `BTreeMap` builds the passes used.
+            let mut edge_faces: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+            let mut vertex_neighbors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+            let mut vertex_face_counts: BTreeMap<usize, usize> = BTreeMap::new();
+            for (face_index, face) in polygons.iter().enumerate() {
+                for i in 0..face.len() {
+                    let j = (i + 1) % face.len();
+                    edge_faces
+                        .entry(QuadExtractor::edge_of(face[i], face[j]))
+                        .or_default()
+                        .push(face_index);
+                    vertex_neighbors.entry(face[i]).or_default().insert(face[j]);
+                    vertex_neighbors.entry(face[j]).or_default().insert(face[i]);
+                }
+                for vertex in face {
+                    *vertex_face_counts.entry(*vertex).or_default() += 1;
+                }
+            }
+            // Edge groups: same keys, same ascending face vecs, same order.
+            let edge_index = EdgeFaceIndex::build(polygons);
+            let expected_groups: Vec<((usize, usize), Vec<usize>)> =
+                edge_faces.into_iter().collect();
+            let index_groups: Vec<((usize, usize), Vec<usize>)> = edge_index
+                .groups()
+                .map(|(edge, faces)| (edge, faces.to_vec()))
+                .collect();
+            assert_eq!(index_groups, expected_groups, "groups {context}");
+            // Edge lookups: same hits (order included) and misses.
+            let mut probe_edges: Vec<(usize, usize)> =
+                index_groups.iter().map(|(edge, _)| *edge).collect();
+            probe_edges.extend([(0, 9), (9, 9), (100, 200)]);
+            for edge in &probe_edges {
+                let expected = expected_groups
+                    .iter()
+                    .find(|(key, _)| key == edge)
+                    .map(|(_, faces)| faces.as_slice());
+                assert_eq!(edge_index.get(edge), expected, "edge {edge:?} {context}");
+            }
+            // Neighbor lookups: same sets (ascending) and misses.
+            let neighbor_index = NeighborIndex::build(polygons);
+            for vertex in 0..12 {
+                let expected: Option<Vec<usize>> = vertex_neighbors
+                    .get(&vertex)
+                    .map(|set| set.iter().copied().collect());
+                assert_eq!(
+                    neighbor_index.get(&vertex).map(|s| s.to_vec()),
+                    expected,
+                    "neighbors {vertex} {context}"
+                );
+                assert_eq!(
+                    neighbor_index.get_or_empty(&vertex),
+                    expected.as_deref().unwrap_or(&[]),
+                    "neighbors-or-empty {vertex} {context}"
+                );
+            }
+            // Face counts: same keys, counts, and misses.
+            let count_index = FaceCountIndex::build(polygons);
+            for vertex in 0..12 {
+                assert_eq!(
+                    count_index.get(&vertex).copied(),
+                    vertex_face_counts.get(&vertex).copied(),
+                    "counts {vertex} {context}"
+                );
+            }
+        }
     }
 }
