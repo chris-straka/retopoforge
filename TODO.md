@@ -42,7 +42,10 @@ push main from lanes (explicit refspec only); game assets never committed.
       quad_extractor (libc++ hash emulation, 227-case bitwise oracle;
       PositionKey/box-tree vendors deduped at join), autoremesher engine
       (295-case oracle, sincos-bisection fix, meshopt stays C++ via FFI)
-- [ ] Main lane running (acceptance gate; C++-nondeterminism-aware e2e)
+- [x] Main lane joined (acceptance gate green: 50 arg + 20 IO +
+      37 remesh with adaptive C++ census; stderr story specced, not
+      restored — see gap precedent; hex-float/nan(payload) specified
+      divergence)
 - [x] CLI glb IO joined (std-only reader, byte-identical writer;
       14/235 transform-path cases scale-aware, fmuladd has no bitwise
       contract there)
@@ -287,6 +290,11 @@ and QtAwesome deleted as dead code before the removal.
       forensics, engine bisection): C++ values derive from UB —
       EPX-by-UB in the oracle, never match; exclude the input class in
       main-lane e2e. No C++ fix (being replaced).
+- [ ] Merge-five-faces path divergence (found by e2e forensics): Rust
+      extractor systematically skips five-merges C++ takes (30/30 vs
+      0/777 stderr counts) with byte-identical meshes today — diagnose
+      the path difference post-switch (same mesh, different route;
+      seven-splits preventively allowlisted, same pattern).
 - [ ] Density-aware pole placement (research): strong localized
       refinement saturates (~2.3x for 4x asks) because poles are
       sizing-unaware. Placing poles for the density field would unlock
