@@ -150,6 +150,14 @@ add_executable(solver_diff_dump solver_diff_dump.cpp)
 set_target_properties(solver_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(solver_diff_dump PRIVATE retopo_core)
 
+# Differential oracle dump for the obj_reader Rust port (rs-objreader lane).
+# Build-only helper (not a ctest test): run it with the fixtures dir and
+# redirect stdout to tests/fixtures/objreader_diff.txt for
+# rust/core/tests/obj_reader_diff.rs.
+add_executable(objreader_diff_dump objreader_diff_dump.cpp)
+set_target_properties(objreader_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(objreader_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
 retopo_add_test(test_island_stats test_island_stats.cpp)
