@@ -239,6 +239,14 @@ add_executable(density_diff_dump density_diff_dump.cpp)
 set_target_properties(density_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(density_diff_dump PRIVATE retopo_core)
 
+# Differential oracle dump for the frame_field Rust port (rs-framefield
+# lane). Build-only helper (not a ctest test): run it and redirect stdout
+# to tests/fixtures/framefield_diff.txt for
+# rust/core/tests/frame_field_diff.rs.
+add_executable(framefield_diff_dump framefield_diff_dump.cpp)
+set_target_properties(framefield_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(framefield_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.
 retopo_add_test(test_cli_engine_quiet test_cli_engine_quiet.cpp)
