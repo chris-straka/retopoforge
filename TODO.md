@@ -168,10 +168,7 @@ port, creature volume/auto-placement). Toolbox siblings, no contest.
       `docs/dipole-production.md` — 4x faceAbs up to 2.04x on fingers).
       Blender vertex-group (weight-paint) export done (see Exoside parity).
 - [ ] Hands (DEFERRED to last, 2026-10-01: owner's call — build
-      once everything else is tip-top, if at all). Scope narrowed
-      2026-10-01: humanoid hands come from the wrapped base mesh
-      (see docs/rigging-strategy.md), so this only matters for
-      creatures and other non-base characters. Fused fingers are
+      once everything else is tip-top, if at all): fused fingers are
       fused in the AI input, so no remesher setting can unfuse them.
       Loop is detect -> propose -> owner reviews/edits -> remesh runs
       with approved assist (build Rust-first, no mirror oracle needed):
