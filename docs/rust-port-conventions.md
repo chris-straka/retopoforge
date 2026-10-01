@@ -55,6 +55,14 @@ Generation rules (learned the hard way):
   hangs on 1-2 variable systems).
 - Borrowck clones: never clone a whole matrix per call; use
   explicit-scratch associated functions (a 22x slowdown hid here).
+- `Box<dyn Fn>` aliases are `'static`: test closures capturing locals
+  need `Arc` (e.g. `Arc<Mutex<..>>` for handlers).
+- FP contraction: Clang fuses `a*b-c*d` to FMA by default (no
+  fast-math needed), flipping ulp-level decisions vs strict Rust.
+  Any port of FP-decision code must check the C++ IR for
+  `llvm.fmuladd` at every multiply-add site and replicate with
+  explicit `mul_add` — and the oracle needs near-degenerate
+  adversarial inputs to catch it (plain goldens pass).
 - Relative ridge / mean-diagonal scaling: preserve exactly.
 
 ## Branches and done-means
