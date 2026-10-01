@@ -1,56 +1,55 @@
 # Rigging strategy (HLL character pipeline)
 
-Date: 2026-09-30. Goal: AI mesh -> clean quads (retopoforge) ->
-rigged character -> HLL's `glb/` folders. Commercial use, Mac-only
-hardware (M4 mini 16GB, no GPU rental). Owner's bar is good quality
-output, not bit-identical numbers.
+Updated 2026-10-01 (supersedes the 2026-09-30 two-track plan). Rigging
+lives outside this repo; this note records how it fits the pipeline.
 
-## Two tracks + comparison
+## Order in the pipeline
 
-- `rigforge` (`~/SWE/rigforge`): Rigify 0.6.10 fork, module renamed
-  to coexist with bundled Rigify, GPL-2.0-or-later. Headless smoke
-  green (159-bone metarig -> 706-bone rig). The quality/production
-  path: runs everywhere Blender runs, human + animal templates.
-- `unirig-mac` (`~/SWE/unirig-mac`): UniRig (SIGGRAPH 2025) port to
-  Apple Silicon CPU. MIT code (LICENSE file) + MIT weights
-  (HuggingFace page) — commercial OK, self-hostable, no Tripo
-  account needed. Checkpoints: skeleton ~1-2GB, skin ~4.4GB, run
-  sequentially, fit 16GB. No custom CUDA kernels; four library
-  swaps, of which only the sparse-geometry one is real work.
-  Parity gate: reproduce `examples/` outputs on the Mac.
-- Comparison: same HLL hero + creature through both tracks (plus
-  the Mixamo free service as baseline); judge joint placement,
-  weight quality, tweak time, Godot import cleanliness. Winner
-  decides the base. Possible endgame: auto-placement feeding
-  hand-grade output, beating both parents.
+Topology first, rig second:
 
-## License findings (verified unless noted)
+- Humanoids: rig the **base** once with rigforge; every character
+  wrapped onto it (`~/SWE/wrapforge`) inherits the rig and weights,
+  bones follow the wrap.
+- One-off monsters: retopoforge remesh -> rigforge (`hll_stalker` or a
+  new preset) -> weights.
+- Clothes/armor/hair pieces: weights copied from the body (Data
+  Transfer), see `~/Games/hll/tools/asset-pipeline.md`.
 
-- UniRig: MIT code + MIT weights. Caveat: these are the published
-  research weights; Tripo's live product may run newer internal
-  models — self-hosting gives you the paper's models, not their
-  latest.
-- RigAnything (direct UniRig rival): Adobe non-commercial. Out.
-- AniGen (same lab, image straight to rigged character): MIT source
-  but bundles non-commercial NVIDIA code (stated in its README).
-  Watch, don't fork.
-- Make-It-Animatable: license contradicts itself between pages, and
-  humanoid-only. Out until resolved.
-- Anymate: reported Apache-2.0 by two sources, LICENSE file not
-  yet verified. Possible third contender.
+## Tools
 
-## Extension plan
+- **rigforge** (`~/SWE/rigforge`, GPL-2.0-or-later): Rigify 0.6.10 fork
+  with HLL presets (`hll_hero`, `hll_stalker`), a deform-bones-only GLB
+  export for Godot, and a deterministic landmark detector + metarig
+  fitter. The production rigger.
+- **unirig-mac** (`~/SWE/unirig-mac`): UniRig (SIGGRAPH 2025) ported to
+  Apple Silicon CPU. Works on the M4 mini (hero ~1.5 min skeleton +
+  ~45 s skin). Optional joint-hint source only; no code merge.
 
-Separate Blender addons during the comparison: merging now would
-prejudge the contest and bloat the working remesh tool. End-to-end
-"mesh -> rigged" comes later as orchestration over the winner.
+## Bake-off verdict (2026-09-30, `~/SWE/rigforge/docs/bakeoff/final.md`)
 
-## Rust note
+rigforge won hero and creature quality: 160 deform bones with face,
+fingers and twist bones vs UniRig's 28 body-only joints on the hero and
+12 weak joints on the creature. UniRig won only zero-touch time (~7 min
+vs ~30 min scripted); rigforge's landmark fitter targets that gap
+(re-run of the bake-off with the fitter is an open rigforge TODO).
+UniRig output is also seed-dependent, which clashes with the
+deterministic pipeline. The verdict is sound for this game: fingers and
+a face rig are required, and UniRig cannot produce them.
 
-Owner prefers Rust. Greenfield Rust (headless rig CLI, model
-inference) is favored over porting proven engine math; the C++
-engine stays until/unless a quality-gated rewrite is justified.
-Correction: faer has real sparse support now (formats + sparse
-Cholesky/LU) — the earlier "thin at sparse" claim was stale. The
-remaining Eigen gap is breadth + battle-testing, and any engine
-port is a quality re-verification job regardless of language.
+## Open points
+
+- **Mobile bone budget**: 160 deform bones is heavy for mobile skinning.
+  Add a game-export profile that drops or merges face/twist bones for
+  mobile LODs (one rig, two export profiles), and measure skinning cost
+  in Godot on a target phone.
+- **Weights are the real time sink** (rigforge TODO calls weight
+  painting the highest-value item). Humanoids get weights from the base
+  via wrapforge. For one-off monsters, a better binding method than
+  Blender's heat weighting (which fails on messy meshes) is the tool
+  worth building: geodesic voxel binding (Dionne & de Lasa 2013) for
+  creatures and robust weight transfer with inpainting (Abdrashitov et
+  al. 2023) for clothes.
+- **License check**: the earlier version of this note called UniRig
+  MIT (code + weights); the pipeline doc calls it effectively
+  GPL-3.0-or-later because of its shape encoder. Verify before shipping
+  anything that depends on its output beyond hints.
