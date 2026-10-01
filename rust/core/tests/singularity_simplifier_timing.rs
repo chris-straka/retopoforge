@@ -8,36 +8,11 @@
 //! backend-fused `sincos` in the winding field (separate `cos`/`sin` here
 //! would drift by 1 ulp on some of the 3200 faces and break the bitwise
 //! xsum pin).
+use retopo_core::double_utils::joint_sin_cos;
 use retopo_core::singularity_simplifier::SingularitySimplifier;
 use retopo_core::surface_mesh::SurfaceMesh;
 use retopo_core::vector3::Vector3;
 use std::time::Instant;
-
-#[cfg(any(target_vendor = "apple", target_os = "linux"))]
-unsafe extern "C" {
-    #[cfg_attr(target_vendor = "apple", link_name = "__sincos")]
-    fn sincos(x: f64, sin_out: *mut f64, cos_out: *mut f64);
-}
-
-#[inline]
-fn joint_sin_cos(x: f64) -> (f64, f64) {
-    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
-    {
-        let mut s = 0.0;
-        let mut c = 0.0;
-        // SAFETY: same contract as the port's binding (see
-        // `singularity_simplifier.rs`): both out-params written, live
-        // stack locals, no other effects.
-        unsafe {
-            sincos(x, &mut s, &mut c);
-        }
-        (s, c)
-    }
-    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
-    {
-        (x.sin(), x.cos())
-    }
-}
 
 // Triangulated 40x40 grid with integer relief in 0.1 steps (mirrors the
 // dump tool's makeGrid(40, 40, 1)).

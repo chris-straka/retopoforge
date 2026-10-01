@@ -64,6 +64,13 @@ Generation rules (learned the hard way):
   explicit `mul_add` — and the oracle needs near-degenerate
   adversarial inputs to catch it (plain goldens pass).
 - Relative ridge / mean-diagonal scaling: preserve exactly.
+- Backend transcendental fusion: LLVM fuses adjacent `cos(x)`/`sin(x)`
+  into one `sincos` libm call — invisible in opt IR (still separate
+  `llvm.cos`/`llvm.sin` there; only disassembly shows `sincos_stret`) —
+  and macOS libm `sincos` rounds sine 1 ulp off standalone `sin` on some
+  inputs. Audit adjacent transcendentals via disassembly (`nm` for
+  `sincos`), and use the shared `double_utils::joint_sin_cos`
+  (`f64::sin_cos` provably does not fuse on rustc 1.98).
 
 ## Branches and done-means
 

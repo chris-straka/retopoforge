@@ -60,40 +60,10 @@ use crate::vector3::Vector3;
 use std::collections::{BTreeSet, VecDeque};
 use std::f64::consts::PI;
 
-// The C++ backend fuses the rebuild's adjacent `std::cos`/`std::sin` calls
-// into one `sincos` libm call (see the call site); `f64::sin_cos` does not
-// lower to it on this toolchain (verified: separate `sin`/`cos` calls in
-// the binary), so the port binds the entry point directly. The out-param
-// symbol is `__sincos` on Apple (libSystem) and `sincos` on glibc (libm),
-// both in the default link; targets without it (e.g. MSVC, where the C++
-// likewise cannot fuse) fall back to separate calls in `joint_sin_cos`.
-#[cfg(any(target_vendor = "apple", target_os = "linux"))]
-unsafe extern "C" {
-    #[cfg_attr(target_vendor = "apple", link_name = "__sincos")]
-    fn sincos(x: f64, sin_out: *mut f64, cos_out: *mut f64);
-}
-
-/// Joint sine/cosine through the single `sincos` libm call (mirrors the
-/// backend-fused C++ evaluation, whose sine differs by 1 ulp from
-/// standalone `sin` on some inputs).
-#[inline]
-fn joint_sin_cos(x: f64) -> (f64, f64) {
-    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
-    {
-        let mut s = 0.0;
-        let mut c = 0.0;
-        // SAFETY: `sincos` unconditionally writes both out-params; they
-        // point at live stack locals, and the call has no other effects.
-        unsafe {
-            sincos(x, &mut s, &mut c);
-        }
-        (s, c)
-    }
-    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
-    {
-        (x.sin(), x.cos())
-    }
-}
+// Joint sine/cosine comes from the shared `crate::double_utils::joint_sin_cos`
+// (audited once there): the C++ backend fuses this rebuild's adjacent
+// `std::cos`/`std::sin` calls into one `sincos` libm call, whose sine
+// differs by 1 ulp from standalone `sin` on some inputs.
 
 /// Mirrors the anonymous-namespace `unit` (by value: `Vector3` is `Copy`,
 /// so this compiles to the same loads as the C++ const refs).
@@ -634,10 +604,11 @@ impl<'a> SingularitySimplifier<'a> {
         // backend fuses the adjacent `std::cos`/`std::sin` calls into a
         // single `sincos` libm call (`___sincos_stret` in the binary), whose
         // sine differs by 1 ulp from standalone `sin` on some inputs (case
-        // 11 face 15: `0x...6158` vs `0x...6159`). [`joint_sin_cos`] binds
-        // that same entry point, matching the C++ values bitwise.
+        // 11 face 15: `0x...6158` vs `0x...6159`). The shared
+        // `crate::double_utils::joint_sin_cos` binds that same entry
+        // point, matching the C++ values bitwise.
         for &f in &free_faces {
-            let (s, c) = joint_sin_cos(self.angles[f]);
+            let (s, c) = crate::double_utils::joint_sin_cos(self.angles[f]);
             self.field[f] = c * self.frame_u[f] + s * self.frame_v[f];
         }
         true
