@@ -296,3 +296,11 @@ add_executable(quadextractor_diff_dump quadextractor_diff_dump.cpp)
 set_target_properties(quadextractor_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(quadextractor_diff_dump PRIVATE retopo_core)
 
+# Differential oracle dump for the auto_remesher Rust port
+# (rs-autoremesher lane). Build-only helper (not a ctest test): run it
+# and redirect stdout to tests/fixtures/autoremesher_diff.txt for
+# rust/core/tests/auto_remesher_diff.rs.
+add_executable(autoremesher_diff_dump autoremesher_diff_dump.cpp)
+set_target_properties(autoremesher_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(autoremesher_diff_dump PRIVATE retopo_core)
+
