@@ -328,6 +328,13 @@ and QtAwesome deleted as dead code before the removal.
       (4x faceAbs 1.18→1.45, total 0.92→0.99). Follow-up: production
       placement (auto rings + dose, offset rings for shared
       boundaries, sliver guards) — not done here.
+- [ ] Dipole-spike quirks (flagged 2026-10-01, fix in production
+      pass): (1) `gen_finger_fixtures.py` "closed manifold" assertion
+      misses orientation consistency — finger fixtures split into 3-6
+      orientation-islands; (2) one island's cover solve fails silently
+      (no `Failed islands` increment — that counter tracks input/output
+      drops, pre-existing semantics). Both pollute absolute totals;
+      comparisons in the spike were apples-to-apples regardless.
 - [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only
