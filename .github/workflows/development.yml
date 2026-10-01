@@ -50,6 +50,14 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline.json
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path rust/Cargo.toml
+      - name: Run Rust tests (incl. e2e vs the C++ binary above)
+        run: cargo test --locked --manifest-path rust/Cargo.toml
 
   sanitize:
     # Memory + UB safety net (the mechanical version of the borrow

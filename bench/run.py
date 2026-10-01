@@ -31,7 +31,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(ROOT, "bench", "models")
 RESULTS_DIR = os.path.join(ROOT, "bench", "results")
-DEFAULT_BINARY = os.path.join(ROOT, "build", "cli", "retopo")
+DEFAULT_BINARY = os.path.join(ROOT, "rust", "target", "release", "retopo")
 
 MODELS = ["armadillo.obj", "beast.obj", "nefertiti.obj", "fandisk.obj",
           "xyzrgb_dragon.obj"]
@@ -207,7 +207,7 @@ def main(argv):
             print(f"unknown arg: {argv[i]}", file=sys.stderr)
             return 2
     if not os.path.exists(binary):
-        print(f"binary not found: {binary} (build with cmake first)", file=sys.stderr)
+        print(f"binary not found: {binary} (build with cargo first: cargo build --locked --release -p retopo)", file=sys.stderr)
         return 2
     models = [m for m in MODELS if os.path.exists(os.path.join(MODELS_DIR, m))]
     missing = [m for m in MODELS if m not in models]

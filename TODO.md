@@ -19,7 +19,7 @@ Standing rule for all refactors: `bench/run.py --check bench/baseline.json`
 must report no regressions (quality bar: good remeshes, not
 bit-identical counts), and new code adds zero new warnings.
 
-## Rust port (active workstream, `exp/rust-solvers`)
+## Rust port (landed on main; was `exp/rust-solvers`)
 
 Strangler-fig rewrite: Rust mirrors C++ module-by-module, each proven by
 a differential oracle (C++ dump + committed fixture + Rust replay) before
@@ -51,8 +51,10 @@ push main from lanes (explicit refspec only); game assets never committed.
       contract there)
 - [x] Port complete: 20/20 (18 core + 2 solvers) + glb; main-lane
       end-to-end run is the acceptance gate for the whole port
-- [ ] Switch: gate Rust `cargo test` in CI, write the rewrite verdict,
-      point the Blender addon + Homebrew formula at the Rust binary
+- [x] Switch: Rust `cargo test --locked` gated in CI, verdict in
+      `docs/rust-switch-verdict.md`, Blender addon + Homebrew formula
+      (0.3.0, rust-only) + bench default point at the Rust binary,
+      `rust/Cargo.lock` committed, C++ frozen as oracle reference
 - [ ] Post-switch superiority batch (equality proved — now beat C++):
       sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
       redesign (flags/errors/progress), single-island parallelism in Rust
