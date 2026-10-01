@@ -23,9 +23,10 @@
 //! - C++ lambdas capturing `&mut self` become private associated functions
 //!   and free helpers with explicit parameters (borrowck); the call graphs
 //!   are unchanged.
-//! - `tbb::parallel_for` becomes serial loops: every parallel site in the
-//!   C++ reads one buffer and writes another (or writes disjoint slots),
-//!   so the serial result is identical by construction (noted at the site).
+//! - `tbb::parallel_for` becomes [`crate::par::parallel_each`]: every
+//!   parallel site in the C++ reads one buffer and writes another (or
+//!   writes disjoint slots), so the parallel result is identical by
+//!   construction (noted at the site).
 //! - `std::sort` on hole edge scores becomes `sort_unstable_by`: both are
 //!   deterministic but order score ties differently (libc++ introsort vs
 //!   pdqsort). The oracle measures the fallout; see the report.
@@ -63,6 +64,7 @@
 use crate::double_utils::is_zero;
 use crate::iso_remesh_kernel::{AxisAlignedBoundingBox, AxisAlignedBoundingBoxTree};
 use crate::mesh_separator::MeshSeparator;
+use crate::par::parallel_each;
 use crate::position_key::PositionKey;
 use crate::progress::ProgressHandler;
 use crate::vector2::Vector2;
@@ -281,6 +283,52 @@ fn cxx_mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
 /// entries, let alone `usize::MAX`).
 const NO_SLOT: usize = usize::MAX;
 
+/// Fixed-seed integer hasher for [`CxxTable`]'s key lookup (never
+/// iterated, so the hash order is unobservable): one rotate-add-multiply
+/// per `usize` instead of SipHash's rounds. Keys are mesh indices, never
+/// adversarial, so a non-cryptographic mixer is safe.
+#[derive(Clone, Copy, Debug, Default)]
+struct CxxHashBuilder;
+
+#[derive(Clone, Debug)]
+struct CxxHasher {
+    hash: u64,
+}
+
+impl std::hash::Hasher for CxxHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        // Only `write_usize` runs (keys are `usize`); fold bytes so the
+        // impl stays total.
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.write_u64(u64::from_ne_bytes(word));
+        }
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        const ROTATE: u32 = 5;
+        const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+        self.hash = (self.hash.rotate_left(ROTATE).wrapping_add(value)).wrapping_mul(SEED);
+    }
+
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+}
+
+impl std::hash::BuildHasher for CxxHashBuilder {
+    type Hasher = CxxHasher;
+
+    fn build_hasher(&self) -> CxxHasher {
+        CxxHasher { hash: 0 }
+    }
+}
+
 /// One node of a [`CxxTable`]'s iteration list. Slots are append-only and
 /// recycled through the table's free list; a live slot's index never
 /// changes, so inserts and erases never shift any lookup.
@@ -304,11 +352,11 @@ struct CxxSlot<V> {
 /// shaped for:
 /// - node list: index-linked slots instead of a `Vec` that memmoves on
 ///   every insert/erase;
-/// - membership: `HashMap` key->slot instead of a `BTreeMap` whose values
-///   all shift on every insert/erase (never iterated, so its order is
-///   unobservable);
-/// - chain heads: `HashMap` chain->first-slot instead of an O(n) scan per
-///   insert;
+/// - membership: `HashMap` key->slot with a fixed-seed integer hasher
+///   instead of a `BTreeMap` whose values all shift on every insert/erase
+///   (never iterated, so its order is unobservable);
+/// - chain heads: a `Vec` indexed by chain (chains are dense in
+///   `[0, buckets)`) instead of an O(n) scan per insert;
 /// - rehash regroup: the O(n) closed form instead of O(n^2) splicing (see
 ///   [`CxxTable::regroup`]).
 #[derive(Debug)]
@@ -316,8 +364,9 @@ struct CxxTable<V> {
     slots: Vec<CxxSlot<V>>,
     free: Vec<usize>,
     head: usize,
-    index: HashMap<usize, usize>,
-    chain_head: HashMap<usize, usize>,
+    index: HashMap<usize, usize, CxxHashBuilder>,
+    /// First slot per chain (`len == buckets`; `None` for empty chains).
+    chain_head: Vec<Option<usize>>,
     buckets: usize,
 }
 
@@ -353,8 +402,8 @@ impl<V> CxxTable<V> {
             slots: Vec::new(),
             free: Vec::new(),
             head: NO_SLOT,
-            index: HashMap::new(),
-            chain_head: HashMap::new(),
+            index: HashMap::with_hasher(CxxHashBuilder),
+            chain_head: Vec::new(),
             buckets: 0,
         }
     }
@@ -479,6 +528,11 @@ impl<V> CxxTable<V> {
             };
             debug_assert!(grown > self.buckets);
             self.buckets = grown;
+            // Size the chain-head table before regrouping (even for an
+            // empty table, whose regroup is a no-op): every chain the new
+            // inserts touch must index validly.
+            self.chain_head.clear();
+            self.chain_head.resize(grown, None);
             self.regroup();
         }
     }
@@ -601,9 +655,8 @@ impl<V> CxxTable<V> {
         for (new_idx, node) in self.slots.iter().enumerate() {
             self.index.insert(node.key, new_idx);
         }
-        self.chain_head.clear();
         for (rank, chain) in chain_order.iter().enumerate() {
-            self.chain_head.insert(*chain, base_of_rank[rank]);
+            self.chain_head[*chain] = Some(base_of_rank[rank]);
         }
     }
 
@@ -615,12 +668,12 @@ impl<V> CxxTable<V> {
         self.grow_rehash_if_needed();
         let chain = cxx_constrain_hash(key, self.buckets);
         let slot = self.alloc_slot(key, value);
-        if let Some(&head_slot) = self.chain_head.get(&chain) {
+        if let Some(head_slot) = self.chain_head[chain] {
             self.link_before(slot, head_slot);
         } else {
             self.link_front(slot);
         }
-        self.chain_head.insert(chain, slot);
+        self.chain_head[chain] = Some(slot);
         self.index.insert(key, slot);
         slot
     }
@@ -666,14 +719,10 @@ impl<V> CxxTable<V> {
         // Runs stay contiguous across unlink, so when the erased node led
         // its chain the successor (iff it shares the chain) is the new
         // head; otherwise the chain just lost its only node.
-        if self.chain_head.get(&chain) == Some(&slot) {
+        if self.chain_head[chain] == Some(slot) {
             let next_shares =
                 next != NO_SLOT && cxx_constrain_hash(self.slots[next].key, self.buckets) == chain;
-            if next_shares {
-                self.chain_head.insert(chain, next);
-            } else {
-                self.chain_head.remove(&chain);
-            }
+            self.chain_head[chain] = if next_shares { Some(next) } else { None };
         }
         let value = self.slots[slot].value.take();
         self.free.push(slot);
@@ -687,7 +736,7 @@ impl<V> CxxTable<V> {
         self.free.clear();
         self.head = NO_SLOT;
         self.index.clear();
-        self.chain_head.clear();
+        self.chain_head.fill(None);
     }
 
     /// First key in list order (`nextMap.begin()`), or `None` when empty.
@@ -3091,13 +3140,13 @@ impl<'a> QuadExtractor<'a> {
         // Both passes below already read one buffer and write another, and
         // the projection only reads the bounding box tree, so each vertex
         // is independent and the parallel result is the same as the serial
-        // one. (Restructure: serial loops for `tbb::parallel_for`.)
+        // one. (Restructure: `parallel_each` for `tbb::parallel_for`.)
         const SMOOTH_FACTOR: f64 = 0.5;
         for _ in 0..iterations {
             let mut smoothed_vertices = self.remeshed_vertices.clone();
-            for (i, smoothed) in smoothed_vertices.iter_mut().enumerate() {
+            parallel_each(&mut smoothed_vertices, |i, smoothed| {
                 if locked[i] || neighbors[i].is_empty() {
-                    continue;
+                    return;
                 }
                 let mut center = Vector3::default();
                 for neighbor in &neighbors[i] {
@@ -3110,21 +3159,21 @@ impl<'a> QuadExtractor<'a> {
                     center - self.remeshed_vertices[i],
                     SMOOTH_FACTOR,
                 );
-            }
-            for i in 0..smoothed_vertices.len() {
+            });
+            parallel_each(&mut smoothed_vertices, |i, smoothed| {
                 if locked[i] || neighbors[i].is_empty() {
-                    continue;
+                    return;
                 }
                 if let Some(projected) = Self::project_to_target_mesh(
                     self.vertices,
                     self.triangles,
                     &tree,
                     average_edge_length,
-                    smoothed_vertices[i],
+                    *smoothed,
                 ) {
-                    smoothed_vertices[i] = projected;
+                    *smoothed = projected;
                 }
-            }
+            });
             self.remeshed_vertices = smoothed_vertices;
         }
     }
@@ -3230,9 +3279,9 @@ impl<'a> QuadExtractor<'a> {
 
         // Each vertex is independent (reads the tree and the source mesh,
         // writes its own slot), so the parallel result matches the serial
-        // one exactly. (Restructure: serial loop for `tbb::parallel_for`.)
+        // one exactly. (Restructure: `parallel_each` for `tbb::parallel_for`.)
         let mut uvs = vec![Vector2::default(); self.remeshed_vertices.len()];
-        for (i, uv) in uvs.iter_mut().enumerate() {
+        parallel_each(&mut uvs, |i, uv| {
             let mut projected = self.remeshed_vertices[i];
             let home = Self::find_home_triangle(
                 self.vertices,
@@ -3250,7 +3299,7 @@ impl<'a> QuadExtractor<'a> {
                 } else {
                     corner_uvs[0]
                 };
-                continue;
+                return;
             }
             let area = Vector3::area(
                 &self.vertices[triangle[0]],
@@ -3264,7 +3313,7 @@ impl<'a> QuadExtractor<'a> {
                     (corner_uvs[0].x() + corner_uvs[1].x() + corner_uvs[2].x()) / 3.0,
                     (corner_uvs[0].y() + corner_uvs[1].y() + corner_uvs[2].y()) / 3.0,
                 );
-                continue;
+                return;
             }
             let bary = Vector3::barycentric_coordinates(
                 &self.vertices[triangle[0]],
@@ -3285,7 +3334,7 @@ impl<'a> QuadExtractor<'a> {
                     fma_first(bary.x(), corner_uvs[0].y(), bary.y(), corner_uvs[1].y()),
                 ),
             );
-        }
+        });
 
         // Normalize to 0..1 over this island's UV bounding box. Non-finite
         // interpolants (a degenerate parameterization corner) collapse to

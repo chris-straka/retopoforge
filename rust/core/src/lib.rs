@@ -34,6 +34,8 @@ pub mod parameterizer;
 pub mod glb;
 // Wave 2 lane: rs-quadextractor (vendored PositionKey/box-tree mirrors deduped at join).
 pub mod quad_extractor;
+// Lane/par-single-island: shared deterministic parallelism helpers.
+pub(crate) mod par;
 // Wave 3 lane: rs-autoremesher (meshoptimizer stays C++ via build.rs FFI).
 pub mod auto_remesher;
 // Lane/par-single-island scaffolding: pre-optimization container reference
