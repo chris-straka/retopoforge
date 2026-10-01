@@ -67,6 +67,7 @@ use crate::vector3::Vector3;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::PI;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // FMA helpers: exact transcriptions of the fused caller-level expressions
@@ -337,11 +338,7 @@ struct AxisAlignedBoxTree<'a> {
 impl<'a> AxisAlignedBoxTree<'a> {
     const LEAF_MAX_NODE_SIZE: usize = 20;
 
-    fn new(
-        boxes: &'a [AxisAlignedBox],
-        box_indices: &[usize],
-        outer_box: &AxisAlignedBox,
-    ) -> Self {
+    fn new(boxes: &'a [AxisAlignedBox], box_indices: &[usize], outer_box: &AxisAlignedBox) -> Self {
         let mut root = BoxTreeNode {
             bounding_box: outer_box.clone(),
             center: TpVector3::default(),
@@ -418,7 +415,12 @@ impl<'a> AxisAlignedBoxTree<'a> {
 
         if 0 == left_count {
             left_count = right_count / 2;
-            right_count -= left_count;
+            // Dead in the C++ too (`rightCount` is never read after this);
+            // kept as a line-by-line mirror.
+            #[allow(unused_assignments)]
+            {
+                right_count -= left_count;
+            }
             left_offset = right_offset - box_indices.len() + 1;
         } else if 0 == right_count {
             right_count = left_count / 2;
@@ -460,10 +462,13 @@ impl<'a> AxisAlignedBoxTree<'a> {
             right.center.add_assign(&bbox.center);
         }
 
-        left.center.div_assign((left.box_indices.len() as f32) as f64);
+        left.center
+            .div_assign((left.box_indices.len() as f32) as f64);
         Self::split_node(&mut left, boxes, order_list, spans);
 
-        right.center.div_assign((right.box_indices.len() as f32) as f64);
+        right
+            .center
+            .div_assign((right.box_indices.len() as f32) as f64);
         Self::split_node(&mut right, boxes, order_list, spans);
 
         node.left = Some(Box::new(left));
@@ -526,7 +531,12 @@ impl<'a> AxisAlignedBoxTree<'a> {
         }
     }
 
-    fn test(&self, second: &Self, second_boxes: &[AxisAlignedBox], pairs: &mut Vec<(usize, usize)>) {
+    fn test(
+        &self,
+        second: &Self,
+        second_boxes: &[AxisAlignedBox],
+        pairs: &mut Vec<(usize, usize)>,
+    ) {
         Self::test_nodes(&self.root, self.boxes, &second.root, second_boxes, pairs);
     }
 }
@@ -715,9 +725,9 @@ impl<'a> QuadExtractor<'a> {
             } else if !triangle_moved.is_empty() {
                 let first_triangle = cross_point_source_triangles[first];
                 let second_triangle = cross_point_source_triangles[second];
-                self.extracted_connection_moved.push(
-                    u8::from(triangle_moved[first_triangle] != 0 || triangle_moved[second_triangle] != 0),
-                );
+                self.extracted_connection_moved.push(u8::from(
+                    triangle_moved[first_triangle] != 0 || triangle_moved[second_triangle] != 0,
+                ));
             } else {
                 self.extracted_connection_moved.push(0);
             }
@@ -740,11 +750,7 @@ impl<'a> QuadExtractor<'a> {
 
         self.report(0.25, "Extracting mesh");
         self.diagnose(|| "Extract mesh...\n".to_string());
-        self.extract_mesh(
-            cross_points,
-            cross_point_source_triangles,
-            edge_connect_map,
-        );
+        self.extract_mesh(cross_points, cross_point_source_triangles, edge_connect_map);
         self.diagnose(|| "Extract mesh done\n".to_string());
 
         self.report(0.29, "Fixing holes");
@@ -805,17 +811,25 @@ impl<'a> QuadExtractor<'a> {
         self.report(0.53, "Merging shared five edge faces");
         // Restructure: the C++ builds a remapping closure borrowing the
         // outer handler while calling a `&mut self` method; the mirror
-        // takes the outer handler out, wraps it (owned), calls, restores.
-        // Same fractions reach the same handler in the same order.
+        // parks the outer handler in an `Arc` (still `Send + Sync`, still
+        // the same handler object), calls through a shared clone, then
+        // restores it. Same fractions reach the same handler in the same
+        // order.
         let outer_progress = self.progress_handler.take();
         if let Some(outer) = outer_progress {
+            let shared: Arc<ProgressHandler> = Arc::new(outer);
+            let inner = Arc::clone(&shared);
             // FMA: `0.53 + (0.85 - 0.53) * fraction` is `fmaf` in f32.
-            let remapped: ProgressHandler = Box::new(|fraction, name| {
-                outer((0.85f32 - 0.53f32).mul_add(fraction, 0.53f32), name);
+            let remapped: ProgressHandler = Box::new(move |fraction, name| {
+                inner((0.85f32 - 0.53f32).mul_add(fraction, 0.53f32), name);
             });
             self.merge_shared_five_edge_faces(Some(&remapped));
             drop(remapped);
-            self.progress_handler = Some(outer);
+            // `remapped` held the only other clone, so the `Arc` is uniquely
+            // owned again; restore the exact same handler object.
+            if let Ok(outer) = Arc::try_unwrap(shared) {
+                self.progress_handler = Some(outer);
+            }
         } else {
             self.merge_shared_five_edge_faces(None);
         }
@@ -853,14 +867,8 @@ impl<'a> QuadExtractor<'a> {
         edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
     ) {
         for (first, second) in connections {
-            edge_connect_map
-                .entry(*first)
-                .or_default()
-                .insert(*second);
-            edge_connect_map
-                .entry(*second)
-                .or_default()
-                .insert(*first);
+            edge_connect_map.entry(*first).or_default().insert(*second);
+            edge_connect_map.entry(*second).or_default().insert(*first);
         }
         Self::simplify_graph(edge_connect_map);
     }
@@ -1034,8 +1042,7 @@ impl<'a> QuadExtractor<'a> {
                 if edge_lengths.contains_key(&(*neighbor, *point)) {
                     continue;
                 }
-                let edge_length =
-                    (cross_points[*point] - cross_points[*neighbor]).length();
+                let edge_length = (cross_points[*point] - cross_points[*neighbor]).length();
                 total_length += edge_length;
                 edge_lengths.insert((*point, *neighbor), edge_length);
                 edge_count += 1;
@@ -1075,8 +1082,7 @@ impl<'a> QuadExtractor<'a> {
             return;
         }
         let first_neighbors = edge_connect_map[&edge.0].clone();
-        cross_points[edge.1] =
-            (cross_points[edge.0] + cross_points[edge.1]) * 0.5;
+        cross_points[edge.1] = (cross_points[edge.0] + cross_points[edge.1]) * 0.5;
         for neighbor in &first_neighbors {
             if *neighbor == edge.1 {
                 continue;
@@ -1192,10 +1198,7 @@ impl<'a> QuadExtractor<'a> {
         false
     }
 
-    fn face_corner_exists(
-        corners: &BTreeSet<(usize, usize, usize)>,
-        vertices: &[usize],
-    ) -> bool {
+    fn face_corner_exists(corners: &BTreeSet<(usize, usize, usize)>, vertices: &[usize]) -> bool {
         for i in 0..vertices.len() {
             let j = (i + 1) % vertices.len();
             let k = (i + 2) % vertices.len();
@@ -1206,10 +1209,7 @@ impl<'a> QuadExtractor<'a> {
         false
     }
 
-    fn add_face_corners(
-        corners: &mut BTreeSet<(usize, usize, usize)>,
-        vertices: &[usize],
-    ) {
+    fn add_face_corners(corners: &mut BTreeSet<(usize, usize, usize)>, vertices: &[usize]) {
         for i in 0..vertices.len() {
             let j = (i + 1) % vertices.len();
             let k = (i + 2) % vertices.len();
@@ -1218,10 +1218,7 @@ impl<'a> QuadExtractor<'a> {
         }
     }
 
-    fn face_half_edge_exists(
-        half_edges: &BTreeSet<(usize, usize)>,
-        vertices: &[usize],
-    ) -> bool {
+    fn face_half_edge_exists(half_edges: &BTreeSet<(usize, usize)>, vertices: &[usize]) -> bool {
         for i in 0..vertices.len() {
             let j = (i + 1) % vertices.len();
             if half_edges.contains(&(vertices[i], vertices[j])) {
@@ -1231,10 +1228,7 @@ impl<'a> QuadExtractor<'a> {
         false
     }
 
-    fn add_face_half_edges(
-        half_edges: &mut BTreeSet<(usize, usize)>,
-        vertices: &[usize],
-    ) {
+    fn add_face_half_edges(half_edges: &mut BTreeSet<(usize, usize)>, vertices: &[usize]) {
         for i in 0..vertices.len() {
             let j = (i + 1) % vertices.len();
             half_edges.insert((vertices[i], vertices[j]));
@@ -1337,8 +1331,7 @@ impl<'a> QuadExtractor<'a> {
                                     if round < 1 {
                                         continue;
                                     }
-                                    let Some(find_level5) = edge_connect_map.get(&level4)
-                                    else {
+                                    let Some(find_level5) = edge_connect_map.get(&level4) else {
                                         continue;
                                     };
                                     if self.half_edges.contains(&(level3, level4))
@@ -1346,8 +1339,7 @@ impl<'a> QuadExtractor<'a> {
                                     {
                                         continue;
                                     }
-                                    let level5s: Vec<usize> =
-                                        find_level5.iter().copied().collect();
+                                    let level5s: Vec<usize> = find_level5.iter().copied().collect();
                                     for level5 in level5s {
                                         if level0 != level5 {
                                             if level3 == level5
@@ -1359,8 +1351,7 @@ impl<'a> QuadExtractor<'a> {
                                             if round < 2 {
                                                 continue;
                                             }
-                                            let Some(find_level6) =
-                                                edge_connect_map.get(&level5)
+                                            let Some(find_level6) = edge_connect_map.get(&level5)
                                             else {
                                                 continue;
                                             };
@@ -1389,7 +1380,9 @@ impl<'a> QuadExtractor<'a> {
                                                         continue;
                                                     };
                                                     if self.half_edges.contains(&(level5, level6))
-                                                        && self.half_edges.contains(&(level6, level5))
+                                                        && self
+                                                            .half_edges
+                                                            .contains(&(level6, level5))
                                                     {
                                                         continue;
                                                     }
@@ -1505,7 +1498,10 @@ impl<'a> QuadExtractor<'a> {
         // `std::map::insert` keeps the FIRST entry on duplicate keys, like
         // `BTreeMap` entry-or-default below (no overwrite).
         self.connection_infos
-            .entry((from_point_index.min(to_point_index), from_point_index.max(to_point_index)))
+            .entry((
+                from_point_index.min(to_point_index),
+                from_point_index.max(to_point_index),
+            ))
             .or_insert(ConnectionInfo {
                 triangle_index,
                 coord_index,
@@ -1546,7 +1542,7 @@ impl<'a> QuadExtractor<'a> {
             ];
 
             // Extract intersections of isolines with edges
-            let mut lines: [BTreeMap<i32, Vec<Vec<CrossPoint>>> =
+            let mut lines: [BTreeMap<i32, Vec<Vec<CrossPoint>>>; 2] =
                 [BTreeMap::new(), BTreeMap::new()];
             let mut edge_collapsed = [[false; 3]; 2];
             for i in 0..2 {
@@ -1569,7 +1565,10 @@ impl<'a> QuadExtractor<'a> {
                             position2: corner_uvs[k],
                             integer,
                         };
-                        lines[i].entry(integer).or_default().push(vec![from_point, to_point]);
+                        lines[i]
+                            .entry(integer)
+                            .or_default()
+                            .push(vec![from_point, to_point]);
                     }
                 }
                 let mut points: BTreeMap<i32, Vec<CrossPoint>> = BTreeMap::new();
@@ -1578,10 +1577,16 @@ impl<'a> QuadExtractor<'a> {
                     let current = corner_uvs[j];
                     let next = corner_uvs[k];
                     let distance = (current[i] - next[i]).abs();
-                    if current[i] as i32 != next[i] as i32
-                        || (current[i] > 0.0) != (next[i] > 0.0)
+                    if current[i] as i32 != next[i] as i32 || (current[i] > 0.0) != (next[i] > 0.0)
                     {
-                        let (low_integer, high_integer, from_position, _to_position, from_index, to_index);
+                        let (
+                            low_integer,
+                            high_integer,
+                            from_position,
+                            _to_position,
+                            from_index,
+                            to_index,
+                        );
                         if current[i] < next[i] {
                             low_integer = current[i] as i32;
                             high_integer = next[i] as i32;
@@ -1656,8 +1661,7 @@ impl<'a> QuadExtractor<'a> {
                                     let segment = &segments[segment_index];
                                     let uv0 = segment[0].position2;
                                     let uv1 = segment[1].position2;
-                                    let distance =
-                                        (uv0[coord_index] - uv1[coord_index]).abs();
+                                    let distance = (uv0[coord_index] - uv1[coord_index]).abs();
                                     if is_zero(distance) {
                                         None
                                     } else {
@@ -1678,8 +1682,8 @@ impl<'a> QuadExtractor<'a> {
                                         {
                                             None
                                         } else {
-                                            let ratio = (segment_position - from_position)
-                                                / distance;
+                                            let ratio =
+                                                (segment_position - from_position) / distance;
                                             // FMA: fused lerps.
                                             let position3 = lerp_fused_vec3(
                                                 segment[from_index].position3,
@@ -1734,7 +1738,6 @@ impl<'a> QuadExtractor<'a> {
                                 i as i32,
                                 *target_integer,
                             );
-
                         }
                     }
                 }
@@ -1763,9 +1766,7 @@ impl<'a> QuadExtractor<'a> {
         let Some(info) = connection_infos.get(&crossing_edge).copied() else {
             return usize::MAX;
         };
-        if let Some(existing) =
-            cross_point_map.get(&PositionKey::from_vector(&crossing_position))
-        {
+        if let Some(existing) = cross_point_map.get(&PositionKey::from_vector(&crossing_position)) {
             return *existing;
         }
         let new_point_index = cross_points.len();
@@ -1818,11 +1819,14 @@ impl<'a> QuadExtractor<'a> {
             return false;
         }
         connections.insert((from_point_index, to_point_index));
-        connection_infos.insert(edge, ConnectionInfo {
-            triangle_index: source_triangles[to_point_index],
-            coord_index: -1,
-            integer: 0,
-        });
+        connection_infos.insert(
+            edge,
+            ConnectionInfo {
+                triangle_index: source_triangles[to_point_index],
+                coord_index: -1,
+                integer: 0,
+            },
+        );
         added_connections.insert(edge);
         branches_of_point
             .entry(from_point_index)
@@ -1864,8 +1868,7 @@ impl<'a> QuadExtractor<'a> {
                 if is_zero(distance) || distance >= nearest_distance {
                     continue;
                 }
-                if Vector3::dot_product(&(offset / distance), &direction) < ahead_cosine_threshold
-                {
+                if Vector3::dot_product(&(offset / distance), &direction) < ahead_cosine_threshold {
                     continue;
                 }
                 nearest = endpoint;
@@ -1943,11 +1946,8 @@ impl<'a> QuadExtractor<'a> {
                 &vertices[miss_triangle[2]],
             );
             // FMA: `miss - missNormal * dot`.
-            let projected_miss = sub_scaled_vec3(
-                miss,
-                miss_normal,
-                Vector3::dot_product(&miss, &miss_normal),
-            );
+            let projected_miss =
+                sub_scaled_vec3(miss, miss_normal, Vector3::dot_product(&miss, &miss_normal));
             if projected_miss.length() > tolerance {
                 continue;
             }
@@ -2034,9 +2034,7 @@ impl<'a> QuadExtractor<'a> {
                 for _ in 0..RING_COUNT {
                     let mut next_ring_vertices = BTreeSet::new();
                     for vertex_index in &ring_vertices {
-                        let Some(find_triangles) =
-                            triangles_around_vertex.get(vertex_index)
-                        else {
+                        let Some(find_triangles) = triangles_around_vertex.get(vertex_index) else {
                             continue;
                         };
                         for triangle_index in find_triangles {
@@ -2068,8 +2066,7 @@ impl<'a> QuadExtractor<'a> {
                     continue;
                 }
                 local_edges.insert(edge, *find_info);
-                total_edge_length +=
-                    (cross_points[edge.0] - cross_points[edge.1]).length();
+                total_edge_length += (cross_points[edge.0] - cross_points[edge.1]).length();
             }
             if local_edges.len() < 3 {
                 continue;
@@ -2083,8 +2080,7 @@ impl<'a> QuadExtractor<'a> {
 
             let mut cone_normal = Vector3::default();
             {
-                let Some(find_triangles) =
-                    triangles_around_vertex.get(&singular_vertex_index)
+                let Some(find_triangles) = triangles_around_vertex.get(&singular_vertex_index)
                 else {
                     continue;
                 };
@@ -2107,9 +2103,10 @@ impl<'a> QuadExtractor<'a> {
             {
                 let mut coord_index = -1;
                 let mut integer = 0;
-                if let Some(find_info) = self.connection_infos.get(
-                    &Self::edge_of(singular_point_index, coming_from_point_index),
-                ) {
+                if let Some(find_info) = self.connection_infos.get(&Self::edge_of(
+                    singular_point_index,
+                    coming_from_point_index,
+                )) {
                     coord_index = find_info.coord_index;
                     integer = find_info.integer;
                 }
@@ -2127,9 +2124,10 @@ impl<'a> QuadExtractor<'a> {
                         if *neighbor == previous {
                             continue;
                         }
-                        let Some(find_next_info) = self.connection_infos.get(
-                            &Self::edge_of(current, *neighbor),
-                        ) else {
+                        let Some(find_next_info) = self
+                            .connection_infos
+                            .get(&Self::edge_of(current, *neighbor))
+                        else {
                             continue;
                         };
                         if coord_index >= 0
@@ -2161,8 +2159,7 @@ impl<'a> QuadExtractor<'a> {
                 continue;
             }
 
-            let behind_points =
-                BTreeSet::from([singular_point_index, coming_from_point_index]);
+            let behind_points = BTreeSet::from([singular_point_index, coming_from_point_index]);
 
             #[derive(Clone, Copy)]
             struct WalkCrossing {
@@ -2212,13 +2209,14 @@ impl<'a> QuadExtractor<'a> {
                     else {
                         break;
                     };
-                    path.push(WalkCrossing {
+                    let crossing = WalkCrossing {
                         position: crossing_position,
                         edge: crossing_edge,
                         triangle_index: crossing_triangle,
-                    });
-                    walk_position = crossing_position;
-                    let triangle = &self.triangles[crossing_triangle];
+                    };
+                    path.push(crossing);
+                    walk_position = crossing.position;
+                    let triangle = &self.triangles[crossing.triangle_index];
                     let triangle_normal = Vector3::normal(
                         &self.vertices[triangle[0]],
                         &self.vertices[triangle[1]],
@@ -2306,10 +2304,15 @@ impl<'a> QuadExtractor<'a> {
             points_in_3d.push(points[*it]);
         }
         let mut points_in_2d = Vec::new();
-        let origin =
-            (points[triangle[0]] + points[triangle[1]] + points[triangle[2]]) / 3.0;
+        let origin = (points[triangle[0]] + points[triangle[1]] + points[triangle[2]]) / 3.0;
         let axis = (points[triangle[0]] - origin).normalized();
-        Vector3::project_to_2d(&points_in_3d, &mut points_in_2d, &triangle_normal, &axis, &origin);
+        Vector3::project_to_2d(
+            &points_in_3d,
+            &mut points_in_2d,
+            &triangle_normal,
+            &axis,
+            &origin,
+        );
         let a = points_in_2d[0];
         let b = points_in_2d[1];
         let c = points_in_2d[2];
@@ -2358,7 +2361,10 @@ impl<'a> QuadExtractor<'a> {
         for i in 0..self.remeshed_polygons[last].len() {
             let face_len = self.remeshed_polygons[last].len();
             let j = (i + 1) % face_len;
-            let edge = (self.remeshed_polygons[last][i], self.remeshed_polygons[last][j]);
+            let edge = (
+                self.remeshed_polygons[last][i],
+                self.remeshed_polygons[last][j],
+            );
             self.half_edges.insert(edge);
         }
     }
@@ -2390,12 +2396,10 @@ impl<'a> QuadExtractor<'a> {
                 let h = (i + hole.len() - 1) % hole.len();
                 let j = (i + 1) % hole.len();
                 let k = (j + 1) % hole.len();
-                let left =
-                    (self.remeshed_vertices[hole[h]] - self.remeshed_vertices[hole[i]])
-                        .normalized();
-                let right =
-                    (self.remeshed_vertices[hole[k]] - self.remeshed_vertices[hole[j]])
-                        .normalized();
+                let left = (self.remeshed_vertices[hole[h]] - self.remeshed_vertices[hole[i]])
+                    .normalized();
+                let right = (self.remeshed_vertices[hole[k]] - self.remeshed_vertices[hole[j]])
+                    .normalized();
                 edge_scores.push((i, Vector3::dot_product(&left, &right)));
             }
             // Restructure: `std::sort` (libc++ introsort) becomes
@@ -2410,10 +2414,7 @@ impl<'a> QuadExtractor<'a> {
                 let score = edge_scores[edge_index];
                 if check_score && score.1 <= 0.0 {
                     self.diagnose(|| {
-                        format!(
-                            "fixHoleWithQuads failed, highest score(dot):{}\n",
-                            score.1
-                        )
+                        format!("fixHoleWithQuads failed, highest score(dot):{}\n", score.1)
                     });
                     return;
                 }
@@ -2518,9 +2519,7 @@ impl<'a> QuadExtractor<'a> {
                     break;
                 };
                 if nexts.len() != 1 {
-                    self.diagnose(|| {
-                        format!("Break loop, because of next size:{}\n", nexts.len())
-                    });
+                    self.diagnose(|| format!("Break loop, because of next size:{}\n", nexts.len()));
                     break;
                 }
                 // Invariant: exactly one next vertex (checked above).
@@ -2602,7 +2601,8 @@ impl<'a> QuadExtractor<'a> {
             return;
         }
 
-        let mut neighbors: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); self.remeshed_vertices.len()];
+        let mut neighbors: Vec<BTreeSet<usize>> =
+            vec![BTreeSet::new(); self.remeshed_vertices.len()];
         let mut edge_use_count: BTreeMap<(usize, usize), usize> = BTreeMap::new();
         for face in &self.remeshed_polygons {
             for i in 0..face.len() {
@@ -2903,8 +2903,16 @@ impl<'a> QuadExtractor<'a> {
         for uv in &mut uvs {
             let mut u = if uv.x().is_finite() { uv.x() } else { center_u };
             let mut v = if uv.y().is_finite() { uv.y() } else { center_v };
-            u = if range_u > 1e-12 { (u - min_u) / range_u } else { 0.5 };
-            v = if range_v > 1e-12 { (v - min_v) / range_v } else { 0.5 };
+            u = if range_u > 1e-12 {
+                (u - min_u) / range_u
+            } else {
+                0.5
+            };
+            v = if range_v > 1e-12 {
+                (v - min_v) / range_v
+            } else {
+                0.5
+            };
             *uv = Vector2::new(u, v);
         }
         self.remeshed_vertex_uvs = uvs;
@@ -3136,12 +3144,10 @@ impl<'a> QuadExtractor<'a> {
                 {
                     continue;
                 }
-                let direction = (self.remeshed_vertices[b] - self.remeshed_vertices[a])
-                    .normalized();
-                let a_face_neighbors =
-                    BTreeSet::from([face[(i + 5) % 6], face[(i + 1) % 6], b]);
-                let b_face_neighbors =
-                    BTreeSet::from([face[(i + 2) % 6], face[(i + 4) % 6], a]);
+                let direction =
+                    (self.remeshed_vertices[b] - self.remeshed_vertices[a]).normalized();
+                let a_face_neighbors = BTreeSet::from([face[(i + 5) % 6], face[(i + 1) % 6], b]);
+                let b_face_neighbors = BTreeSet::from([face[(i + 2) % 6], face[(i + 4) % 6], a]);
                 let mut score = Self::flow_score_at(
                     &self.remeshed_vertices,
                     &vertex_neighbors,
@@ -3175,8 +3181,18 @@ impl<'a> QuadExtractor<'a> {
             }
 
             let i = best_corner as usize;
-            polygons.push(vec![face[i], face[(i + 1) % 6], face[(i + 2) % 6], face[i + 3]]);
-            polygons.push(vec![face[i + 3], face[(i + 4) % 6], face[(i + 5) % 6], face[i]]);
+            polygons.push(vec![
+                face[i],
+                face[(i + 1) % 6],
+                face[(i + 2) % 6],
+                face[i + 3],
+            ]);
+            polygons.push(vec![
+                face[i + 3],
+                face[(i + 4) % 6],
+                face[(i + 5) % 6],
+                face[i],
+            ]);
             split_num += 1;
             vertex_neighbors
                 .entry(face[i])
@@ -3234,12 +3250,10 @@ impl<'a> QuadExtractor<'a> {
                 {
                     continue;
                 }
-                let direction = (self.remeshed_vertices[b] - self.remeshed_vertices[a])
-                    .normalized();
-                let a_face_neighbors =
-                    BTreeSet::from([face[(i + 6) % 7], face[(i + 1) % 7], b]);
-                let b_face_neighbors =
-                    BTreeSet::from([face[(i + 2) % 7], face[(i + 4) % 7], a]);
+                let direction =
+                    (self.remeshed_vertices[b] - self.remeshed_vertices[a]).normalized();
+                let a_face_neighbors = BTreeSet::from([face[(i + 6) % 7], face[(i + 1) % 7], b]);
+                let b_face_neighbors = BTreeSet::from([face[(i + 2) % 7], face[(i + 4) % 7], a]);
                 let mut score = Self::flow_score_at(
                     &self.remeshed_vertices,
                     &vertex_neighbors,
@@ -3255,7 +3269,12 @@ impl<'a> QuadExtractor<'a> {
                 );
                 score += Self::corner_score_of(
                     &self.remeshed_vertices,
-                    &[face[i], face[(i + 1) % 7], face[(i + 2) % 7], face[(i + 3) % 7]],
+                    &[
+                        face[i],
+                        face[(i + 1) % 7],
+                        face[(i + 2) % 7],
+                        face[(i + 3) % 7],
+                    ],
                 );
                 score += Self::corner_score_of(
                     &self.remeshed_vertices,
@@ -3414,9 +3433,7 @@ impl<'a> QuadExtractor<'a> {
             let mut round_convert_num = 0;
             let mut fan_vertices = BTreeSet::new();
             for (source, neighbors) in &vertex_neighbors {
-                if neighbors.len() >= MIN_FAN_VALENCE
-                    && neighbors.len() <= MAX_FAN_VALENCE
-                {
+                if neighbors.len() >= MIN_FAN_VALENCE && neighbors.len() <= MAX_FAN_VALENCE {
                     fan_vertices.insert(*source);
                 }
             }
@@ -3468,8 +3485,7 @@ impl<'a> QuadExtractor<'a> {
                     continue;
                 }
 
-                let forward_gap =
-                    (pentagon_position + fan.len() - triangle_position) % fan.len();
+                let forward_gap = (pentagon_position + fan.len() - triangle_position) % fan.len();
                 let backward_gap = fan.len() - forward_gap;
                 if 2 != forward_gap.min(backward_gap) {
                     continue;
@@ -3761,8 +3777,7 @@ impl<'a> QuadExtractor<'a> {
                 for i in 0..2 {
                     let diagonal_first = face[i];
                     let diagonal_second = face[i + 2];
-                    if rejected_diagonals
-                        .contains(&Self::edge_of(diagonal_first, diagonal_second))
+                    if rejected_diagonals.contains(&Self::edge_of(diagonal_first, diagonal_second))
                     {
                         continue;
                     }
@@ -3774,8 +3789,14 @@ impl<'a> QuadExtractor<'a> {
                     // A closed fan of three faces is the only shape a three
                     // valence point may have here, anything else is not the
                     // pair this is looking for
-                    if 3 != vertex_face_counts.get(&diagonal_first).copied().unwrap_or(0)
-                        || 3 != vertex_face_counts.get(&diagonal_second).copied().unwrap_or(0)
+                    if 3 != vertex_face_counts
+                        .get(&diagonal_first)
+                        .copied()
+                        .unwrap_or(0)
+                        || 3 != vertex_face_counts
+                            .get(&diagonal_second)
+                            .copied()
+                            .unwrap_or(0)
                     {
                         continue;
                     }
@@ -3799,9 +3820,10 @@ impl<'a> QuadExtractor<'a> {
                     let mut shared_num = 0;
                     if let Some(neighbors) = vertex_neighbors.get(&diagonal_first) {
                         for neighbor in neighbors {
-                            if vertex_neighbors.get(&diagonal_second).is_some_and(
-                                |second_neighbors| second_neighbors.contains(neighbor),
-                            ) {
+                            if vertex_neighbors
+                                .get(&diagonal_second)
+                                .is_some_and(|second_neighbors| second_neighbors.contains(neighbor))
+                            {
                                 shared_num += 1;
                             }
                         }
@@ -3855,8 +3877,7 @@ impl<'a> QuadExtractor<'a> {
                     } else {
                         *vertex
                     };
-                    if candidate.is_empty() || candidate[candidate.len() - 1] != rewritten_vertex
-                    {
+                    if candidate.is_empty() || candidate[candidate.len() - 1] != rewritten_vertex {
                         candidate.push(rewritten_vertex);
                     }
                 }
@@ -3903,9 +3924,7 @@ impl<'a> QuadExtractor<'a> {
                     if !valid {
                         break;
                     }
-                    if affected[face_index]
-                        && !unique_faces.insert(Self::canonical_face(face))
-                    {
+                    if affected[face_index] && !unique_faces.insert(Self::canonical_face(face)) {
                         valid = false;
                         break;
                     }
@@ -4018,9 +4037,7 @@ impl<'a> QuadExtractor<'a> {
                 if 4 != first_face.len() || 4 != second_face.len() {
                     continue;
                 }
-                if Self::has_repeated_vertex(first_face)
-                    || Self::has_repeated_vertex(second_face)
-                {
+                if Self::has_repeated_vertex(first_face) || Self::has_repeated_vertex(second_face) {
                     continue;
                 }
                 let first_at = index_of_vertex(first_face, middle);
@@ -4058,10 +4075,8 @@ impl<'a> QuadExtractor<'a> {
                 if existing_faces.contains(&Self::canonical_face(&merged)) {
                     continue;
                 }
-                let first_normal =
-                    Self::face_normal_of(&self.remeshed_vertices, first_face);
-                let second_normal =
-                    Self::face_normal_of(&self.remeshed_vertices, second_face);
+                let first_normal = Self::face_normal_of(&self.remeshed_vertices, first_face);
+                let second_normal = Self::face_normal_of(&self.remeshed_vertices, second_face);
                 if Vector3::dot_product(
                     &(first_normal + second_normal),
                     &Self::face_normal_of(&self.remeshed_vertices, &merged),
@@ -4074,7 +4089,9 @@ impl<'a> QuadExtractor<'a> {
                 // First wins (C++ `insert`); keys are unique here (the
                 // touched guard skips faces claimed by an earlier middle),
                 // so this never overwrites either way.
-                replaced_faces.entry(first_face_index).or_insert(merged.clone());
+                replaced_faces
+                    .entry(first_face_index)
+                    .or_insert(merged.clone());
                 removed_faces.insert(second_face_index);
                 touched_vertices.extend(merged.iter().copied());
                 touched_vertices.insert(middle);
@@ -4086,9 +4103,8 @@ impl<'a> QuadExtractor<'a> {
                 break;
             }
 
-            let mut rewritten = Vec::with_capacity(
-                self.remeshed_polygons.len().saturating_sub(round_merge_num),
-            );
+            let mut rewritten =
+                Vec::with_capacity(self.remeshed_polygons.len().saturating_sub(round_merge_num));
             for (face_index, face) in self.remeshed_polygons.iter().enumerate() {
                 if removed_faces.contains(&face_index) {
                     continue;
@@ -4172,9 +4188,7 @@ impl<'a> QuadExtractor<'a> {
                 if 3 != vertex_neighbors[&three].len() {
                     std::mem::swap(&mut three, &mut five);
                 }
-                if 3 != vertex_neighbors[&three].len()
-                    || 5 != vertex_neighbors[&five].len()
-                {
+                if 3 != vertex_neighbors[&three].len() || 5 != vertex_neighbors[&five].len() {
                     continue;
                 }
                 if border_vertices.contains(&three) || border_vertices.contains(&five) {
@@ -4204,14 +4218,12 @@ impl<'a> QuadExtractor<'a> {
                     continue;
                 }
                 let three_triangle_num =
-                    match Self::count_fan_triangles(&self.remeshed_polygons, &three_fan)
-                    {
+                    match Self::count_fan_triangles(&self.remeshed_polygons, &three_fan) {
                         Some(three_triangle_num) => three_triangle_num,
                         _ => continue,
                     };
                 let five_triangle_num =
-                    match Self::count_fan_triangles(&self.remeshed_polygons, &five_fan)
-                    {
+                    match Self::count_fan_triangles(&self.remeshed_polygons, &five_fan) {
                         Some(five_triangle_num) => five_triangle_num,
                         _ => continue,
                     };
@@ -4243,9 +4255,8 @@ impl<'a> QuadExtractor<'a> {
                 let mut best_octagon = Vec::new();
                 let mut best_position = Vector3::default();
                 for direction in 0..2 {
-                    let middle_face = five_fan[(shared_at
-                        + if 0 == direction { 2 } else { 4 })
-                        % five_fan.len()];
+                    let middle_face =
+                        five_fan[(shared_at + if 0 == direction { 2 } else { 4 }) % five_fan.len()];
                     if 4 != self.remeshed_polygons[middle_face].len() {
                         continue;
                     }
@@ -4279,21 +4290,14 @@ impl<'a> QuadExtractor<'a> {
                             break;
                         }
                     }
-                    if !simple_boundary
-                        || 8 != boundary_next.len()
-                        || 5 != buried_edges.len()
-                    {
+                    if !simple_boundary || 8 != boundary_next.len() || 5 != buried_edges.len() {
                         continue;
                     }
                     let mut buried_at_defect = true;
                     let mut buried_counts: BTreeMap<usize, usize> = BTreeMap::new();
                     for buried in &buried_edges {
                         let (first, second) = *buried;
-                        if three != first
-                            && three != second
-                            && five != first
-                            && five != second
-                        {
+                        if three != first && three != second && five != first && five != second {
                             buried_at_defect = false;
                             break;
                         }
@@ -4301,9 +4305,7 @@ impl<'a> QuadExtractor<'a> {
                         *buried_counts.entry(second).or_insert(0) += 1;
                     }
                     // Present-or-zero (C++ `operator[]` on a count map).
-                    if !buried_at_defect
-                        || 3 != buried_counts.get(&three).copied().unwrap_or(0)
-                    {
+                    if !buried_at_defect || 3 != buried_counts.get(&three).copied().unwrap_or(0) {
                         continue;
                     }
 
@@ -4316,10 +4318,7 @@ impl<'a> QuadExtractor<'a> {
                             _ => break,
                         }
                     }
-                    if 8 != octagon.len()
-                        || walk != five
-                        || Self::has_repeated_vertex(&octagon)
-                    {
+                    if 8 != octagon.len() || walk != five || Self::has_repeated_vertex(&octagon) {
                         continue;
                     }
                     let mut touched = false;
@@ -4354,8 +4353,7 @@ impl<'a> QuadExtractor<'a> {
                         continue;
                     }
                     // Present by construction (three is used).
-                    let mut old_score =
-                        Self::valence_score(vertex_neighbors[&three].len());
+                    let mut old_score = Self::valence_score(vertex_neighbors[&three].len());
                     for corner in &octagon {
                         old_score += Self::valence_score(vertex_neighbors[corner].len());
                     }
@@ -4473,9 +4471,7 @@ impl<'a> QuadExtractor<'a> {
 
         let compacted = self.compact_vertices(&merged_vertices);
 
-        self.diagnose(|| {
-            format!("Merge three and five valence triangles:{merge_num}\n")
-        });
+        self.diagnose(|| format!("Merge three and five valence triangles:{merge_num}\n"));
         self.rebuild_half_edges();
 
         self.smooth_around_vertices(&compacted, 3, 5);
@@ -4548,9 +4544,7 @@ impl<'a> QuadExtractor<'a> {
                 }
             }
             for vertex in fan_vertices {
-                if touched_vertices.contains(&vertex)
-                    || border_vertices.contains(&vertex)
-                {
+                if touched_vertices.contains(&vertex) || border_vertices.contains(&vertex) {
                     continue;
                 }
                 let mut fan = Vec::new();
@@ -4619,10 +4613,7 @@ impl<'a> QuadExtractor<'a> {
                             break;
                         }
                     }
-                    if !simple_boundary
-                        || 8 != boundary_next.len()
-                        || 3 != buried_edges.len()
-                    {
+                    if !simple_boundary || 8 != boundary_next.len() || 3 != buried_edges.len() {
                         continue;
                     }
                     let mut buried_at_fan_vertex = true;
@@ -4649,10 +4640,7 @@ impl<'a> QuadExtractor<'a> {
                             _ => break,
                         }
                     }
-                    if 8 != octagon.len()
-                        || walk != vertex
-                        || Self::has_repeated_vertex(&octagon)
-                    {
+                    if 8 != octagon.len() || walk != vertex || Self::has_repeated_vertex(&octagon) {
                         continue;
                     }
                     let broken_at = octagon[4];
@@ -4702,9 +4690,8 @@ impl<'a> QuadExtractor<'a> {
                     }
 
                     let added_vertex = self.remeshed_vertices.len();
-                    let added_position = (self.remeshed_vertices[vertex]
-                        + self.remeshed_vertices[broken_at])
-                        * 0.5;
+                    let added_position =
+                        (self.remeshed_vertices[vertex] + self.remeshed_vertices[broken_at]) * 0.5;
 
                     let mut quads = Vec::with_capacity(4);
                     for i in (0..8).step_by(2) {
@@ -4832,14 +4819,11 @@ impl<'a> QuadExtractor<'a> {
                 let first = edge.0;
                 let second = edge.1;
                 // Present by construction (edge endpoints are used).
-                if 3 != vertex_neighbors[&first].len()
-                    || 3 != vertex_neighbors[&second].len()
-                {
+                if 3 != vertex_neighbors[&first].len() || 3 != vertex_neighbors[&second].len() {
                     continue;
                 }
                 // Present by construction (edge endpoints are used).
-                if 3 != vertex_faces[&first].len() || 3 != vertex_faces[&second].len()
-                {
+                if 3 != vertex_faces[&first].len() || 3 != vertex_faces[&second].len() {
                     continue;
                 }
 
@@ -4858,9 +4842,7 @@ impl<'a> QuadExtractor<'a> {
                         break;
                     }
                     for vertex in face {
-                        if border_vertices.contains(vertex)
-                            || touched_vertices.contains(vertex)
-                        {
+                        if border_vertices.contains(vertex) || touched_vertices.contains(vertex) {
                             usable = false;
                             break;
                         }
@@ -5002,8 +4984,7 @@ impl<'a> QuadExtractor<'a> {
                         continue;
                     }
 
-                    let span =
-                        self.remeshed_vertices[opposite] - self.remeshed_vertices[corner];
+                    let span = self.remeshed_vertices[opposite] - self.remeshed_vertices[corner];
                     let direction = span.normalized();
                     let corner_skip = BTreeSet::from([
                         hexagon[(i + 1) % HEXAGON_SIZE],
@@ -5065,9 +5046,8 @@ impl<'a> QuadExtractor<'a> {
                 break;
             }
 
-            let mut rewritten = Vec::with_capacity(
-                self.remeshed_polygons.len() + added_faces.len(),
-            );
+            let mut rewritten =
+                Vec::with_capacity(self.remeshed_polygons.len() + added_faces.len());
             for (face_index, face) in self.remeshed_polygons.iter().enumerate() {
                 if removed_faces.contains(&face_index) {
                     continue;
@@ -5087,9 +5067,7 @@ impl<'a> QuadExtractor<'a> {
 
         let compacted = self.compact_vertices(&collapsed_vertices);
 
-        self.diagnose(|| {
-            format!("Collapse three valence edge pairs:{collapse_count}\n")
-        });
+        self.diagnose(|| format!("Collapse three valence edge pairs:{collapse_count}\n"));
         self.rebuild_half_edges();
 
         self.smooth_around_vertices(&compacted, 3, 5);
@@ -5182,11 +5160,9 @@ impl<'a> QuadExtractor<'a> {
                     Self::find_directed_entry(&self.remeshed_polygons[first], a, b);
                 if first_entry >= self.remeshed_polygons[first].len() {
                     std::mem::swap(&mut first, &mut second);
-                    first_entry =
-                        Self::find_directed_entry(&self.remeshed_polygons[first], a, b);
+                    first_entry = Self::find_directed_entry(&self.remeshed_polygons[first], a, b);
                 }
-                let second_entry =
-                    Self::find_directed_entry(&self.remeshed_polygons[second], b, a);
+                let second_entry = Self::find_directed_entry(&self.remeshed_polygons[second], b, a);
                 if first_entry >= self.remeshed_polygons[first].len()
                     || second_entry >= self.remeshed_polygons[second].len()
                 {
@@ -5289,12 +5265,8 @@ impl<'a> QuadExtractor<'a> {
                     continue;
                 }
 
-                existing_faces.remove(&Self::canonical_face(
-                    &self.remeshed_polygons[first],
-                ));
-                existing_faces.remove(&Self::canonical_face(
-                    &self.remeshed_polygons[second],
-                ));
+                existing_faces.remove(&Self::canonical_face(&self.remeshed_polygons[first]));
+                existing_faces.remove(&Self::canonical_face(&self.remeshed_polygons[second]));
                 existing_faces.insert(Self::canonical_face(&best_face1));
                 existing_faces.insert(Self::canonical_face(&best_face2));
                 self.remeshed_polygons[first] = best_face1;
@@ -5402,8 +5374,10 @@ impl<'a> QuadExtractor<'a> {
             }
             let mut entry = neighbor_face.len();
             for i in 0..neighbor_face.len() {
-                if Self::edge_of(neighbor_face[i], neighbor_face[(i + 1) % neighbor_face.len()])
-                    == rung
+                if Self::edge_of(
+                    neighbor_face[i],
+                    neighbor_face[(i + 1) % neighbor_face.len()],
+                ) == rung
                 {
                     entry = i;
                     break;
@@ -5414,7 +5388,10 @@ impl<'a> QuadExtractor<'a> {
             }
             dissolved_faces.insert(neighbor);
             current_face = neighbor;
-            rung = Self::edge_of(neighbor_face[(entry + 2) % 4], neighbor_face[(entry + 3) % 4]);
+            rung = Self::edge_of(
+                neighbor_face[(entry + 2) % 4],
+                neighbor_face[(entry + 3) % 4],
+            );
         }
     }
 
@@ -5493,31 +5470,24 @@ impl<'a> QuadExtractor<'a> {
                 // unique either way.
                 merged_into.entry(second).or_insert(first);
                 merged_positions.entry(first).or_insert(
-                    (self.remeshed_vertices[first] + self.remeshed_vertices[second])
-                        * 0.5,
+                    (self.remeshed_vertices[first] + self.remeshed_vertices[second]) * 0.5,
                 );
             }
 
-            let mut rewritten: Vec<Vec<usize>> =
-                Vec::with_capacity(self.remeshed_polygons.len());
+            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
             let mut touched_faces = BTreeSet::new();
-            let mut touched_edge_counts: BTreeMap<(usize, usize), usize> =
-                BTreeMap::new();
+            let mut touched_edge_counts: BTreeMap<(usize, usize), usize> = BTreeMap::new();
             let mut valid = true;
             for face_index in 0..self.remeshed_polygons.len() {
                 let face = &self.remeshed_polygons[face_index];
                 let mut candidate = Vec::with_capacity(face.len());
                 let mut touched = false;
                 for vertex in face {
-                    let rewritten_vertex =
-                        merged_into.get(vertex).copied().unwrap_or(*vertex);
-                    if rewritten_vertex != *vertex
-                        || merged_positions.contains_key(vertex)
-                    {
+                    let rewritten_vertex = merged_into.get(vertex).copied().unwrap_or(*vertex);
+                    if rewritten_vertex != *vertex || merged_positions.contains_key(vertex) {
                         touched = true;
                     }
-                    if candidate.is_empty() || candidate[candidate.len() - 1] != rewritten_vertex
-                    {
+                    if candidate.is_empty() || candidate[candidate.len() - 1] != rewritten_vertex {
                         candidate.push(rewritten_vertex);
                     }
                 }
@@ -5542,9 +5512,7 @@ impl<'a> QuadExtractor<'a> {
                 } else {
                     face.len()
                 };
-                if candidate.len() != expected_size
-                    || Self::has_repeated_vertex(&candidate)
-                {
+                if candidate.len() != expected_size || Self::has_repeated_vertex(&candidate) {
                     valid = false;
                     break;
                 }
@@ -5578,10 +5546,8 @@ impl<'a> QuadExtractor<'a> {
                         break;
                     }
                     for i in 0..candidate.len() {
-                        let edge = Self::edge_of(
-                            candidate[i],
-                            candidate[(i + 1) % candidate.len()],
-                        );
+                        let edge =
+                            Self::edge_of(candidate[i], candidate[(i + 1) % candidate.len()]);
                         if !merged_positions.contains_key(&edge.0)
                             && !merged_positions.contains_key(&edge.1)
                         {
@@ -5800,11 +5766,9 @@ impl<'a> QuadExtractor<'a> {
             let keep = shared_edge.0;
             let remove = shared_edge.1;
             let unmoved_vertex = self.remeshed_vertices.len();
-            let keep_position = (self.remeshed_vertices[keep]
-                + self.remeshed_vertices[remove])
-                * 0.5;
-            let mut rewritten: Vec<Vec<usize>> =
-                Vec::with_capacity(self.remeshed_polygons.len());
+            let keep_position =
+                (self.remeshed_vertices[keep] + self.remeshed_vertices[remove]) * 0.5;
+            let mut rewritten: Vec<Vec<usize>> = Vec::with_capacity(self.remeshed_polygons.len());
             let mut affected = Vec::with_capacity(self.remeshed_polygons.len());
             let mut valid = true;
             for face in &self.remeshed_polygons {
@@ -5818,8 +5782,7 @@ impl<'a> QuadExtractor<'a> {
                 let mut candidate = Vec::with_capacity(face.len());
                 for vertex in face {
                     let rewritten_vertex = if *vertex == remove { keep } else { *vertex };
-                    if candidate.is_empty() || candidate[candidate.len() - 1] != rewritten_vertex
-                    {
+                    if candidate.is_empty() || candidate[candidate.len() - 1] != rewritten_vertex {
                         candidate.push(rewritten_vertex);
                     }
                 }
@@ -5830,9 +5793,7 @@ impl<'a> QuadExtractor<'a> {
                     // The two five edge faces become quads, no other face
                     // is allowed to degrade, otherwise the merge is
                     // trading one defect for another
-                    if candidate.len() < 3
-                        || (face.len() >= 4 && candidate.len() < 4)
-                    {
+                    if candidate.len() < 3 || (face.len() >= 4 && candidate.len() < 4) {
                         valid = false;
                         break;
                     }
@@ -5868,21 +5829,17 @@ impl<'a> QuadExtractor<'a> {
                         unique_faces.insert(Self::canonical_face(face));
                     }
                 }
-                let mut keep_edge_counts: BTreeMap<(usize, usize), usize> =
-                    BTreeMap::new();
+                let mut keep_edge_counts: BTreeMap<(usize, usize), usize> = BTreeMap::new();
                 for (face_index, face) in rewritten.iter().enumerate() {
                     if !valid {
                         break;
                     }
-                    if affected[face_index]
-                        && !unique_faces.insert(Self::canonical_face(face))
-                    {
+                    if affected[face_index] && !unique_faces.insert(Self::canonical_face(face)) {
                         valid = false;
                         break;
                     }
                     for i in 0..face.len() {
-                        let edge =
-                            Self::edge_of(face[i], face[(i + 1) % face.len()]);
+                        let edge = Self::edge_of(face[i], face[(i + 1) % face.len()]);
                         if keep != edge.0 && keep != edge.1 {
                             continue;
                         }
@@ -6032,9 +5989,8 @@ impl<'a> QuadExtractor<'a> {
                     }
 
                     let added_vertex = self.remeshed_vertices.len();
-                    let added_position = (self.remeshed_vertices[corner]
-                        + self.remeshed_vertices[opposite])
-                        * 0.5;
+                    let added_position =
+                        (self.remeshed_vertices[corner] + self.remeshed_vertices[opposite]) * 0.5;
 
                     let mut rewritten = Vec::with_capacity(affected_faces.len());
                     let mut valid = true;
@@ -6045,26 +6001,21 @@ impl<'a> QuadExtractor<'a> {
                         let face = &self.remeshed_polygons[*affected];
                         let mut candidate = Vec::with_capacity(face.len());
                         for vertex in face {
-                            let rewritten_vertex =
-                                if corner == *vertex || opposite == *vertex {
-                                    added_vertex
-                                } else {
-                                    *vertex
-                                };
+                            let rewritten_vertex = if corner == *vertex || opposite == *vertex {
+                                added_vertex
+                            } else {
+                                *vertex
+                            };
                             if candidate.is_empty()
                                 || candidate[candidate.len() - 1] != rewritten_vertex
                             {
                                 candidate.push(rewritten_vertex);
                             }
                         }
-                        if candidate.len() > 1
-                            && candidate[0] == candidate[candidate.len() - 1]
-                        {
+                        if candidate.len() > 1 && candidate[0] == candidate[candidate.len() - 1] {
                             candidate.pop();
                         }
-                        if candidate.len() != face.len()
-                            || Self::has_repeated_vertex(&candidate)
-                        {
+                        if candidate.len() != face.len() || Self::has_repeated_vertex(&candidate) {
                             valid = false;
                             break;
                         }
@@ -6101,8 +6052,7 @@ impl<'a> QuadExtractor<'a> {
                                 if !valid {
                                     break;
                                 }
-                                let edge =
-                                    Self::edge_of(face[j], face[(j + 1) % face.len()]);
+                                let edge = Self::edge_of(face[j], face[(j + 1) % face.len()]);
                                 if added_vertex != edge.0 && added_vertex != edge.1 {
                                     continue;
                                 }
@@ -6178,9 +6128,7 @@ impl<'a> QuadExtractor<'a> {
 
         let compacted = self.compact_vertices(&collapsed_vertices);
 
-        self.diagnose(|| {
-            format!("Collapse three valence corners:{collapse_count}\n")
-        });
+        self.diagnose(|| format!("Collapse three valence corners:{collapse_count}\n"));
         self.rebuild_half_edges();
 
         self.smooth_around_vertices(&compacted, 3, 5);
