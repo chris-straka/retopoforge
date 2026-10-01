@@ -31,6 +31,7 @@ use retopo_core::auto_remesher::{AutoRemesher, ModelType};
 use retopo_core::glb as glb_io;
 use retopo_core::mesh_separator::MeshSeparator;
 use retopo_core::obj_reader::{self, WeldStats};
+use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector2::Vector2;
 use retopo_core::vector3::Vector3;
 use std::ffi::c_void;
@@ -59,6 +60,7 @@ struct Params {
     guides_path: String,
     features_path: String,
     density_path: String,
+    dipoles: DipoleConfig,
     emit_uvs: bool,
     quiet: bool,
 }
@@ -82,6 +84,9 @@ impl Params {
             guides_path: String::new(),
             features_path: String::new(),
             density_path: String::new(),
+            // Rust-only post-switch feature (the C++ has no dipoles):
+            // default off, see docs/dipole-production.md.
+            dipoles: DipoleConfig::off(),
             emit_uvs: false,
             quiet: false,
         }
@@ -149,6 +154,17 @@ fn print_usage(argv0: &str) {
             "                              (~2.3x realized for 4x asks); mild masks\n",
             "                              realize nearly fully. Single-file and\n",
             "                              --lods runs only (rejected in batch mode)\n",
+            "  --dipoles <off|auto>         Density-boundary dipole insertion:\n",
+            "                              singularity rings along sharp --density\n",
+            "                              steps unlock localized refinement\n",
+            "                              (default: off; auto fires on asks\n",
+            "                              above ~2.5x, mild masks unaffected)\n",
+            "  --dipole-every <count>       Dipole dose stride override: place\n",
+            "                              every k-th ring candidate (default: 0\n",
+            "                              = auto line-ending estimate)\n",
+            "  --dipole-ratio <value>       Dipole step-sharpness override:\n",
+            "                              minimum face-key ratio (default: 0 =\n",
+            "                              auto 1.5)\n",
             "  --uvs <on|off>              Emit remeshed UVs from the internal\n",
             "                              parameterization (default: off). OBJ\n",
             "                              gains vt lines + v/vt corners, GLB gains\n",
@@ -727,6 +743,47 @@ fn parse_args(args: &[String], params: &mut Params) -> bool {
                 Some(value) => params.density_path = value,
                 None => return false,
             }
+        } else if matches(&arg, "--dipoles", None) {
+            // Rust-only post-switch flag (the C++ rejects it as unknown):
+            // parsed here, tiered out of the e2e help comparison.
+            let value = match take_value(args, &mut i, "--dipoles") {
+                Some(value) => value,
+                None => return false,
+            };
+            if value == "off" {
+                params.dipoles.enabled = false;
+            } else if value == "auto" {
+                params.dipoles.enabled = true;
+            } else {
+                eprintln!("Error: --dipoles expects 'off' or 'auto', got '{value}'");
+                return false;
+            }
+        } else if matches(&arg, "--dipole-every", None) {
+            let value = match take_value(args, &mut i, "--dipole-every") {
+                Some(value) => value,
+                None => return false,
+            };
+            match parse_int(&value, "--dipole-every") {
+                Some(v) if v >= 0 => params.dipoles.every = v as usize,
+                Some(_) => {
+                    eprintln!("Error: --dipole-every expects a non-negative integer, got '{value}'");
+                    return false;
+                }
+                None => return false, // parse_int already reported
+            }
+        } else if matches(&arg, "--dipole-ratio", None) {
+            let value = match take_value(args, &mut i, "--dipole-ratio") {
+                Some(value) => value,
+                None => return false,
+            };
+            match parse_double(&value, "--dipole-ratio") {
+                Some(v) if v >= 0.0 => params.dipoles.ratio = v,
+                Some(_) => {
+                    eprintln!("Error: --dipole-ratio expects a non-negative number, got '{value}'");
+                    return false;
+                }
+                None => return false, // parse_double already reported
+            }
         } else if matches(&arg, "--guides", None) {
             match take_value(args, &mut i, "--guides") {
                 Some(value) => params.guides_path = value,
@@ -1213,6 +1270,7 @@ fn remesh_loaded_mesh(
     remesher.set_guide_polylines(guides);
     remesher.set_sharp_polylines(features);
     remesher.set_density_multipliers(density);
+    remesher.set_dipoles(params.dipoles);
     if params.edge_scaling > 0.0 {
         remesher.set_scaling(params.edge_scaling);
     }
@@ -1653,6 +1711,7 @@ fn run_single_mode(params: &Params) -> i32 {
     remesher.set_guide_polylines(guides);
     remesher.set_sharp_polylines(features);
     remesher.set_density_multipliers(&density);
+    remesher.set_dipoles(params.dipoles);
     if params.edge_scaling > 0.0 {
         remesher.set_scaling(params.edge_scaling);
     }
