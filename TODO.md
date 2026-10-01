@@ -59,17 +59,34 @@ push main from lanes (explicit refspec only); game assets never committed.
       sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
       redesign (flags/errors/progress), single-island parallelism in Rust
 
-## Direction (2026-10-01, see docs/direction.md)
+## Next work (2026-10-01; read docs/direction.md first)
 
-- [ ] Deformation test first: pose a few monsters (current remesh vs
-      joint-loop guides vs decimated triangles + normal map), measure
-      joint stretch and volume loss; decides how much to build below
+Owner's map of all projects and the cross-project order:
+`~/Games/hll/tools/roadmap.md`. Gate every engine change with
+`bench/noise.py` + `bench/score.py` distributions (single runs are below
+the noise floor), plus `bench/matched.py` against `bench/quadwild.py`
+when comparing back ends.
+
+- [ ] Remove remaining triangles/pentagons (~1-2% of faces on real AI
+      characters: 186 of ~14k on the owner's character)
+- [ ] Normalize input scale by a power of two on load (quality collapses
+      below ~0.01-unit models; `PositionKey` truncates at 1e-5 absolute)
+- [ ] Rounding: `solve_iteration` fixes every integer in one shot
+      (threshold is always 1.0); try true greedy rounding, gate on scores
+- [ ] Drop the libc++ order emulation (`CxxMap`/`CxxSet` in
+      `quad_extractor.rs`): the C++ oracle is gone, so native
+      deterministic containers simplify and speed it up (re-baseline)
+- [ ] Reduce tiling chaos from decimation (meshopt collapse order flips
+      under 1e-9 noise; see docs/igm-validity-spike.md)
+- [ ] Joint loops: rigforge landmarks -> guide rings via `--guides`
 - [ ] Deformation score in bench (rig + pose + joint distortion) as the
-      main gate for engine work
-- [ ] Patch-layout back end in Rust (clean-room QuadWild + Bi-MDF), with
-      patch boundaries from the cross field, rigforge joint loops, and
-      owner strokes drawn in Blender
-- [ ] Humanoid faces/hands: out of scope here, handled by wrapforge
+      main gate
+- [ ] Patch back end as an OPTIONAL extension (`--backend patch`,
+      clean-room QuadWild + Bi-MDF from the papers), only after the items
+      above; the current engine stays the default
+- [ ] Humanoid faces/hands: out of scope here (wrapforge)
+- Experiments with code: branch `exp/igm-validity` (flip census,
+  rounding schedule, untangling)
 
 ## Game-asset pipeline (owner's core loop)
 
