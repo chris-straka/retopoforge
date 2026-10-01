@@ -33,20 +33,21 @@ push main from lanes (explicit refspec only); game assets never committed.
 
 - [x] Solvers first (calibration): CLS + MILS in `retopo_solvers` (faer),
       9+5 goldens, 200+200 differential cases — verdict: viable
-- [x] Core batch, 17 modules: double_utils, progress, obj_reader,
+- [x] Core batch, 18 modules: double_utils, progress, obj_reader,
       mesh_separator, vector2+vector3 (FMA-exact, bitwise), position_key,
       surface_mesh, density, symmetry, isotropic_remesher (+kernel),
       quad_parameterizer, guides, frame_field, singularity_simplifier
       (sincos-fusion root cause, bitwise oracle), parameterizer
       (PPX-documented, vendored singularity deduped at join),
       quad_extractor (libc++ hash emulation, 227-case bitwise oracle;
-      PositionKey/box-tree vendors deduped at join)
-- [ ] Engine lane running (all deps joined; needs no vendoring)
+      PositionKey/box-tree vendors deduped at join), autoremesher engine
+      (295-case oracle, sincos-bisection fix, meshopt stays C++ via FFI)
+- [ ] Main lane running (acceptance gate; C++-nondeterminism-aware e2e)
 - [x] CLI glb IO joined (std-only reader, byte-identical writer;
       14/235 transform-path cases scale-aware, fmuladd has no bitwise
       contract there)
-- [ ] Queued behind deps: cli/main (needs engine; its end-to-end
-      differential run is the acceptance gate for the whole port)
+- [x] Port complete: 20/20 (18 core + 2 solvers) + glb; main-lane
+      end-to-end run is the acceptance gate for the whole port
 - [ ] Switch: gate Rust `cargo test` in CI, write the rewrite verdict,
       point the Blender addon + Homebrew formula at the Rust binary
 - [ ] Post-switch superiority batch (equality proved — now beat C++):
