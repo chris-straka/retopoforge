@@ -5499,6 +5499,10 @@ impl<'a> QuadExtractor<'a> {
                         directed_edges.insert((face[i], face[(i + 1) % face.len()]));
                     }
                 }
+                // `std::map` here (ordered; the convert/merge/split
+                // passes use `unordered_map`, but theirs is lookup-only).
+                // `buried_counts` is `unordered_map` yet lookup-only, so a
+                // `BTreeMap` is exact for both.
                 let mut boundary_next = BTreeMap::new();
                 let mut buried_counts: BTreeMap<usize, usize> = BTreeMap::new();
                 let mut buried_edge_num = 0;
@@ -5529,7 +5533,8 @@ impl<'a> QuadExtractor<'a> {
                 }
 
                 let mut hexagon = Vec::with_capacity(HEXAGON_SIZE);
-                // `begin()->first`: the smallest boundary key.
+                // Ordered `std::map`, so `begin()->first` is the smallest
+                // boundary key.
                 let start = *boundary_next.keys().next().unwrap_or(&usize::MAX);
                 let mut walk = start;
                 for _ in 0..HEXAGON_SIZE {
