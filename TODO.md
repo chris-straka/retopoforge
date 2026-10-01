@@ -33,18 +33,19 @@ push main from lanes (explicit refspec only); game assets never committed.
 
 - [x] Solvers first (calibration): CLS + MILS in `retopo_solvers` (faer),
       9+5 goldens, 200+200 differential cases — verdict: viable
-- [x] Core batch, 16 modules: double_utils, progress, obj_reader,
+- [x] Core batch, 17 modules: double_utils, progress, obj_reader,
       mesh_separator, vector2+vector3 (FMA-exact, bitwise), position_key,
       surface_mesh, density, symmetry, isotropic_remesher (+kernel),
       quad_parameterizer, guides, frame_field, singularity_simplifier
       (sincos-fusion root cause, bitwise oracle), parameterizer
-      (PPX-documented, vendored singularity deduped at join)
-- [ ] Finisher running: quad_extractor (largest module, mid-port)
+      (PPX-documented, vendored singularity deduped at join),
+      quad_extractor (libc++ hash emulation, 227-case bitwise oracle;
+      PositionKey/box-tree vendors deduped at join)
+- [ ] Engine lane running (all deps joined; needs no vendoring)
 - [x] CLI glb IO joined (std-only reader, byte-identical writer;
       14/235 transform-path cases scale-aware, fmuladd has no bitwise
       contract there)
-- [ ] Queued behind deps: autoremesher engine (needs quad_extractor;
-      parameterizer joined), cli/main (needs engine; its end-to-end
+- [ ] Queued behind deps: cli/main (needs engine; its end-to-end
       differential run is the acceptance gate for the whole port)
 - [ ] Switch: gate Rust `cargo test` in CI, write the rewrite verdict,
       point the Blender addon + Homebrew formula at the Rust binary
