@@ -1302,6 +1302,89 @@ fn dipole_log_cover_gradients(
 /// Mirrors `solveQuadCover`, returning the solved values (`None` when a
 /// rounding iteration fails or the system never converges, exactly where
 /// the C++ returns `false`).
+/// EXPERIMENTAL (RETOPO_UNTANGLE): re-optimize the continuous kernel
+/// variables of the rounded cover with a foldover-free barrier energy,
+/// integer variables (layout) held fixed. See `crate::untangle`.
+fn untangle_cover(s: &mut MixedIntegerLeastSquares, ctx: &CoverContext) {
+    use crate::untangle::{untangle, UntangleFace};
+    let mesh = ctx.mesh;
+    let mut kernel = s.kernel_values().to_vec();
+    let mut free_index = vec![usize::MAX; kernel.len()];
+    let mut x = Vec::new();
+    for (k, value) in kernel.iter().enumerate() {
+        if !s.kernel_is_integer(k) {
+            free_index[k] = x.len();
+            x.push(*value);
+        }
+    }
+    let mut faces = Vec::with_capacity(mesh.face_count());
+    for f in 0..mesh.face_count() {
+        let u = ctx.field[f];
+        let v = unit(
+            Vector3::cross_product(&ctx.normals[f], &u),
+            mesh.edge_vector(3 * f),
+        );
+        let face_scale = if ctx.face_scaling.len() == mesh.face_count() {
+            ctx.face_scaling[f].max(1e-12)
+        } else {
+            1.0
+        };
+        let su = ctx.scale * face_scale * ctx.scaling_u[f].max(1e-12);
+        let sv = ctx.scale * face_scale * ctx.scaling_v[f].max(1e-12);
+        let c0 = 3 * f;
+        let c1 = mesh.next_corner(c0);
+        let c2 = mesh.next_corner(c1);
+        let e0 = mesh.edge_vector(c0);
+        let e1 = mesh.edge_vector(c1);
+        let a = (Vector3::dot_product(&u, &e0) / su, Vector3::dot_product(&v, &e0) / sv);
+        let b = (
+            a.0 + Vector3::dot_product(&u, &e1) / su,
+            a.1 + Vector3::dot_product(&v, &e1) / sv,
+        );
+        let dr = a.0 * b.1 - b.0 * a.1;
+        if !(dr.abs() > 1e-14) {
+            continue;
+        }
+        let mut terms: [Vec<(usize, f64)>; 6] = Default::default();
+        let mut constant = [0.0; 6];
+        for (l, c) in [c0, c1, c2].into_iter().enumerate() {
+            for comp in 0..2 {
+                let slot = 2 * l + comp;
+                for (k, coef) in s.kernel_expansion(2 * c + comp) {
+                    if free_index[k] != usize::MAX {
+                        terms[slot].push((free_index[k], coef));
+                    } else {
+                        constant[slot] += coef * kernel[k];
+                    }
+                }
+            }
+        }
+        faces.push(UntangleFace {
+            terms,
+            constant,
+            reference_inverse: [b.1 / dr, -b.0 / dr, -a.1 / dr, a.0 / dr],
+            weight: 0.5 * dr.abs(),
+        });
+    }
+    let r = untangle(&faces, &mut x);
+    eprintln!(
+        "UNTANGLE faces={} free={} flipped {} -> {} min_det {:.3e} -> {:.3e} outer={}",
+        faces.len(),
+        x.len(),
+        r.flipped_before,
+        r.flipped_after,
+        r.min_det_before,
+        r.min_det_after,
+        r.outer_iterations
+    );
+    for (k, slot) in free_index.iter().enumerate() {
+        if *slot != usize::MAX {
+            kernel[k] = x[*slot];
+        }
+    }
+    s.set_kernel_values(kernel);
+}
+
 fn solve_quad_cover(ctx: &CoverContext, progress: Option<&dyn Fn(f32, &str)>) -> Option<Vec<f64>> {
     let mesh = ctx.mesh;
     let field = ctx.field;
@@ -1492,6 +1575,9 @@ fn solve_quad_cover(ctx: &CoverContext, progress: Option<&dyn Fn(f32, &str)>) ->
         if s.converged() {
             break;
         }
+    }
+    if s.converged() && std::env::var_os("RETOPO_UNTANGLE").is_some() {
+        untangle_cover(&mut s, ctx);
     }
     report(0.98, "Rounding cover to integers");
     let mut values = Vec::with_capacity(variables);

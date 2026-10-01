@@ -38,3 +38,5 @@ pub mod quad_extractor;
 pub(crate) mod par;
 // Wave 3 lane: rs-autoremesher (meshoptimizer stays C++ via build.rs FFI).
 pub mod auto_remesher;
+// Experimental: foldover-free untangling of the rounded cover.
+pub mod untangle;

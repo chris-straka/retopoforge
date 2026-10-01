@@ -93,6 +93,9 @@ pub struct MixedIntegerLeastSquares {
     touched: Vec<usize>,
     merged: Vec<Coeff>,
     system: Option<ConstrainedLeastSquares>,
+    // TEMP EXPERIMENT: progressive rounding schedule (RETOPO_ROUND_SCHEDULE).
+    round_schedule: Vec<f64>,
+    round_step: usize,
 }
 
 impl MixedIntegerLeastSquares {
@@ -123,6 +126,11 @@ impl MixedIntegerLeastSquares {
             touched: Vec::new(),
             merged: Vec::new(),
             system: None,
+            round_schedule: std::env::var("RETOPO_ROUND_SCHEDULE")
+                .ok()
+                .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+                .unwrap_or_default(),
+            round_step: 0,
         }
     }
 
@@ -628,6 +636,10 @@ impl MixedIntegerLeastSquares {
                     break;
                 }
             }
+            if self.round_step < self.round_schedule.len() {
+                threshold = self.round_schedule[self.round_step];
+            }
+            self.round_step += 1;
             for i in 0..self.kernel_size {
                 if !self.fixed[i] && self.period[i] > 0 {
                     let d = (self.values[i] / self.period[i] as f64
@@ -670,6 +682,10 @@ impl MixedIntegerLeastSquares {
         if self.values.is_empty() {
             return false;
         }
+        // TEMP EXPERIMENT: hand the continuous solution straight through.
+        if std::env::var_os("RETOPO_NO_ROUND").is_some() {
+            return true;
+        }
         for i in 0..self.kernel_size {
             if self.period[i] > 0 && !self.fixed[i] {
                 return false;
@@ -706,6 +722,33 @@ impl MixedIntegerLeastSquares {
 
     pub fn kernel_size(&self) -> usize {
         self.kernel_size
+    }
+
+    /// Full variable `i` as a sparse combination of kernel variables:
+    /// `value(i) == sum(a * kernel_values()[k])` over the returned pairs.
+    pub fn kernel_expansion(&self, i: usize) -> Vec<(usize, f64)> {
+        if i >= self.size {
+            return Vec::new();
+        }
+        self.kernel_line(i).iter().map(|c| (c.index, c.a)).collect()
+    }
+
+    /// Current kernel solution (empty before the first solve).
+    pub fn kernel_values(&self) -> &[f64] {
+        &self.values
+    }
+
+    /// True for kernel variables with an integer period (rounded and held
+    /// fixed once `converged()`); false for continuous ones.
+    pub fn kernel_is_integer(&self, k: usize) -> bool {
+        k < self.kernel_size && self.period[k] > 0
+    }
+
+    /// Replaces the kernel solution (same length), e.g. after a
+    /// post-rounding optimization of the continuous variables.
+    pub fn set_kernel_values(&mut self, values: Vec<f64>) {
+        assert_eq!(values.len(), self.values.len());
+        self.values = values;
     }
 
     pub fn integer_kernel_variable_count(&self) -> usize {

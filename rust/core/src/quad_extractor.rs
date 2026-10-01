@@ -1332,6 +1332,27 @@ impl<'a> QuadExtractor<'a> {
         // costs. The topology cleanup passes at the end are over half of
         // it, so they report individually instead of as one long silent
         // block.
+        // TEMP EXPERIMENT (not for commit): integer-grid-map validity census.
+        if std::env::var_os("RETOPO_IGM_DEBUG").is_some() {
+            let (mut pos, mut neg, mut degen, mut uv_area) = (0usize, 0usize, 0usize, 0.0f64);
+            for t in self.triangle_uvs {
+                let (a, b, c) = (&t[0], &t[1], &t[2]);
+                let s = 0.5
+                    * ((b.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (b.y() - a.y()));
+                if s.abs() < 1e-6 {
+                    degen += 1;
+                } else if s > 0.0 {
+                    pos += 1;
+                } else {
+                    neg += 1;
+                }
+                uv_area += s;
+            }
+            eprintln!(
+                "IGM tris={} pos={pos} neg={neg} degen(<1e-6 cell)={degen} signed_uv_area={uv_area:.1}",
+                self.triangle_uvs.len()
+            );
+        }
         self.report(0.0, "Extracting connections");
         self.diagnose(|| "Extract connections...\n".to_string());
         let mut cross_points = Vec::new();
