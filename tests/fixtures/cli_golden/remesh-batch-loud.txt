@@ -1,0 +1,26 @@
+exit: Some(0)
+artifacts:
+out/a.obj present
+out/b.obj present
+out/c.glb present
+report: present
+counts:
+out/a.obj quads=34 nonquads=4 verts=40
+out/b.obj quads=66 nonquads=0 verts=70
+FILE a.obj: target-quads=100 output=CASE/out/a.obj quads=34 non-quads=4 vertices=40 time=T seconds
+FILE b.obj: target-quads=100 output=CASE/out/b.obj quads=66 non-quads=0 vertices=70 time=T seconds
+FILE c.glb: target-quads=100 output=CASE/out/c.glb quads=60 non-quads=0 vertices=62 time=T seconds
+Target quads: 100
+  Quads: 34
+  Non-quads: 4
+  Vertices: 40
+Target quads: 100
+  Quads: 66
+  Non-quads: 0
+  Vertices: 70
+Target quads: 100
+  Quads: 60
+  Non-quads: 0
+  Vertices: 62
+diagnostics:
+Failed files: none

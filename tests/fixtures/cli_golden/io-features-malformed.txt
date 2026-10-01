@@ -1,0 +1,7 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Loaded 4 vertices, 4 triangles
+Error: --features file 'CASE/shared/bad-features.txt' line 1 expects 'x y z', got '1 2 three'
+

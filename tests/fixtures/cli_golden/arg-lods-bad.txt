@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: --lods expects a non-negative integer, got 'x'
+

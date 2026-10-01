@@ -1,0 +1,19 @@
+exit: Some(0)
+artifacts:
+out_lod0.obj present
+out_lod1.obj present
+report: present
+counts:
+out_lod0.obj quads=228 nonquads=6 verts=233
+out_lod1.obj quads=114 nonquads=4 verts=118
+LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=228 non-quads=6 vertices=233 time=T seconds
+LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=114 non-quads=4 vertices=118 time=T seconds
+Target quads: 300
+  Quads: 228
+  Non-quads: 6
+  Vertices: 233
+Target quads: 150
+  Quads: 114
+  Non-quads: 4
+  Vertices: 118
+diagnostics:

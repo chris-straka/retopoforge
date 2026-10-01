@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: --symmetry expects 'off', 'auto', 'x', 'y' or 'z', got 'diag'
+

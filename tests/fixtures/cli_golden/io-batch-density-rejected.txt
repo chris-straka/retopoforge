@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: --density needs a single input mesh, not a batch directory
+

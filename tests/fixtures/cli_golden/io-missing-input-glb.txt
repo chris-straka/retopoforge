@@ -1,0 +1,7 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+failed to parse GLB file CASE/shared/does-not-exist.glb
+Error: failed to load CASE/shared/does-not-exist.glb
+

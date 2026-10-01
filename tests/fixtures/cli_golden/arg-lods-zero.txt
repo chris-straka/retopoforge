@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: --lods expects positive integers, got '0'
+

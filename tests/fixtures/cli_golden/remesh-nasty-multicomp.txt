@@ -1,0 +1,12 @@
+exit: Some(0)
+artifacts:
+out.obj present
+report: absent
+counts:
+out.obj quads=120 nonquads=0 verts=124
+Islands: 2
+Failed islands: 0
+Quads: 120
+Non-quads: 0
+Vertices: 124
+diagnostics:

@@ -1,0 +1,7 @@
+exit: Some(1)
+artifacts:
+out.obj missing
+report: absent
+counts:
+diagnostics:
+Error: failed to write CASE/out.obj

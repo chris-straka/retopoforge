@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: no .obj/.glb files in CASE/shared/empty
+

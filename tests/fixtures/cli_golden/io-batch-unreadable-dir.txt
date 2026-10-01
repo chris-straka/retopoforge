@@ -1,0 +1,8 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Cannot open file [CASE/shared/does-not-exist]
+
+Error: failed to load CASE/shared/does-not-exist
+
