@@ -32,3 +32,5 @@ pub mod singularity_simplifier;
 pub mod parameterizer;
 // Wave 3 lane: rs-glb (port of cli/glb.*).
 pub mod glb;
+// Wave 2 lane: rs-quadextractor (vendored PositionKey/box-tree mirrors deduped at join).
+pub mod quad_extractor;
