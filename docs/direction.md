@@ -12,12 +12,16 @@ engine work.
   quadruped base for every wolf-like enemy).
 - **retopoforge** handles everything that fits no base:
   - one-off monsters and bosses (six arms, spiders, tentacles, slimes),
-  - clothes, armor, capes, hair (shapes vary too much for a base),
+  - one-off **pieces** (any separate mesh attached to the body: capes,
+    hair, armor, clothes, belts); a piece style reused on 3+ characters
+    (a tunic, boots, gloves) can instead get its own piece base, built
+    from the body base's faces so it inherits the body's weights, and be
+    wrapped,
   - **making new bases**: remesh the first creature of a new body plan
     carefully (guides, symmetry, density), clean it by hand, rig it, and
     it becomes the base wrapforge reuses.
-- Rule of thumb: 3+ characters with the same body plan -> wrap; a
-  one-off or an accessory -> remesh.
+- **Rule of three**: if you will make 3 or more of the same shape (body
+  plan or piece style), build a base once and wrap; a one-off -> remesh.
 
 Faces and hands on humanoids are therefore wrapforge's job (the base
 already has good loops and separate fingers). Do not spend retopoforge
@@ -28,9 +32,14 @@ effort on human face/hand topology.
 Evidence (`docs/igm-validity-spike.md`): the current back end (least-
 squares cover -> one-shot rounding -> heuristic extraction) produces
 folded uv maps, integer layouts that cannot be untangled, and tilings
-that change under invisible input noise. On the owner's character at
-5000 quads the QuadWild + Bi-MDF reference (black-box, GPL, not
-vendored) beat it on every score (`bench/quadwild.py`).
+that change under invisible input noise. Against the QuadWild + Bi-MDF
+reference (black-box, GPL, not vendored; `bench/quadwild.py`) at
+**equal quad counts** (`bench/matched.py`, 10 cases incl. the owner's
+character) the result is mixed: QuadWild wins surface accuracy
+(especially worst-case) and is always all-quads; ours wins irregular
+vertices (8/10) and corner angles (8/10). (An earlier comparison at
+unequal counts overstated QuadWild.) The patch back end should aim for
+both: QuadWild's all-quad layout and fidelity with our field quality.
 
 Build a Rust patch-layout back end (clean-room from the papers: QuadWild
 2021, Bi-MDF quantization 2023), keeping the existing front end (weld,

@@ -12,7 +12,7 @@ Topology first, rig second:
   bones follow the wrap.
 - One-off monsters: retopoforge remesh -> rigforge (`hll_stalker` or a
   new preset) -> weights.
-- Clothes/armor/hair pieces: weights copied from the body (Data
+- Pieces (capes, hair, armor, clothes): weights copied from the body (Data
   Transfer), see `~/Games/hll/tools/asset-pipeline.md`.
 
 ## Tools
@@ -48,7 +48,7 @@ a face rig are required, and UniRig cannot produce them.
   Blender's heat weighting (which fails on messy meshes) is the tool
   worth building: geodesic voxel binding (Dionne & de Lasa 2013) for
   creatures and robust weight transfer with inpainting (Abdrashitov et
-  al. 2023) for clothes.
+  al. 2023) for pieces.
 - **License check**: the earlier version of this note called UniRig
   MIT (code + weights); the pipeline doc calls it effectively
   GPL-3.0-or-later because of its shape encoder. Verify before shipping

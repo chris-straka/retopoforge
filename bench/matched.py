@@ -75,8 +75,9 @@ def main(argv):
         report[key] = {"retopo_target": target, "retopo": ours,
                        "reference": ref}
         for name, m, t in (("quadwild", ref, "-"), ("retopo", ours, target)):
-            cells = " | ".join(f"{m[c]:.3g}" if isinstance(m[c], float)
-                               else str(m[c]) for c in COLUMNS)
+            cells = " | ".join(
+                f"{m[c]:.3g}" if isinstance(m.get(c), float)
+                else str(m.get(c, "-")) for c in COLUMNS)
             print(f"| {key} | {name} | {t} | {cells} |", flush=True)
     if args.json:
         with open(args.json, "w") as f:
