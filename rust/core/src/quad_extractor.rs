@@ -731,16 +731,27 @@ impl<'a> QuadExtractor<'a> {
         if Self::remove_single_endpoints(&mut cross_points, &mut edge_connect_map) {
             Self::simplify_graph(&mut edge_connect_map);
         }
+        // TEMP-TRACE (remove before finish).
+        if std::env::var("QE_TRACE").is_ok() {
+            eprintln!("TRACE collapse_graph: {} nodes", edge_connect_map.len());
+            for (node, neighbors) in &edge_connect_map {
+                eprintln!("TRACE   {node}: {neighbors:?}");
+            }
+        }
 
         self.diagnose(|| "Extract edges done\n".to_string());
 
         self.report(0.25, "Extracting mesh");
         self.diagnose(|| "Extract mesh...\n".to_string());
         self.extract_mesh(cross_points, cross_point_source_triangles, edge_connect_map);
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "extract_mesh");
         self.diagnose(|| "Extract mesh done\n".to_string());
 
         self.report(0.29, "Fixing holes");
         self.fix_holes();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "fix_holes1");
 
         self.report(0.30, "Removing non-manifold faces");
         let mut changed = false;
@@ -755,6 +766,8 @@ impl<'a> QuadExtractor<'a> {
         if changed {
             self.rebuild_half_edges();
             self.fix_holes();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "fix_holes");
         }
 
         {
@@ -783,17 +796,25 @@ impl<'a> QuadExtractor<'a> {
         self.report(0.31, "Smoothing and projecting");
         self.diagnose(|| "Smooth and project...\n".to_string());
         self.smooth_and_project(5, None);
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "smooth");
         self.diagnose(|| "Smooth and project done\n".to_string());
 
         self.report(0.44, "Splitting seven edge faces");
         self.split_seven_edge_faces();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "split_seven");
         self.report(0.45, "Splitting six edge faces");
         self.split_six_edge_faces();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "split_six");
         // A pentagon is the best place for a triangle to end up, it comes
         // out of the collapse as a quad, so the triangles run first and the
         // merge takes care of whatever pentagons are left over
         self.report(0.46, "Cleaning up triangles");
         self.cleanup_triangles();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "cleanup_tris");
         self.report(0.53, "Merging shared five edge faces");
         // Restructure: the C++ builds a remapping closure borrowing the
         // outer handler while calling a `&mut self` method; the mirror
@@ -823,20 +844,36 @@ impl<'a> QuadExtractor<'a> {
         // triangles and pentagons to have become quads already
         self.report(0.85, "Switching high valence edges");
         self.switch_high_valence_edges();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "switch_high");
         self.report(0.89, "Converting triangle and five edge fans");
         self.convert_triangle_and_five_edge_fans();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "convert_fans");
         self.report(0.93, "Collapsing three valence diagonals");
         self.collapse_three_valence_diagonals();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "collapse_diag");
         self.report(0.95, "Merging double shared edge quads");
         self.merge_double_shared_edge_quads();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "merge_double");
         self.report(0.96, "Merging three and five valence triangles");
         self.merge_three_and_five_valence_triangles();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "merge_35");
         self.report(0.97, "Collapsing three valence corners");
         self.collapse_three_valence_corners();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "collapse_corners");
         self.report(0.98, "Splitting high valence triangle fans");
         self.split_high_valence_triangle_fans();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "split_fans");
         self.report(0.99, "Collapsing three valence edge pairs");
         self.collapse_three_valence_edge_pairs();
+        // TEMP-TRACE (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "collapse_pairs");
         self.report(1.0, "");
 
         // Pure post-pass over the final positions: reads m_remeshedVertices,
@@ -846,6 +883,20 @@ impl<'a> QuadExtractor<'a> {
         }
 
         true
+    }
+
+    // TEMP-TRACE helper (remove before finish).
+    fn trace_stage(vertices: &[Vector3], faces: &[Vec<usize>], name: &str) {
+        if std::env::var("QE_TRACE").is_err() {
+            return;
+        }
+        eprintln!("TRACE stage {name}: {}v {}f", vertices.len(), faces.len());
+        for (i, v) in vertices.iter().enumerate() {
+            eprintln!("TRACE   v{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
+        }
+        for f in faces {
+            eprintln!("TRACE   f{f:?}");
+        }
     }
 
     fn extract_edges(
@@ -1039,10 +1090,31 @@ impl<'a> QuadExtractor<'a> {
         }
         let average_edge_length = total_length / edge_count as f64;
         let collapsed_length = average_edge_length * 0.01;
+        // TEMP-TRACE: collapse threshold forensics (remove before finish).
+        if std::env::var("QE_TRACE").is_ok() {
+            eprintln!(
+                "TRACE collapse_short: total={:?} avg={:?} thresh={:?} edges={}",
+                total_length, average_edge_length, collapsed_length, edge_count
+            );
+            for (edge, length) in &edge_lengths {
+                let d = (length - collapsed_length).abs();
+                if d < 1e-9 {
+                    eprintln!(
+                        "TRACE   edge {edge:?} len={length:?} (dthresh={d:.3e}) p0={:?} p1={:?}",
+                        (cross_points[edge.0].x(), cross_points[edge.0].y()),
+                        (cross_points[edge.1].x(), cross_points[edge.1].y()),
+                    );
+                }
+            }
+        }
         let mut collapsed = false;
         for (edge, length) in &edge_lengths {
             if *length > collapsed_length {
                 continue;
+            }
+            // TEMP-TRACE (remove before finish).
+            if std::env::var("QE_TRACE").is_ok() {
+                eprintln!("TRACE   COLLAPSE {edge:?} len={length:?}");
             }
             Self::collapse_edge(cross_points, edge_connect_map, *edge);
             collapsed = true;
@@ -2656,7 +2728,11 @@ impl<'a> QuadExtractor<'a> {
         // is independent and the parallel result is the same as the serial
         // one. (Restructure: serial loops for `tbb::parallel_for`.)
         const SMOOTH_FACTOR: f64 = 0.5;
-        for _ in 0..iterations {
+        for iteration in 0..iterations {
+            // TEMP-TRACE (remove before finish).
+            if std::env::var("QE_TRACE_SMOOTH").is_ok() {
+                eprintln!("TRACE smooth iter {iteration} locked={locked:?}");
+            }
             let mut smoothed_vertices = self.remeshed_vertices.clone();
             for (i, smoothed) in smoothed_vertices.iter_mut().enumerate() {
                 if locked[i] || neighbors[i].is_empty() {
@@ -2678,6 +2754,15 @@ impl<'a> QuadExtractor<'a> {
                 if locked[i] || neighbors[i].is_empty() {
                     continue;
                 }
+                // TEMP-TRACE (remove before finish).
+                if std::env::var("QE_TRACE_SMOOTH").is_ok() {
+                    eprintln!(
+                        "TRACE   pre-proj v{i} {:?} {:?} {:?}",
+                        smoothed_vertices[i].x(),
+                        smoothed_vertices[i].y(),
+                        smoothed_vertices[i].z()
+                    );
+                }
                 if let Some(projected) = Self::project_to_target_mesh(
                     self.vertices,
                     self.triangles,
@@ -2686,6 +2771,12 @@ impl<'a> QuadExtractor<'a> {
                     smoothed_vertices[i],
                 ) {
                     smoothed_vertices[i] = projected;
+                }
+            }
+            // TEMP-TRACE (remove before finish).
+            if std::env::var("QE_TRACE_SMOOTH").is_ok() {
+                for (i, v) in smoothed_vertices.iter().enumerate() {
+                    eprintln!("TRACE   post v{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
                 }
             }
             self.remeshed_vertices = smoothed_vertices;
