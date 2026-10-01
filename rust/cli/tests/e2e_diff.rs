@@ -181,12 +181,23 @@ fn normalize_line(line: &str, case_tag: &str) -> String {
             out.replace_range(start..pos, "T");
         }
     }
-    // Phase-report timings "  Foo bar: 12.5 ms".
+    // Phase-report timings "  Foo bar: 12.5 ms" — and the colon-less
+    // form "  ...count), 0.1 ms" (mesh-simplifier SKIPPED line). The old
+    // rule required ": " and leaked the colon-less timings raw, which
+    // flaked run-to-run asserts (0.0 vs 0.1 under CI load) and poisoned
+    // the census phase-block match. Erase any trailing numeric run
+    // before " ms" (mesh data never contains " ms").
     if out.ends_with(" ms") {
-        if let Some(colon) = out.rfind(": ") {
-            let num = &out[colon + 2..out.len() - 3];
-            if !num.is_empty() && num.bytes().all(|b| matches!(b, b'0'..=b'9' | b'.')) {
-                out.replace_range(colon + 2..out.len() - 3, "T");
+        let body = &out[..out.len() - 3];
+        let run_len = body
+            .bytes()
+            .rev()
+            .take_while(|b| matches!(b, b'0'..=b'9' | b'.'))
+            .count();
+        if run_len > 0 && run_len < body.len() {
+            let before = body.as_bytes()[body.len() - run_len - 1];
+            if matches!(before, b' ' | b',' | b':') {
+                out.replace_range(body.len() - run_len..body.len(), "T");
             }
         }
     }
