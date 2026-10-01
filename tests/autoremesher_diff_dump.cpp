@@ -14,12 +14,23 @@
 // Build-only helper: not registered with ctest. Build Release, run it,
 // and redirect stdout to tests/fixtures/autoremesher_diff.txt, then commit.
 //
-// Determinism note: every parallel loop in the engine is per-index
-// independent, so all VALUES are run-to-run identical; only the middle
-// (parallel-phase) progress events on multi-island cases vary with thread
-// interleaving. The replay pins single-island progress exactly and checks
-// robust facts (serial prefix/suffix, monotonicity, range, known names)
-// on multi-island cases.
+// Determinism note: the engine's own stages are run-to-run identical
+// (isotropic/decimated/symmetry outputs are bitwise-stable), but the C++
+// cover solve carries ~1e-13 TBB noise that the extractor's integer
+// rounding amplifies into topological flips on marginal cases (~1/3 of
+// this corpus flips somewhere across three runs; case 14, a flat quad,
+// lands on 32/30 or 36/34 verts/quads). Those cases are listed in
+// isEpxId/isEcxId and replayed robustness-only. The middle
+// (parallel-phase) progress events on multi-island cases also vary with
+// thread interleaving. The replay pins single-island progress exactly and
+// checks robust facts (serial prefix/suffix, monotonicity, range, known
+// names) on multi-island cases.
+//
+// Regeneration rule: adding, removing, or reordering cases shifts ids and
+// invalidates the EPX/ECX lists. After any corpus change, run the tool
+// three times, diff the runs under the replay's strict rules (see
+// rust/core/tests/auto_remesher_diff.rs), and refresh the lists with the
+// ids that disagree with themselves.
 import retopo.core.auto_remesher;
 import retopo.core.vector2;
 import retopo.core.vector3;
@@ -480,18 +491,65 @@ struct Settings {
     bool quiet = false;
 };
 
+// Listed C++-self-nondeterministic cases (demonstrated by three dump runs
+// during development: the listed ids disagreed with THEMSELVES across
+// runs, so no port can pin them exactly).
+//
+// Mechanism (one for all): the C++ cover solve carries ~1e-13 run-to-run
+// TBB noise (isotropic outputs are bitwise-stable; IUV wobbles), and the
+// quad extractor's integer rounding amplifies it into topological flips
+// (e.g. case 14, a flat quad: runs 1-2 agree at 32 verts/30 quads, run 3
+// lands on 36/34). The repo's own bench already accepts this reality
+// (bench/run.py compares counts with a 5% tolerance, not exactly).
+// - EPX_IDS: real outputs (remeshed quads/verts/uvs, island counts)
+//   flipped. Robustness-only.
+// - ECX_IDS: real outputs stable; only the raw extracted-connection
+//   capture (a [param]-preview intermediate the cleanup absorbs) flipped
+//   in count or value. Strict except CONN/MOVED, which report.
+static bool isEpxId(int id)
+{
+    static const int kIds[] = { 0, 14, 16, 17, 22, 24, 31, 35, 45, 46, 62, 69,
+        73, 74, 80, 93, 94, 96, 99, 101, 102, 103, 114, 117, 118, 120, 123, 129,
+        133, 134, 135, 141, 143, 145, 168, 173, 175, 176, 177, 183, 190, 194,
+        195, 234, 235, 243, 244, 245, 248, 250, 251, 254, 255, 256, 261, 265,
+        275, 276, 277, 280, 282, 286, 288 };
+    for (int k : kIds) {
+        if (k == id)
+            return true;
+    }
+    return false;
+}
+
+static bool isEcxId(int id)
+{
+    static const int kIds[] = { 8, 9, 27, 32, 57, 58, 60, 61, 64, 67, 71, 79,
+        100, 107, 111, 119, 122, 125, 128, 130, 131, 132, 137, 160, 163, 170,
+        172, 174, 186, 187, 208, 232, 246, 260, 278, 283 };
+    for (int k : kIds) {
+        if (k == id)
+            return true;
+    }
+    return false;
+}
+
 static void dumpCase(int id, const char* kind, const Mesh& mesh, const Settings& s,
     const std::vector<std::vector<Vector3>>& guides,
     const std::vector<std::vector<Vector3>>& sharps, bool robust = false)
 {
     // EPX (like the parameterizer lane's PPX): robustness-only. The port
-    // must match every structural fact (ok flag, progress prefix/suffix +
-    // robust facts, counts, island counts, phase structure) and solve
-    // everything C++ solves; values are reported, not asserted. Tagged by
+    // must match every deterministic structural fact (ok flag, island
+    // length, decimated + isotropic + cover + singular + symmetry outputs,
+    // phase head/tail, progress prefix/suffix + robust facts) and solve
+    // everything C++ solves; cliff-amplified outputs (remeshed
+    // verts/quads/uvs, connections) are reported, not asserted. Tagged by
     // input construction (non-manifold soup / degenerate meshes where
-    // backend noise legitimately exceeds 1e-6) plus listed stragglers with
-    // a demonstrated mechanism each (none so far).
-    std::printf(robust ? "EPX %d KIND %s NV %zu NT %zu TARGET %zu SCALING " : "CASE %d KIND %s NV %zu NT %zu TARGET %zu SCALING ", id, kind,
+    // backend noise legitimately exceeds 1e-6) plus the listed
+    // C++-self-nondeterministic ids above. ECX is the middle tier (listed
+    // ids): strict except the connection capture, which reports.
+    robust = robust || isEpxId(id);
+    const bool connOnly = !robust && isEcxId(id);
+    const char* tag = robust ? "EPX" : (connOnly ? "ECX" : "CASE");
+    std::printf("%s %d KIND %s NV %zu NT %zu TARGET %zu SCALING ", tag, id, kind,
         mesh.vertices.size(), mesh.triangles.size(), s.target);
     printDouble(s.scaling);
     std::printf(" ADAPT ");
@@ -906,8 +964,11 @@ static void dumpAdversarial(int& id)
     const Mesh box = makeBox(0.0);
     const Mesh twoBox = makeComposite({ makeBox(0.0), makeBox(0.0) }, 5.0);
     const Mesh dense = makeGrid(20, 20, 0.0);
-    // Target cliffs on the box (default mesh, one knob).
-    for (size_t target : { 1, 2, 7, 8, 9, 12, 13, 100, 1000000 }) {
+    // Target cliffs on the box (default mesh, one knob). NOTE: no absurd
+    // targets (1e6 over-tessellates the box into millions of triangles and
+    // effectively hangs the isotropic remesher on both sides — out of
+    // contract, since real target-quads stay near input scale).
+    for (size_t target : { 1, 2, 7, 8, 9, 12, 13, 100, 2000 }) {
         Settings s = def;
         s.target = target;
         dumpCase(id++, "target", box, s, {}, {});
@@ -932,7 +993,10 @@ static void dumpAdversarial(int& id)
         dumpCase(id++, "decmix", mixed, s, {}, {});
     }
     // Scalar setting cliffs.
-    for (double scaling : { -2.0, -1.0, -0.0, 0.0, 1e-12, 0.5, 1.0, 2.0 }) {
+    // NOTE: no tiny-positive scalings (1e-12 asks the extractor for
+    // ~1e24 quads and OOMs both sides — out of contract, since real
+    // --edge-scaling stays near 1).
+    for (double scaling : { -2.0, -1.0, 0.0, 0.25, 0.5, 1.0, 2.0, 4.0 }) {
         Settings s = def;
         s.scaling = scaling;
         dumpCase(id++, "scale", quad, s, {}, {});
