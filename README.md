@@ -220,7 +220,6 @@ harness. (The upstream Qt desktop shell was removed; Blender is the UI.)
   the `upstream` git remote)
 - Support Jeremy's work:
   [donate via PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=GHALWLWXYGCU6&item_name=Support+me+coding+in+my+spare+time&currency_code=AUD&source=url)
-- Contributors: [AUTHORS](AUTHORS) and [CONTRIBUTORS](CONTRIBUTORS);
-  third-party licenses:
-  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
-  [ACKNOWLEDGEMENTS.html](ACKNOWLEDGEMENTS.html)
+- Upstream authors and contributors are credited in the upstream
+  repository; third-party licenses:
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

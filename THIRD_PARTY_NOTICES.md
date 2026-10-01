@@ -3,15 +3,15 @@
 retopoforge itself is MIT licensed (see `LICENSE`, copyright Jeremy HU and
 contributors): the Rust engine is a port of Jeremy HU's AutoRemesher. The
 `retopo` binary additionally includes the following third-party software.
-Full license texts live in `ACKNOWLEDGEMENTS.html` (and next to the
-vendored source under `thirdparty/`).
+Full license texts are at the end of this file (meshoptimizer's also
+ships next to its vendored source in `thirdparty/meshoptimizer/`).
 
 ## `retopo` CLI and `retopo_core` library (cargo build)
 
 | Dependency | License | How it is used | Full text |
 |---|---|---|---|
-| meshoptimizer | MIT (Arseny Kapoulkine) | `simplifier.cpp`, `indexgenerator.cpp` compiled in via `rust/core/build.rs` | `thirdparty/meshoptimizer/LICENSE.md` |
-| isotropicremesher | MIT (Jeremy HU) | Ported to Rust (`iso_remesh_kernel.rs`, `isotropic_remesher.rs`) | `ACKNOWLEDGEMENTS.html` |
+| meshoptimizer | MIT (Arseny Kapoulkine) | `simplifier.cpp`, `indexgenerator.cpp` compiled in via `rust/core/build.rs` | below; `thirdparty/meshoptimizer/LICENSE.md` |
+| isotropicremesher | MIT (Jeremy HU) | Ported to Rust (`iso_remesh_kernel.rs`, `isotropic_remesher.rs`) | below |
 | faer (MIT) and its dependency crates | Permissive per crate: mostly MIT and/or Apache-2.0, plus BSD-2-Clause, Unicode-3.0, Zlib, Unlicense options | Sparse/dense linear algebra for the solvers | crate sources; full set pinned in `rust/Cargo.lock` |
 | cc (build-time only) | MIT / Apache-2.0 | Compiles meshoptimizer; not shipped | crate source |
 
@@ -32,3 +32,57 @@ before version 1.0.0 and reimplemented them for its MIT relicense
 Those dependencies are not present in this tree. The frozen C++ port of
 the engine (with Eigen, oneTBB, cgltf, zlib and Apple Accelerate) was
 removed after the Rust switch.
+
+## Full license texts
+
+### meshoptimizer (https://github.com/zeux/meshoptimizer)
+
+```
+MIT License
+
+Copyright (c) 2016-2026 Arseny Kapoulkine
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### isotropicremesher (ported to `rust/core/src/iso_remesh_kernel.rs` and `rust/core/src/isotropic_remesher.rs`; derived work)
+
+```
+MIT License
+
+Copyright (c) 2020-2021 Jeremy HU . All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

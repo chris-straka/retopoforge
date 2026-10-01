@@ -41,7 +41,7 @@ the Blender extension driving the CLI over a temp-OBJ round-trip
 (`blender/retopoforge/__init__.py`, `blender_manifest.toml`). (The
 upstream Qt desktop shell was removed 2026-09-30; Blender is the UI.)
 Engine lineage is the AutoRemesher stack (frame field + QuadCover-style
-parameterization; `CHANGELOGS.md` notes "Replace MIQ with QuadCover").
+parameterization; the upstream changelog notes "Replace MIQ with QuadCover").
 
 Gap: their headline differentiators we lack entirely are the guide
 system (especially auto hard-edge detection and normals-creasing
