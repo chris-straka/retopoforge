@@ -780,8 +780,18 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
         );
         return;
     }
-    // Boundary vertices: incident face scalings span more than `ratio`.
-    // Note dense == SMALLER edge scale (edge_scale_for = 1/sqrt(density)).
+    // Boundary vertices: incident face scalings straddle the global
+    // geometric mid AND span more than `ratio`. The straddle rejects
+    // adaptivity-only ripple (all incident faces on one side of mid);
+    // only the density step crosses mid. Note dense == SMALLER edge
+    // scale (edge_scale_for = 1/sqrt(density)).
+    let mut glo = f64::INFINITY;
+    let mut ghi = 0.0f64;
+    for &m in face_scaling {
+        glo = glo.min(m);
+        ghi = ghi.max(m);
+    }
+    let mid = (glo * ghi).sqrt();
     let mut boundary = vec![false; mesh.vertex_count()];
     for v in 0..mesh.vertex_count() {
         if !dipole_is_interior(mesh, v) {
@@ -794,7 +804,7 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             lo = lo.min(m);
             hi = hi.max(m);
         }
-        if lo > 0.0 && hi / lo > ratio {
+        if lo > 0.0 && lo < mid && hi > mid && hi / lo > ratio {
             boundary[v] = true;
         }
     }
@@ -870,7 +880,56 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             n.sort_unstable();
             n.dedup();
         }
-        let start = (0..mesh.vertex_count()).find(|&v| boundary[v] && !neighbors[v].is_empty());
+        // Prune spurs: the boundary band can be several verts wide, so
+        // strip leaves iteratively to expose the ring core for the walk.
+        let mut alive = vec![true; mesh.vertex_count()];
+        loop {
+            let mut pruned = false;
+            for v in 0..mesh.vertex_count() {
+                if !boundary[v] || !alive[v] {
+                    continue;
+                }
+                let degree = neighbors[v].iter().filter(|&&n| alive[n]).count();
+                if degree < 2 {
+                    alive[v] = false;
+                    pruned = true;
+                }
+            }
+            if !pruned {
+                break;
+            }
+        }
+        // Walk the largest connected component only (kills specks).
+        let mut comp = vec![usize::MAX; mesh.vertex_count()];
+        let mut comp_sizes: Vec<usize> = Vec::new();
+        for v in 0..mesh.vertex_count() {
+            if !boundary[v] || !alive[v] || comp[v] != usize::MAX {
+                continue;
+            }
+            let id = comp_sizes.len();
+            let mut stack = vec![v];
+            comp[v] = id;
+            let mut size = 0;
+            while let Some(u) = stack.pop() {
+                size += 1;
+                for &n in &neighbors[u] {
+                    if boundary[n] && alive[n] && comp[n] == usize::MAX {
+                        comp[n] = id;
+                        stack.push(n);
+                    }
+                }
+            }
+            comp_sizes.push(size);
+        }
+        let biggest = comp_sizes
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(&a.0)))
+            .map(|(id, _)| id);
+        let start = biggest.and_then(|id| {
+            (0..mesh.vertex_count())
+                .find(|&v| comp[v] == id && neighbors[v].iter().any(|&n| comp[n] == id))
+        });
         let mut walk: Vec<usize> = Vec::new();
         if let Some(s0) = start {
             let mut visited = vec![false; mesh.vertex_count()];
@@ -878,7 +937,7 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             loop {
                 walk.push(cur);
                 visited[cur] = true;
-                match neighbors[cur].iter().find(|&&n| !visited[n]) {
+                match neighbors[cur].iter().find(|&&n| alive[n] && !visited[n]) {
                     Some(&nxt) => cur = nxt,
                     None => break,
                 }
@@ -903,16 +962,26 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             used[pb] = true;
             flips.push((pa, pb));
         }
+        let (mut ylo, mut yhi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &(a, b) in &flips {
+            ylo = ylo.min(mesh.position(a).y()).min(mesh.position(b).y());
+            yhi = yhi.max(mesh.position(a).y()).max(mesh.position(b).y());
+        }
         eprintln!(
-            "DIPOLEDBG mode=loop boundary_verts={n_boundary} walk_len={} flips={} sing_before={n_sing_before} sing_after={}",
+            "DIPOLEDBG mode=loop boundary_verts={n_boundary} walk_len={} flips={} sing_before={n_sing_before} sing_after={} flip_y=[{ylo:.3},{yhi:.3}]",
             walk.len(),
             flips.len(),
             sums.iter().filter(|&&s| s != 0).count(),
         );
         return;
     }
+    let (mut ylo, mut yhi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for &(a, b) in &flips {
+        ylo = ylo.min(mesh.position(a).y()).min(mesh.position(b).y());
+        yhi = yhi.max(mesh.position(a).y()).max(mesh.position(b).y());
+    }
     eprintln!(
-        "DIPOLEDBG mode=radial boundary_verts={n_boundary} flips={} sing_before={n_sing_before} sing_after={}",
+        "DIPOLEDBG mode=radial boundary_verts={n_boundary} flips={} sing_before={n_sing_before} sing_after={} flip_y=[{ylo:.3},{yhi:.3}]",
         flips.len(),
         sums.iter().filter(|&&s| s != 0).count(),
     );
