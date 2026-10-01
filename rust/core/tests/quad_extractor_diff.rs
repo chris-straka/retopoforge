@@ -125,8 +125,7 @@ fn parse_cases(text: &str) -> Vec<Case> {
         let orig_mode: i32 = parts[2].parse().unwrap();
         let mut orig = None;
         if orig_mode > 0 {
-            let n: usize =
-                parse_usize(lines.next().unwrap().strip_prefix("ORIG ").unwrap());
+            let n: usize = parse_usize(lines.next().unwrap().strip_prefix("ORIG ").unwrap());
             let mut rows = Vec::with_capacity(n);
             for _ in 0..n {
                 let parts: Vec<&str> = lines.next().unwrap().split(' ').collect();
@@ -150,19 +149,30 @@ fn parse_cases(text: &str) -> Vec<Case> {
             let parts: Vec<&str> = lines.next().unwrap().split(' ').collect();
             assert_eq!(parts[0], "c");
             conns.push(ExpectedConn {
-                a: [parse_f64(parts[1]), parse_f64(parts[2]), parse_f64(parts[3])],
-                b: [parse_f64(parts[4]), parse_f64(parts[5]), parse_f64(parts[6])],
+                a: [
+                    parse_f64(parts[1]),
+                    parse_f64(parts[2]),
+                    parse_f64(parts[3]),
+                ],
+                b: [
+                    parse_f64(parts[4]),
+                    parse_f64(parts[5]),
+                    parse_f64(parts[6]),
+                ],
                 moved: parts[7].parse().unwrap(),
             });
         }
 
-        let n: usize =
-            parse_usize(lines.next().unwrap().strip_prefix("REMESH ").unwrap());
+        let n: usize = parse_usize(lines.next().unwrap().strip_prefix("REMESH ").unwrap());
         let mut remesh = Vec::with_capacity(n);
         for _ in 0..n {
             let parts: Vec<&str> = lines.next().unwrap().split(' ').collect();
             assert_eq!(parts[0], "v");
-            remesh.push([parse_f64(parts[1]), parse_f64(parts[2]), parse_f64(parts[3])]);
+            remesh.push([
+                parse_f64(parts[1]),
+                parse_f64(parts[2]),
+                parse_f64(parts[3]),
+            ]);
         }
 
         let n: usize = parse_usize(lines.next().unwrap().strip_prefix("QUADS ").unwrap());
@@ -235,15 +245,12 @@ fn check_case(case: &Case, failures: &mut Vec<String>) {
     if let Some(orig) = &case.orig {
         extractor.set_original_triangle_uvs(orig);
     }
-    if !case.singular.empty() {
+    if !case.singular.is_empty() {
         extractor.set_singular_vertices(&case.singular);
     }
     let ok = extractor.extract();
     if ok != case.ok {
-        failures.push(format!(
-            "case {}: OK Rust={ok} C++={}",
-            case.index, case.ok
-        ));
+        failures.push(format!("case {}: OK Rust={ok} C++={}", case.index, case.ok));
         return;
     }
 
@@ -292,7 +299,9 @@ fn check_case(case: &Case, failures: &mut Vec<String>) {
     }
     let mut pool: BTreeMap<[u64; 3], VecDeque<usize>> = BTreeMap::new();
     for (i, v) in verts.iter().enumerate() {
-        pool.entry(bits3(&[v.x(), v.y(), v.z()])).or_default().push_back(i);
+        pool.entry(bits3(&[v.x(), v.y(), v.z()]))
+            .or_default()
+            .push_back(i);
     }
     let mut index_map = vec![usize::MAX; case.remesh.len()];
     let mut unmatched = 0;
@@ -345,15 +354,10 @@ fn check_case(case: &Case, failures: &mut Vec<String>) {
         let mut want: Vec<Vec<usize>> = case
             .quads
             .iter()
-            .map(|face| {
-                canonical_face(
-                    &face.iter().map(|v| index_map[*v]).collect::<Vec<_>>(),
-                )
-            })
+            .map(|face| canonical_face(&face.iter().map(|v| index_map[*v]).collect::<Vec<_>>()))
             .collect();
         want.sort();
-        let mut got: Vec<Vec<usize>> =
-            quads.iter().map(|face| canonical_face(face)).collect();
+        let mut got: Vec<Vec<usize>> = quads.iter().map(|face| canonical_face(face)).collect();
         got.sort();
         if got != want {
             let mut shown = 0;
@@ -383,9 +387,7 @@ fn check_case(case: &Case, failures: &mut Vec<String>) {
     } else {
         for (i, want) in case.ruv.iter().enumerate() {
             let got = ruv[index_map[i]];
-            if got.x().to_bits() != want[0].to_bits()
-                || got.y().to_bits() != want[1].to_bits()
-            {
+            if got.x().to_bits() != want[0].to_bits() || got.y().to_bits() != want[1].to_bits() {
                 failures.push(format!(
                     "case {}: RUV[{i}] Rust=({:?}) C++=({want:?})",
                     case.index,
