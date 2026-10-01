@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: --model-type expects 'organic' or 'hardsurface', got 'nurbs'
+

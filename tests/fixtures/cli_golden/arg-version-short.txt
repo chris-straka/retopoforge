@@ -1,0 +1,6 @@
+exit: Some(0)
+--- stdout ---
+retopoforge 0.1.0
+
+--- stderr ---
+

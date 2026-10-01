@@ -12,81 +12,21 @@ on:
       - '*'
 
 jobs:
-  clang-format-check:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install clang-format
-        run: |
-          brew update
-          brew install clang-format
-      - name: Run clang-format
-        run: cd ${GITHUB_WORKSPACE}/ci && sh ./lint.sh && cd ${GITHUB_WORKSPACE}
-      - name: Check for changes
-        run: |
-          if ! git diff --ignore-space-at-eol --exit-code; then
-            exit 1
-          fi
-
   build-and-test:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install LLVM and Ninja
-        run: |
-          brew install llvm ninja
-      - name: Install TBB
-        run: |
-          brew install tbb
-      - name: Build
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-      - name: Fetch benchmark models
-        run: ./bench/fetch_models.sh
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - name: Check Rust formatting
         run: cargo fmt --all --check --manifest-path rust/Cargo.toml
-      - name: Build Rust release binary (bench + e2e product)
+      - name: Build release binary
         run: cargo build --locked --release --manifest-path rust/Cargo.toml -p retopo
-      - name: Check benchmarks
-        run: ./bench/run.py --check bench/baseline.json
-      - name: Run Rust tests (incl. e2e vs the C++ binary above)
-        run: cargo test --locked --manifest-path rust/Cargo.toml
-
-  sanitize:
-    # Memory + UB safety net (the mechanical version of the borrow
-    # checker's argument): ASan + UBSan over the full test suite.
-    # Leak detection stays off: pre-existing leaks would fail the gate
-    # before any new bug does; revisit once the suite is leak-quiet.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install toolchain and dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm cmake ninja-build libtbb-dev
-      - name: Build with sanitizers
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          cmake -S . -B build-san -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-          cmake --build build-san -j`nproc`
+      - name: Run Rust tests (module goldens + CLI contract)
+        run: cargo test --locked --release --manifest-path rust/Cargo.toml
       - name: Fetch benchmark models
         run: ./bench/fetch_models.sh
-      - name: Run tests under sanitizers
-        env:
-          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build-san --output-on-failure
+      - name: Check benchmarks
+        run: ./bench/run.py --check bench/baseline.json

@@ -1,0 +1,6 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Error: --target-quads expects a non-negative integer, got '1_0'
+

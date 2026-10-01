@@ -1,0 +1,9 @@
+exit: Some(1)
+--- stdout ---
+FAILED to load nofile
+
+--- stderr ---
+Cannot open file [nofile]
+
+Error: failed to load nofile
+

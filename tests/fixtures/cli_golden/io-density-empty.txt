@@ -1,0 +1,7 @@
+exit: Some(1)
+--- stdout ---
+
+--- stderr ---
+Loaded 4 vertices, 4 triangles
+Error: --density file 'CASE/shared/empty-density.txt' holds no multipliers
+

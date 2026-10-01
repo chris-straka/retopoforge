@@ -46,7 +46,8 @@ def resolve_retopo(arg):
     if arg:
         return arg
     return os.environ.get(
-        "RETOPO_BINARY", os.path.join(ROOT, "build", "cli", "retopo"))
+        "RETOPO_BINARY",
+        os.path.join(ROOT, "rust", "target", "release", "retopo"))
 
 
 def resolve_blender(arg):

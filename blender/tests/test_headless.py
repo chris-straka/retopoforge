@@ -6,7 +6,7 @@
 #   /Applications/Blender.app/Contents/MacOS/Blender --background \
 #       --factory-startup --python blender/tests/test_headless.py
 #
-# Needs a built `retopo` CLI (build/cli/retopo in the repo, or on PATH).
+# Needs a built `retopo` CLI (rust/target/release/retopo in the repo, or on PATH).
 # Exits 0 on pass or SKIP (binary missing), 1 on failure.
 
 import json

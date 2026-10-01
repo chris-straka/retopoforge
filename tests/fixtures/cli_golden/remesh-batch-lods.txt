@@ -1,0 +1,42 @@
+exit: Some(1)
+artifacts:
+out/a_lod0.obj present
+out/a_lod1.obj present
+out/b_lod0.obj present
+out/b_lod1.obj missing
+out/c_lod0.glb present
+out/c_lod1.glb present
+report: present
+counts:
+out/a_lod0.obj quads=23 nonquads=4 verts=32
+out/a_lod1.obj quads=8 nonquads=0 verts=12
+out/b_lod0.obj quads=120 nonquads=0 verts=124
+FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=23 non-quads=4 vertices=32 time=T seconds
+FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=8 non-quads=0 vertices=12 time=T seconds
+FILE b.obj LOD 0: target-quads=150 output=CASE/out/b_lod0.obj quads=120 non-quads=0 vertices=124 time=T seconds
+FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=67 non-quads=0 vertices=69 time=T seconds
+FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=45 non-quads=0 vertices=47 time=T seconds
+Target quads: 150
+  Quads: 23
+  Non-quads: 4
+  Vertices: 32
+Target quads: 80
+  Quads: 8
+  Non-quads: 0
+  Vertices: 12
+Target quads: 150
+  Quads: 120
+  Non-quads: 0
+  Vertices: 124
+Target quads: 150
+  Quads: 67
+  Non-quads: 0
+  Vertices: 69
+Target quads: 80
+  Quads: 45
+  Non-quads: 0
+  Vertices: 47
+diagnostics:
+Error: failed to write CASE/out/b_lod1.obj (CASE/out/b_lod1.obj)
+FILE b.obj LOD 1: FAILED failed to write CASE/out/b_lod1.obj
+Failed files (1): b.obj

@@ -10,9 +10,9 @@ independently, outputs keep the `--output` extension — `.glb` chains
 stay `.glb`, triangulated):
 
 ```bash
-./build/cli/retopo --input bench/models/armadillo.obj \
-    --output build/hero.obj --lods 20000,8000,3000,1000
-# writes build/hero_lod0.obj ... build/hero_lod3.obj (~4 s total)
+./rust/target/release/retopo --input bench/models/armadillo.obj \
+    --output /tmp/hero.obj --lods 20000,8000,3000,1000
+# writes /tmp/hero_lod0.obj ... /tmp/hero_lod3.obj (~4 s total)
 ```
 
 Measured result (render-tris = quads×2 + pentagon×3 + tri×1, counted

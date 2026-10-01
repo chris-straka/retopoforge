@@ -1,0 +1,11 @@
+exit: Some(0)
+artifacts:
+out.glb present
+report: absent
+counts:
+Islands: 2
+Failed islands: 0
+Quads: 12
+Non-quads: 0
+Vertices: 16
+diagnostics:

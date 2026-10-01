@@ -1,12 +1,13 @@
 # retopoforge — agent notes
 
-Fork of huxingyi/autoremesher (MIT): Qt-free headless C++ engine + `retopo`
-CLI + benchmark harness + (planned) Blender addon. The `upstream` git remote
-tracks the original repo as a read-only reference only. This fork has
-structurally diverged (C++23 modules, deleted headers, new layout) and is
-ahead of upstream in engineering — NEVER git-merge upstream into this tree,
-it will conflict destructively. Port individual upstream engine fixes by
-hand when relevant, and only with `bench/run.py --check` green.
+Fork of huxingyi/autoremesher (MIT): a Rust engine (`retopo_core` +
+`retopo_solvers`), the `retopo` CLI, a Blender extension driving the CLI,
+and a benchmark/quality harness. The engine was ported 1:1 from the
+original C++ (proven by differential oracles, see
+`docs/rust-switch-verdict.md`); the C++ tree has since been removed. The
+`upstream` git remote tracks the original repo as a read-only reference
+only — NEVER git-merge upstream into this tree (fully diverged). Port
+individual upstream engine fixes by hand when relevant, bench green.
 
 ## Standing rules
 
@@ -15,63 +16,39 @@ hand when relevant, and only with `bench/run.py --check` green.
   (Explicit standing authorization from the project owner.)
 - Never force-push, rebase, amend published commits, or otherwise rewrite
   published history.
-- The Qt desktop app must keep building — verify it or leave its inputs
-  untouched whenever shared sources change.
-- Never launch GUI binaries without explicit user approval. Offscreen
-  smoke tests count as launches: batch them, and prefer exit-code-checked
-  `--help` / headless runs over open-ended GUI sessions.
-- Watch `upstream` for engine fixes worth hand-porting: periodically
-  `git fetch upstream` and review new `upstream/master` commits. Never merge
-  (diverged tree — port individual fixes by hand, bench green).
+- The owner's game assets must never be committed — not even file names
+  or paths in tracked files. Refer to them only as "the owner's AI
+  corpus". `bench/models/` and `bench/results/` are gitignored.
+- Never launch GUI binaries without explicit user approval. Headless
+  Blender (`--background --factory-startup`) is fine.
 
 ## Build
 
-- Everything: `cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build`
-  produces `build/cli/retopo` and the Qt6 app (`build/app/retopoforge.app`).
-  Needs TBB + Qt6 + LLVM + Ninja; macOS: `brew install cmake tbb qtbase llvm ninja`.
-  (Ninja is mandatory: the only macOS generator with C++ modules support.
-  AppleClang cannot build this tree at all once `.cppm` files exist.)
-
-## Modules conversion pattern (established by the positionkey pilot)
-
-- One named module per component: `retopo.core.snake_name`. Interface in
-  `core/<name>.cppm`, implementation stays in `core/<name>.cpp`.
-- Interface unit shape: copyright header, then `module;` + third-party and
-  not-yet-converted includes (global fragment), then
-  `export module retopo.core.<name>;`, then `export`ed declarations.
-- Implementation unit shape: `module;` + includes, then `module <name>;`,
-  then the definitions (includes AFTER the module decl attach to the
-  module itself — always use the leading `module;` fragment).
-- Importers swap `#include <AutoRemesher/X>` for the `import`, and keep
-  direct includes/imports for everything else they use (no transitive
-  reliance — the build enforces it).
-- Delete the old `.h` and its `core/include/AutoRemesher/` forwarder.
-- CMake: list the `.cppm` in the target's `FILE_SET CXX_MODULES`, and set
-  `CXX_SCAN_FOR_MODULES ON` on every target with importers (plain `.cpp`
-  files are otherwise compiled unscanned: no BMI flags, no ordering).
-- Every conversion commit must keep `bench/run.py --check` green.
-- Headless only (no Qt): add `-DRETOPOFORGE_BUILD_QT_APP=OFF` to configure.
-- Qt app smoke test (ask first): `QT_QPA_PLATFORM=offscreen` + `--help`
-  (must exit 0), plus a headless `--input` remesh compared against the
-  `bench/baseline.json` counts for the same model/preset.
+- `cd rust && cargo build --locked --release -p retopo` produces
+  `rust/target/release/retopo`. Rust only; `thirdparty/meshoptimizer` (C++)
+  is compiled in via `rust/core/build.rs` (`cc` crate).
 
 ## Checks
 
+- `cd rust && cargo fmt --all --check && cargo test --locked --release`
+  must be green with zero warnings.
+- CLI contract goldens (`tests/fixtures/cli_golden/`): after an intended
+  CLI or engine output change, regenerate with
+  `UPDATE_GOLDENS=1 cargo test --release -p retopo --test cli_contract`
+  and review the diff before committing.
 - `bench/run.py --check bench/baseline.json` must pass after engine or CLI
   changes (fetch models once with `bench/fetch_models.sh`).
-- `retopo` must stay Qt-free: `otool -L build/cli/retopo | grep -i qt`
-  (macOS) must print nothing.
+- Quality claims need distributions, not single runs: the tiling is
+  sensitive to sub-visible input noise (see
+  `docs/igm-validity-spike.md`). Use `bench/noise.py` + `bench/score.py`.
 - New CLI flags must also appear in `--help` and the README.
 
 ## Layout
 
-- `core/` = Qt-free engine, built as `retopo_core` (`core/include/`
-  holds the public `<AutoRemesher/...>` forwarding headers).
-- `cli/` = Qt-free CLI. `bench/` = harness (models/results gitignored,
-  `baseline.json` committed).
-- `app/` = Qt GUI shell (sources, `shaders/`, `resources/`, `resources.qrc`).
-- `thirdparty/` = vendored deps (Eigen, meshoptimizer,
-  isotropicremesher); TBB is a system/brew install, not vendored.
-  OBJ loading and the spinner are native
-  (`core/objreader.*`, `app/spinnerwidget.*`). QtAwesome was removed
-  (dead code, zero call sites).
+- `rust/core/` engine, `rust/solvers/` least-squares solvers,
+  `rust/cli/` the `retopo` binary + CLI contract test.
+- `blender/` = Blender extension (GPL, talks to the CLI as a subprocess).
+- `bench/` = harness (`run.py` regression gate, `score.py` scorecard,
+  `noise.py` noise floor, `compare.py` free baselines, `profile.py`).
+- `tests/fixtures/` = golden data for the Rust tests.
+- `thirdparty/meshoptimizer/` = the only vendored dependency.

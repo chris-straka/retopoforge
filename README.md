@@ -3,9 +3,11 @@
 retopoforge is a fork of [AutoRemesher](https://github.com/huxingyi/autoremesher)
 (MIT, by Jeremy HU) restructured around a **headless engine**: a Rust core
 library, a `retopo` CLI, a Blender extension, and a benchmark/regression
-harness. There is no desktop app — Blender is the UI. The original C++
-engine stays frozen in `core/`/`cli/` as the differential-test reference
-(see [docs/rust-switch-verdict.md](docs/rust-switch-verdict.md)). Upstream is kept as
+harness. There is no desktop app — Blender is the UI. The engine was
+ported 1:1 from the original C++, proven by differential oracles, and the
+C++ tree was then removed (see
+[docs/rust-switch-verdict.md](docs/rust-switch-verdict.md); the history
+keeps it). Upstream is kept as
 the `upstream` git remote as a read-only reference; this fork has
 structurally diverged, so upstream engine fixes are ported by hand when
 relevant, never git-merged.
@@ -29,16 +31,9 @@ brew install rust
 cargo build --locked --release -p retopo
 ```
 
-This builds the `retopo` CLI (`rust/target/release/retopo`). The
-frozen C++ tree (`core/`, `cli/`) still builds as the differential-test
-reference (needs Homebrew LLVM + Ninja + TBB):
-
-```bash
-brew install cmake tbb llvm ninja
-cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/macos-llvm.cmake \
-  -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-```
+Run it from `rust/` (the cargo workspace). This builds the `retopo` CLI
+(`rust/target/release/retopo`); meshoptimizer (vendored C++ in
+`thirdparty/meshoptimizer`) is compiled in by `rust/core/build.rs`.
 
 ## CLI usage
 
@@ -91,21 +86,21 @@ directory:
 ## Tests
 
 ```bash
-cargo test --locked   # 60 Rust suites, incl. the C++-vs-Rust e2e oracle
-ctest --test-dir build --output-on-failure   # frozen C++ reference suite
+cd rust && cargo test --locked --release
 ```
 
-The Rust suites prove every engine component against the C++
-differentially (module goldens + replay oracles), topped by the
-end-to-end CLI oracle (50 arg-matrix + 20 IO-failure + 37 remesh cases
-with a censused C++ reference). The C++ suite stays frozen: fourteen
-unit tests cover engine components (vectors, mesh container, solvers,
-OBJ reader, welding, symmetry, guide curves, density, sharp
-constraints, input validation); ten CLI tests drive the built binary end
-to end (round-trip, `--lods`/batch multi-output, `--quiet`, GLB
-input/output, symmetry, guides, UVs, density, nasty-corpus, sharp
-features). The CLI tests remesh `bench/models/` fixtures (except the two
-hermetic robustness suites), so fetch the models first (see Benchmarks).
+Module goldens replay committed C++ reference dumps
+(`tests/fixtures/*_diff.txt`, recorded before the C++ tree was removed)
+against every engine component. The CLI contract test
+(`rust/cli/tests/cli_contract.rs`) drives the built binary over 52
+arg-matrix + 20 IO-failure + 37 remesh cases against goldens in
+`tests/fixtures/cli_golden/`: exact output for parser and IO paths;
+run-to-run determinism plus counts within 0.5% + 8 for remeshes. After
+an intended CLI or engine change, regenerate and review the diff:
+
+```bash
+UPDATE_GOLDENS=1 cargo test --release -p retopo --test cli_contract
+```
 
 ## Benchmarks
 
@@ -180,24 +175,22 @@ files. See [docs/architecture.md](docs/architecture.md) and
 ## Layout
 
 - `rust/` — the product: `retopo_core` + `retopo_solvers` libraries and
-  the `retopo` CLI binary (`rust/cli`), proven against the C++ by
+  the `retopo` CLI binary (`rust/cli`), ported from the original C++ by
   differential oracles (see `docs/rust-switch-verdict.md`).
-- `core/` — frozen original C++ engine (20 C++23 named modules
-  `retopo.core.*`): builds as the `retopo_core` static library,
-  kept as the oracle reference, not the product.
-- `cli/` — frozen original C++ CLI (`cli/main.cpp` + `cli/glb.*`):
-  builds `build/cli/retopo` as the e2e reference binary.
 - `Formula/` — Homebrew formula for the CLI.
 - `blender/` — Blender extension (`blender/retopoforge/`) driving the
   CLI over a temp-OBJ round-trip, with a headless test in
   `blender/tests/`.
 - `bench/` — harness (`bench/run.py`, models/results gitignored,
-  `bench/baseline.json` committed) plus the `bench/profile.py` profiler.
+  `bench/baseline.json` committed), the `bench/profile.py` profiler,
+  the `bench/score.py` quality scorecard, and the `bench/noise.py`
+  noise-floor harness.
 - `docs/` — architecture, engine-vs-Exoside gap, perf profile, and LOD
   strategy notes.
-- `tests/` — unit tests plus the CLI round-trip test.
-- `thirdparty/` — vendored Eigen, isotropicremesher, meshoptimizer
-  (TBB comes from the system install).
+- `tests/fixtures/` — golden data for the Rust tests (reference dumps,
+  procedural OBJ/GLB fixtures, CLI contract goldens).
+- `thirdparty/meshoptimizer/` — vendored mesh decimator, compiled into
+  the Rust engine via FFI.
 
 See [docs/architecture.md](docs/architecture.md) for the module graph
 and the engine/CLI/addon split.
@@ -207,7 +200,7 @@ and the engine/CLI/addon split.
 1. Headless engine + CLI + benchmarks (this fork's foundation, done)
 2. Blender addon driving the CLI (done, extension v0.2.0)
 3. Rust rewrite of the engine + CLI, proven by differential oracles
-   (done — shipped in 0.3.0, see
+   (done — shipped in 0.3.0, C++ tree removed afterwards, see
    [docs/rust-switch-verdict.md](docs/rust-switch-verdict.md))
 4. Post-switch superiority: sizing-aware rounding, single-island
    parallelism, CLI UX, and the 6-7x perf gap — then incremental
