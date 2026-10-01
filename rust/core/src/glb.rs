@@ -78,9 +78,8 @@ pub fn is_supported_input_extension(path: &str) -> bool {
 // Minimal strict JSON parser (std-only).
 //
 // Strings keep their RAW inner text (escapes validated but not decoded):
-// cgltf compares section keys against the raw token bytes, so an escaped
-// key never matches there. Attribute names are the one exception: cgltf
-// decodes them before matching, mirrored by `decode_cgltf_string`.
+// cgltf compares keys and attribute names against the raw token bytes, so
+// an escaped spelling never matches anywhere.
 // Numbers keep their raw text; int/float fields convert with C atoi/atof
 // semantics (`c_atoll`, `prim_float`), so `1e3` counts as 1 in an int field
 // and `true`/`null` count as 0, exactly like the C++ converters.
@@ -414,85 +413,6 @@ fn c_atoll(text: &str) -> i64 {
     if neg { value.wrapping_neg() } else { value }
 }
 
-/// `cgltf_decode_string`: the escape decoding cgltf applies to attribute
-/// names before matching (UCS-2 `\uXXXX` to UTF-8, no surrogate pairing).
-fn decode_cgltf_string(raw: &str) -> String {
-    if !raw.contains('\\') {
-        return raw.to_string();
-    }
-    let bytes = raw.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != b'\\' || i + 1 >= bytes.len() {
-            out.push(bytes[i]);
-            i += 1;
-            continue;
-        }
-        match bytes[i + 1] {
-            b'"' => {
-                out.push(b'"');
-                i += 2;
-            }
-            b'/' => {
-                out.push(b'/');
-                i += 2;
-            }
-            b'\\' => {
-                out.push(b'\\');
-                i += 2;
-            }
-            b'b' => {
-                out.push(0x08);
-                i += 2;
-            }
-            b'f' => {
-                out.push(0x0C);
-                i += 2;
-            }
-            b'n' => {
-                out.push(b'\n');
-                i += 2;
-            }
-            b'r' => {
-                out.push(b'\r');
-                i += 2;
-            }
-            b't' => {
-                out.push(b'\t');
-                i += 2;
-            }
-            b'u' if i + 5 < bytes.len() => {
-                let mut ch: u32 = 0;
-                for k in 0..4 {
-                    let b = bytes[i + 2 + k];
-                    let n = match b {
-                        b'0'..=b'9' => u32::from(b - b'0'),
-                        b'a'..=b'f' => u32::from(b - b'a') + 10,
-                        b'A'..=b'F' => u32::from(b - b'A') + 10,
-                        _ => 0,
-                    };
-                    ch = (ch << 4) | n;
-                }
-                if ch <= 0x7F {
-                    out.push(ch as u8);
-                } else if ch <= 0x7FF {
-                    out.push(0xC0 | ((ch >> 6) as u8));
-                    out.push(0x80 | ((ch & 0x3F) as u8));
-                } else {
-                    out.push(0xE0 | ((ch >> 12) as u8));
-                    out.push(0x80 | (((ch >> 6) & 0x3F) as u8));
-                    out.push(0x80 | ((ch & 0x3F) as u8));
-                }
-                i += 6;
-            }
-            _ => {
-                i += 2;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
 
 // ---------------------------------------------------------------------------
 // glTF document subset (mirror of the cgltf structs + fixups the loader
@@ -718,10 +638,11 @@ fn float_array(value: &Json, out: &mut [f32]) -> Result<(), ()> {
     Ok(())
 }
 
-/// Attribute-name match (decoded like cgltf, `POSITION` or `POSITION_<n>`).
+/// Attribute-name match (`POSITION` or `POSITION_<n>`, compared raw:
+/// cgltf never decodes attribute names, so an escaped spelling matches
+/// nothing).
 fn is_position_attribute(raw_name: &str) -> bool {
-    let name = decode_cgltf_string(raw_name);
-    let head = name.split('_').next().unwrap_or("");
+    let head = raw_name.split('_').next().unwrap_or("");
     head == "POSITION"
 }
 
@@ -750,9 +671,11 @@ fn parse_accessor(value: &Json, views_count: usize) -> Result<Accessor, ()> {
         None => None,
     };
     let byte_offset = value.member("byteOffset").map_or(0, prim_size);
-    let component = value.member("componentType").map_or(ComponentType::Invalid, |v| {
-        component_type_from_int(prim_int(v))
-    });
+    let component = value
+        .member("componentType")
+        .map_or(ComponentType::Invalid, |v| {
+            component_type_from_int(prim_int(v))
+        });
     let count = value.member("count").map_or(0, prim_size);
     let acc_type = value
         .member("type")
@@ -948,9 +871,7 @@ fn parse_doc(root: &Json) -> Result<Doc, ()> {
     // packed size.
     for accessor in &mut accessors {
         let packed = calc_size(accessor.acc_type, accessor.component);
-        accessor.stride = accessor
-            .buffer_view
-            .map_or(packed, |i| views[i].stride);
+        accessor.stride = accessor.buffer_view.map_or(packed, |i| views[i].stride);
         if accessor.stride == 0 {
             accessor.stride = packed;
         }
@@ -1065,7 +986,12 @@ fn node_transform_local(node: &Node, out: &mut [f32; 16]) {
 }
 
 /// Root-to-node composition over the parent chain (acyclic by validation).
-fn node_transform_world(nodes: &[Node], parents: &[Option<usize>], node: usize, out: &mut [f32; 16]) {
+fn node_transform_world(
+    nodes: &[Node],
+    parents: &[Option<usize>],
+    node: usize,
+    out: &mut [f32; 16],
+) {
     node_transform_local(&nodes[node], out);
     let mut parent = parents[node];
     while let Some(p) = parent {
@@ -1429,7 +1355,6 @@ pub fn load_glb_positions_and_triangles(
     let mut warn = warn;
     let mut err = err;
 
-
     let file = match std::fs::read(filename) {
         Ok(file) => file,
         Err(_) => {
@@ -1521,13 +1446,7 @@ pub fn load_glb_positions_and_triangles(
         let mut world = [0.0f32; 16];
         node_transform_world(&doc.nodes, &parents, n, &mut world);
         if let Err(message) = append_mesh(
-            &doc,
-            &buffers,
-            mesh,
-            &world,
-            positions,
-            triangles,
-            &mut stats,
+            &doc, &buffers, mesh, &world, positions, triangles, &mut stats,
         ) {
             positions.clear();
             triangles.clear();
@@ -1545,13 +1464,7 @@ pub fn load_glb_positions_and_triangles(
             continue;
         }
         if let Err(message) = append_mesh(
-            &doc,
-            &buffers,
-            mesh,
-            &identity,
-            positions,
-            triangles,
-            &mut stats,
+            &doc, &buffers, mesh, &identity, positions, triangles, &mut stats,
         ) {
             positions.clear();
             triangles.clear();
@@ -1593,11 +1506,19 @@ fn format_g_f32(v: f32) -> String {
         return "nan".to_string();
     }
     if v.is_infinite() {
-        return if v > 0.0 { "inf".to_string() } else { "-inf".to_string() };
+        return if v > 0.0 {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        };
     }
     let neg = v.is_sign_negative();
     if v == 0.0 {
-        return if neg { "-0".to_string() } else { "0".to_string() };
+        return if neg {
+            "-0".to_string()
+        } else {
+            "0".to_string()
+        };
     }
     // Exact digits: strip the point, then leading zeros; `exp10` is the
     // decimal exponent of the first surviving digit.

@@ -253,6 +253,15 @@ add_executable(framefield_diff_dump framefield_diff_dump.cpp)
 set_target_properties(framefield_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(framefield_diff_dump PRIVATE retopo_core)
 
+# Differential oracle dump for the glb Rust port (rs-glb lane).
+# Build-only helper (not a ctest test): run it with the fixtures dir and
+# redirect stdout to tests/fixtures/glb_diff.txt for
+# rust/core/tests/glb_diff.rs.
+add_executable(glb_diff_dump glb_diff_dump.cpp ../cli/glb.cpp)
+set_target_properties(glb_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_include_directories(glb_diff_dump PRIVATE ../thirdparty/cgltf)
+target_link_libraries(glb_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.
 retopo_add_test(test_cli_engine_quiet test_cli_engine_quiet.cpp)
