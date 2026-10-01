@@ -7,23 +7,25 @@
 // topology run to run — demonstrated by three dump runs during
 // development, listed in the dump tool's isEpxId/isEcxId):
 // - CASE (strict): same ok flag, same remeshed verts/quads/uvs (values
-//   within scale-aware 1e-6, indices exact), same island counts, same
-//   decimated/isotropic/capture outputs, same symmetry plane, same
-//   phase-report structure (names + order + counts, timings stripped),
-//   and the same progress sequence — exact (bitwise f32 + status) on
-//   single-island cases, robust facts (serial prefix/suffix, monotonic
-//   middle, range, known names) on multi-island cases where thread
-//   interleaving varies run to run on both sides.
+//   within scale-aware 1e-6; indices positional-exact, with a QPX-class
+//   remap+canonicalize fallback that accepts order-only differences and
+//   notes them loudly), same island counts, same decimated/isotropic
+//   outputs, same symmetry plane, same phase-report structure (names +
+//   order + counts, timings stripped), and the same progress sequence —
+//   exact (bitwise f32 + status) on single-island cases, robust facts
+//   (serial prefix/suffix, monotonic middle, range) on multi-island
+//   cases where thread interleaving varies run to run on both sides.
 // - ECX (strict except the connection capture): real outputs stable
 //   across C++ runs, but the raw extracted-connection capture flipped.
 //   Everything strict except CONN counts/values and MOVED, which report.
 // - EPX (robustness-only): non-manifold soup / degenerate meshes (not
 //   downstream-plausible; ill-conditioned covers by construction) plus
 //   listed real-output flippers. The port must match every deterministic
-//   fact (ok, island length, decimated/isotropic/cover/singular/symmetry
-//   outputs, phase head/tail, progress prefix/suffix + robust facts) and
-//   solve everything C++ solves; cliff-amplified outputs are reported,
-//   not asserted.
+//   structural fact (ok, island length, decimated + isotropic outputs,
+//   phase head/tail, progress prefix/suffix + robust facts) and solve
+//   everything C++ solves; cover-derived quantities (remeshed
+//   verts/quads/uvs, IUV/IOUV/SING values and singular counts,
+//   connections) are reported, not asserted.
 use retopo_core::auto_remesher::{AutoRemesher, AutoRemesherProgressHandler, ModelType};
 use retopo_core::vector2::Vector2;
 use retopo_core::vector3::Vector3;
@@ -173,6 +175,7 @@ fn differential_replay() {
     let mut strict_cases = 0usize;
     let mut ecx_cases = 0usize;
     let mut ecx_conn_agree = 0usize;
+    let mut order_only_notes = 0usize;
     let mut stats = EpxStats {
         cases: 0,
         both_ok: 0,
@@ -599,6 +602,13 @@ fn differential_replay() {
                 case_agrees = false;
             }
         }
+        // Optional order-free fallback (QPX-class, quadextractor precedent:
+        // compaction/discovery order legitimately differs where the C++
+        // iterates hash maps). Filled only when positional RQ fails on a
+        // strict case but the remapped face sets agree with all values
+        // within tolerance; the RV/RUV value checks below then follow
+        // the remap instead of positions.
+        let mut remap: Option<(Vec<usize>, f64)> = None;
         if got_rq.len() != exp_rq.len() {
             if strict {
                 mismatches.push(format!(
@@ -610,15 +620,33 @@ fn differential_replay() {
                 case_agrees = false;
             }
         } else {
+            let mut first_skew: Option<(usize, &Vec<usize>, &Vec<usize>)> = None;
             for (i, (got, exp)) in got_rq.iter().zip(exp_rq.iter()).enumerate() {
                 if got != exp {
-                    if strict {
-                        mismatches
-                            .push(format!("{case}: RQ[{i}] skew (rust={got:?} cpp={exp:?})"));
-                    } else {
-                        case_agrees = false;
-                    }
+                    first_skew = Some((i, got, exp));
                     break;
+                }
+            }
+            match first_skew {
+                None => {}
+                Some((i, got, exp)) if !strict => {
+                    let _ = (i, got, exp);
+                    case_agrees = false;
+                }
+                Some((i, got, exp)) => {
+                    remap = try_remap_faces(got_rv, &exp_rv, got_rq, &exp_rq);
+                    match &remap {
+                        Some((_, max_pos)) => {
+                            order_only_notes += 1;
+                            eprintln!(
+                                "{case}: NOTE order-only remap accepted (face sets equal, max vertex diff {max_pos:.2e})"
+                            );
+                        }
+                        None => {
+                            mismatches
+                                .push(format!("{case}: RQ[{i}] skew (rust={got:?} cpp={exp:?})"));
+                        }
+                    }
                 }
             }
         }
@@ -735,12 +763,19 @@ fn differential_replay() {
             ));
         }
         let got_sing = remesher.isotropic_singular_vertices();
+        // Singular counts ride the noisy cover (case 281: C++ reports 1
+        // vs 3 across its own runs), so EPX folds them into the
+        // agreement report like the other cover-derived quantities.
         if got_sing.len() != exp_sing.len() {
-            mismatches.push(format!(
-                "{case}: SING count skew (rust={} cpp={})",
-                got_sing.len(),
-                exp_sing.len()
-            ));
+            if strict {
+                mismatches.push(format!(
+                    "{case}: SING count skew (rust={} cpp={})",
+                    got_sing.len(),
+                    exp_sing.len()
+                ));
+            } else {
+                case_agrees = false;
+            }
         }
         let got_conn = remesher.isotropic_extracted_connections();
         let got_moved = remesher.isotropic_extracted_connection_moved();
@@ -832,14 +867,37 @@ fn differential_replay() {
                 stats: &mut stats,
                 case_agrees: &mut case_agrees,
             };
-            for (i, (got, exp)) in got_rv.iter().zip(exp_rv.iter()).enumerate() {
-                vals.check(&case, &format!("rv[{i}].x"), got.x(), exp.x());
-                vals.check(&case, &format!("rv[{i}].y"), got.y(), exp.y());
-                vals.check(&case, &format!("rv[{i}].z"), got.z(), exp.z());
-            }
-            for (i, (got, exp)) in got_ruv.iter().zip(exp_ruv.iter()).enumerate() {
-                vals.check(&case, &format!("ruv[{i}].x"), got.x(), exp.x());
-                vals.check(&case, &format!("ruv[{i}].y"), got.y(), exp.y());
+            // With an accepted remap, values follow Rust->C++ vertex
+            // indices instead of positions (same tolerance).
+            if let Some((map, _)) = &remap {
+                for (s, &t) in map.iter().enumerate() {
+                    let (got, exp) = (&got_rv[s], &exp_rv[t]);
+                    vals.check(&case, &format!("rv[{s}~{t}].x"), got.x(), exp.x());
+                    vals.check(&case, &format!("rv[{s}~{t}].y"), got.y(), exp.y());
+                    vals.check(&case, &format!("rv[{s}~{t}].z"), got.z(), exp.z());
+                }
+                if got_ruv.len() == got_rv.len() && exp_ruv.len() == exp_rv.len() {
+                    for (s, &t) in map.iter().enumerate() {
+                        let (got, exp) = (&got_ruv[s], &exp_ruv[t]);
+                        vals.check(&case, &format!("ruv[{s}~{t}].x"), got.x(), exp.x());
+                        vals.check(&case, &format!("ruv[{s}~{t}].y"), got.y(), exp.y());
+                    }
+                } else {
+                    for (i, (got, exp)) in got_ruv.iter().zip(exp_ruv.iter()).enumerate() {
+                        vals.check(&case, &format!("ruv[{i}].x"), got.x(), exp.x());
+                        vals.check(&case, &format!("ruv[{i}].y"), got.y(), exp.y());
+                    }
+                }
+            } else {
+                for (i, (got, exp)) in got_rv.iter().zip(exp_rv.iter()).enumerate() {
+                    vals.check(&case, &format!("rv[{i}].x"), got.x(), exp.x());
+                    vals.check(&case, &format!("rv[{i}].y"), got.y(), exp.y());
+                    vals.check(&case, &format!("rv[{i}].z"), got.z(), exp.z());
+                }
+                for (i, (got, exp)) in got_ruv.iter().zip(exp_ruv.iter()).enumerate() {
+                    vals.check(&case, &format!("ruv[{i}].x"), got.x(), exp.x());
+                    vals.check(&case, &format!("ruv[{i}].y"), got.y(), exp.y());
+                }
             }
             for (i, (got, exp)) in got_iv.iter().zip(exp_iv.iter()).enumerate() {
                 vals.check(&case, &format!("iso[{i}].x"), got.x(), exp.x());
@@ -944,6 +1002,7 @@ fn differential_replay() {
     assert!(saw_sym_active, "no symmetry-active case ran");
     assert!(saw_multi_island, "no multi-island case ran");
     eprintln!("strict cases: {strict_cases}, max rel diff: {max_diff:.3e} at {max_diff_at}");
+    eprintln!("order-only remaps accepted: {order_only_notes}");
     eprintln!(
         "epx cases: {}, both-ok: {}, value-agree: {}, max diff: {:.3e} at {}",
         stats.cases, stats.both_ok, stats.value_agree, stats.max_diff, stats.max_diff_at
@@ -1044,6 +1103,77 @@ fn consume_outputs(c: &mut Cur) {
     }
 }
 
+/// Order-free face comparison (QPX-class): builds a Rust->C++ vertex
+/// bijection by position (same 1e-6 scale-aware tolerance as values),
+/// remaps the Rust faces, canonicalizes winding (rotation + reversal),
+/// and accepts when the face multisets agree. Returns the map and the
+/// worst matched-vertex distance. Greedy matching can miss a valid
+/// bijection on near-duplicate positions; then it returns `None` and
+/// the positional mismatch stands (conservative either way).
+fn try_remap_faces(
+    got_rv: &[Vector3],
+    exp_rv: &[Vector3],
+    got_rq: &[Vec<usize>],
+    exp_rq: &[Vec<usize>],
+) -> Option<(Vec<usize>, f64)> {
+    if got_rv.len() != exp_rv.len() || got_rv.is_empty() {
+        return None;
+    }
+    let mut used = vec![false; exp_rv.len()];
+    let mut map = vec![usize::MAX; got_rv.len()];
+    let mut worst = 0.0f64;
+    for (s, g) in got_rv.iter().enumerate() {
+        let mut best: Option<(usize, f64)> = None;
+        for (t, e) in exp_rv.iter().enumerate() {
+            if used[t] {
+                continue;
+            }
+            let scale = e.x().abs().max(e.y().abs()).max(e.z().abs()).max(1.0);
+            let d = (g.x() - e.x())
+                .abs()
+                .max((g.y() - e.y()).abs())
+                .max((g.z() - e.z()).abs());
+            if d <= TOL * scale && best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((t, d));
+            }
+        }
+        let (t, d) = best?;
+        used[t] = true;
+        map[s] = t;
+        worst = worst.max(d);
+    }
+    fn canon(row: &[usize]) -> Vec<usize> {
+        let n = row.len();
+        let mut best: Option<Vec<usize>> = None;
+        for rev in [false, true] {
+            for start in 0..n {
+                let cand: Vec<usize> = (0..n)
+                    .map(|k| {
+                        let k = (start + k) % n;
+                        if rev { row[n - 1 - k] } else { row[k] }
+                    })
+                    .collect();
+                if best.as_ref().is_none_or(|b| cand < *b) {
+                    best = Some(cand);
+                }
+            }
+        }
+        best.unwrap_or_default()
+    }
+    let mut rmapped: Vec<Vec<usize>> = got_rq
+        .iter()
+        .map(|row| canon(&row.iter().map(|&v| map[v]).collect::<Vec<_>>()))
+        .collect();
+    let mut expected: Vec<Vec<usize>> = exp_rq.iter().map(|row| canon(row)).collect();
+    rmapped.sort();
+    expected.sort();
+    if rmapped == expected {
+        Some((map, worst))
+    } else {
+        None
+    }
+}
+
 /// Robust progress facts for multi-island (and EPX) cases: the serial
 /// prefix/suffix are pinned by the caller; here the middle must be
 /// monotonic, in range, and named.
@@ -1055,8 +1185,12 @@ fn check_progress_robust(case: &str, events: &[(f32, String)], mismatches: &mut 
         ));
         return;
     }
+    // Empty statuses are legitimate on multi-island runs (both sides emit
+    // "" when the slowest island has not reported a step yet — C++
+    // updateProgress passes `name ? name : ""`), so only the pinned
+    // prefix/suffix/exact sequences constrain status text.
     let mut prev = 0.0f32;
-    for (i, (f, s)) in events.iter().enumerate() {
+    for (i, (f, _)) in events.iter().enumerate() {
         if *f < prev {
             mismatches.push(format!(
                 "{case}: progress[{i}] went backwards ({prev} -> {f})"
@@ -1066,10 +1200,6 @@ fn check_progress_robust(case: &str, events: &[(f32, String)], mismatches: &mut 
         prev = *f;
         if !(*f >= 0.0 && *f <= 1.0) {
             mismatches.push(format!("{case}: progress[{i}] out of range ({f})"));
-            break;
-        }
-        if s.is_empty() || s == "." {
-            mismatches.push(format!("{case}: progress[{i}] has no status"));
             break;
         }
     }

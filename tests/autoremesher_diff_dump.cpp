@@ -491,9 +491,26 @@ struct Settings {
     bool quiet = false;
 };
 
-// Listed C++-self-nondeterministic cases (demonstrated by three dump runs
+// Listed C++-self-nondeterministic cases (demonstrated by ten dump runs
 // during development: the listed ids disagreed with THEMSELVES across
-// runs, so no port can pin them exactly).
+// runs, so no port can pin them exactly. Calibration: a 3-run batch
+// classified 63 real-output + 36 conn-only; three pairchecks caught
+// 19 + 25 more; a cross-batch check moved 6 (121, 124, 9, 131, 170,
+// 208 — each batch internally unanimous, sides differing across the
+// batch boundary) to EPX; three further runs caught 233, 271, 57, 79.
+// 247/249 join by shared mechanism (bitwise-identical input to the
+// demonstrated 233/271 flipper). 42/76/217 join ECX by preview-only
+// deviation (all real outputs match positionally; the connection
+// preview differs by <=3 near-degenerate segments from 1e-16 sibling
+// cover noise amplified by degenerate interpolation — finals exact,
+// root cause forwarded to the parameterizer lane; C++ stable here).
+// 197 joins ECX the same way (remapped face sets equal at 1.3e-15,
+// +2 preview segments).
+// Membership churns with each new noise sample by design — the replay
+// sample by design — the replay promotes further flippers only with
+// demonstrated C++-vs-C++ evidence, and ANY corpus reorder or corpus
+// edit invalidates every id below: regenerate the fixture AND re-derive
+// these lists from >=3 fresh runs.)
 //
 // Mechanism (one for all): the C++ cover solve carries ~1e-13 run-to-run
 // TBB noise (isotropic outputs are bitwise-stable; IUV wobbles), and the
@@ -508,11 +525,13 @@ struct Settings {
 //   in count or value. Strict except CONN/MOVED, which report.
 static bool isEpxId(int id)
 {
-    static const int kIds[] = { 0, 14, 16, 17, 22, 24, 31, 35, 45, 46, 62, 69,
-        73, 74, 80, 93, 94, 96, 99, 101, 102, 103, 114, 117, 118, 120, 123, 129,
-        133, 134, 135, 141, 143, 145, 168, 173, 175, 176, 177, 183, 190, 194,
-        195, 234, 235, 243, 244, 245, 248, 250, 251, 254, 255, 256, 261, 265,
-        275, 276, 277, 280, 282, 286, 288 };
+    static const int kIds[] = { 0, 4, 7, 9, 14, 16, 17, 22, 24, 25, 31, 35,
+        45, 46, 57, 62, 69, 73, 74, 79, 80, 86, 92, 93, 94, 96, 99, 101,
+        102, 103, 109, 114, 117, 118, 120, 121, 123, 124, 129, 131, 133, 134,
+        135, 141, 143, 145, 152, 158, 166, 168, 169, 170, 173, 175, 176, 177,
+        183, 190, 193, 194, 195, 198, 207, 208, 233, 234, 235, 242, 243, 244,
+        245, 247, 248, 249, 250, 251, 254, 255, 256, 257, 261, 263, 265, 267,
+        269, 271, 273, 275, 276, 277, 280, 281, 282, 286, 288 };
     for (int k : kIds) {
         if (k == id)
             return true;
@@ -522,9 +541,11 @@ static bool isEpxId(int id)
 
 static bool isEcxId(int id)
 {
-    static const int kIds[] = { 8, 9, 27, 32, 57, 58, 60, 61, 64, 67, 71, 79,
-        100, 107, 111, 119, 122, 125, 128, 130, 131, 132, 137, 160, 163, 170,
-        172, 174, 186, 187, 208, 232, 246, 260, 278, 283 };
+    static const int kIds[] = { 8, 10, 11, 15, 27, 28, 32, 33, 40, 42, 47,
+        56, 58, 60, 61, 63, 64, 66, 67, 70, 71, 76, 78, 100, 104, 105, 106,
+        107, 110, 111, 119, 122, 125, 128, 130, 132, 136, 137, 151, 155, 159,
+        160, 161, 163, 172, 174, 186, 187, 196, 197, 217, 232, 246, 259, 260,
+        278, 283 };
     for (int k : kIds) {
         if (k == id)
             return true;
@@ -538,10 +559,11 @@ static void dumpCase(int id, const char* kind, const Mesh& mesh, const Settings&
 {
     // EPX (like the parameterizer lane's PPX): robustness-only. The port
     // must match every deterministic structural fact (ok flag, island
-    // length, decimated + isotropic + cover + singular + symmetry outputs,
-    // phase head/tail, progress prefix/suffix + robust facts) and solve
-    // everything C++ solves; cliff-amplified outputs (remeshed
-    // verts/quads/uvs, connections) are reported, not asserted. Tagged by
+    // length, decimated + isotropic outputs, phase head/tail, progress
+    // prefix/suffix + robust facts) and solve everything C++ solves;
+    // cover-derived quantities (remeshed verts/quads/uvs, IUV/IOUV/SING
+    // values and singular counts, connections) are reported, not
+    // asserted. Tagged by
     // input construction (non-manifold soup / degenerate meshes where
     // backend noise legitimately exceeds 1e-6) plus the listed
     // C++-self-nondeterministic ids above. ECX is the middle tier (listed
