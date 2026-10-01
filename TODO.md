@@ -40,11 +40,12 @@ push main from lanes (explicit refspec only); game assets never committed.
       (sincos-fusion root cause, bitwise oracle), parameterizer
       (PPX-documented, vendored singularity deduped at join)
 - [ ] Finisher running: quad_extractor (largest module, mid-port)
-- [ ] Fresh lanes running: glb IO (std-only reader, byte-identical
-      writer), parameterizer (vendored singularity queries, dedup at join)
-- [ ] Queued behind deps: autoremesher engine (needs parameterizer +
-      quad_extractor), cli/main (needs engine; its end-to-end differential
-      run is the acceptance gate for the whole port)
+- [x] CLI glb IO joined (std-only reader, byte-identical writer;
+      14/235 transform-path cases scale-aware, fmuladd has no bitwise
+      contract there)
+- [ ] Queued behind deps: autoremesher engine (needs quad_extractor;
+      parameterizer joined), cli/main (needs engine; its end-to-end
+      differential run is the acceptance gate for the whole port)
 - [ ] Switch: gate Rust `cargo test` in CI, write the rewrite verdict,
       point the Blender addon + Homebrew formula at the Rust binary
 - [ ] Post-switch superiority batch (equality proved — now beat C++):
