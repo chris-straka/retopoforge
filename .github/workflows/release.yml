@@ -38,6 +38,10 @@ jobs:
         run: ./bench/fetch_models.sh
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust release binary (bench product)
+        run: cargo build --locked --release --manifest-path rust/Cargo.toml -p retopo
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline-linux.json
 
@@ -61,12 +65,16 @@ jobs:
         run: ./bench/fetch_models.sh
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust release binary (bench + smoke product)
+        run: cargo build --locked --release --manifest-path rust/Cargo.toml -p retopo
       - name: Check benchmarks
         run: ./bench/run.py --check bench/baseline.json
       - name: Headless CLI smoke test
         run: |
           set -e
-          ./build/cli/retopo \
+          ./rust/target/release/retopo \
             --input bench/models/armadillo.obj \
             --output retopo-cli-smoke.obj \
             --target-quads 2000

@@ -8,12 +8,11 @@
 //
 // Build-only helper: not registered with ctest. Run it and redirect stdout
 // to tests/fixtures/framefield_diff.txt, then commit the fixture.
-import retopo.core.constrained_least_squares;
-import retopo.core.frame_field;
-import retopo.core.guides;
-import retopo.core.surface_mesh;
-import retopo.core.vector3;
-
+//
+// NOTE: includes come before imports (matching every core/*.cpp): Eigen
+// textually included AFTER the module imports fractures its overload set
+// across module purviews and fails to compile on Linux clang
+// ("no matching function for call to 'tridiagonal_qr_step'").
 #include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <array>
@@ -25,6 +24,12 @@ import retopo.core.vector3;
 #include <string>
 #include <utility>
 #include <vector>
+
+import retopo.core.constrained_least_squares;
+import retopo.core.frame_field;
+import retopo.core.guides;
+import retopo.core.surface_mesh;
+import retopo.core.vector3;
 
 using AutoRemesher::ConstrainedLeastSquares;
 using AutoRemesher::FrameField;
