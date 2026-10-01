@@ -192,10 +192,6 @@ pub struct SingularitySimplifier<'a> {
     sharp_corner: Vec<bool>,
     frame_u: Vec<Vector3>,
     frame_v: Vec<Vector3>,
-    // TEMP-DEBUG (reverted before push): smoother iteration counts per
-    // cancel_pair call + init-angle snapshot.
-    pub debug_iterations: Vec<usize>,
-    pub debug_init_angles: Vec<f64>,
 }
 
 impl<'a> SingularitySimplifier<'a> {
@@ -218,26 +214,7 @@ impl<'a> SingularitySimplifier<'a> {
             sharp_corner: Vec::new(),
             frame_u: Vec::new(),
             frame_v: Vec::new(),
-            debug_iterations: Vec::new(),
-            debug_init_angles: Vec::new(),
         }
-    }
-
-    // TEMP-DEBUG (reverted before push).
-    pub fn debug_angles(&self) -> &[f64] {
-        &self.angles
-    }
-    // TEMP-DEBUG (reverted before push).
-    pub fn debug_connection(&self) -> &[f64] {
-        &self.connection
-    }
-    // TEMP-DEBUG (reverted before push).
-    pub fn debug_frames(&self) -> (&[Vector3], &[Vector3]) {
-        (&self.frame_u, &self.frame_v)
-    }
-    // TEMP-DEBUG (reverted before push).
-    pub fn debug_mismatch(&self) -> &[i32] {
-        &self.mismatch
     }
 
     pub fn set_maximum_pair_distance(&mut self, hops: usize) {
@@ -369,8 +346,6 @@ impl<'a> SingularitySimplifier<'a> {
         }
         let every: Vec<usize> = (0..faces).collect();
         self.update_mismatches(&every);
-        // TEMP-DEBUG (reverted before push).
-        self.debug_init_angles = self.angles.clone();
     }
 
     fn update_mismatches(&mut self, faces: &[usize]) {
@@ -604,11 +579,7 @@ impl<'a> SingularitySimplifier<'a> {
             jump[other] += carried;
         }
 
-        // TEMP-DEBUG (reverted before push).
-        let mut debug_count = 0usize;
         for _ in 0..256usize.max(40 * radius * radius) {
-            // TEMP-DEBUG (reverted before push).
-            debug_count += 1;
             let mut max_change = 0.0;
             for &f in &free_faces {
                 let mut sum = 0.0;
@@ -648,8 +619,6 @@ impl<'a> SingularitySimplifier<'a> {
                 break;
             }
         }
-        // TEMP-DEBUG (reverted before push).
-        self.debug_iterations.push(debug_count);
         self.update_mismatches(&region);
         let after = count_affected(&self.vertex_charges(), &affected);
         let charges = self.vertex_charges();
