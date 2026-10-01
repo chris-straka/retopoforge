@@ -85,10 +85,16 @@ when comparing back ends.
       `thirdparty/` and the `cc` build step. Gate: noise.py spread on
       decimated cases shrinks, bench + contract tests green. Do after the
       chaos item above shows the decimator is the cause.
+- [ ] Untangling stage in the current engine (Garanzha et al. 2021
+      foldover-free maps; prototype on branch `exp/igm-validity`,
+      `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not
+      beast, and is slow (60 rounds, unconverged). Finish convergence +
+      speed, then gate on scores; built into the existing pipeline, not a
+      separate back end
 - [ ] Joint loops: rigforge landmarks -> guide rings via `--guides`
 - [ ] Deformation score in bench (rig + pose + joint distortion) as the
       main gate
-- [ ] Patch back end as an OPTIONAL extension (`--backend patch`,
+- [ ] Build the patch back end as a selectable extension (`--backend patch`,
       clean-room QuadWild + Bi-MDF from the papers), only after the items
       above; the current engine stays the default
 - [ ] Humanoid faces/hands: out of scope here (wrapforge)
