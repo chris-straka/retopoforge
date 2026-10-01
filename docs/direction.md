@@ -37,7 +37,11 @@ error; QuadWild wins worst-case error (2.0% vs 3.2%) and has 0 non-quads
 (ours 186). The owner's visual check agreed ours looked cleaner. Do the
 targeted fixes in `~/Games/hll/tools/roadmap.md` section 2 instead;
 revisit the patch back end only if a second character reverses this.
-The plan below stays as the fallback.
+If the patch back end is built, it is an **optional extension** (e.g.
+`--backend patch`), never a replacement: the current engine stays the
+default, and the patch back end serves cases that need all quads or
+tighter worst-case accuracy (its measured strengths). Owner decision,
+2026-10-01. The plan below describes that extension.
 
 Evidence (`docs/igm-validity-spike.md`): the current back end (least-
 squares cover -> one-shot rounding -> heuristic extraction) produces
