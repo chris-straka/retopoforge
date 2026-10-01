@@ -2388,7 +2388,7 @@ impl<'a> QuadExtractor<'a> {
         cross_points: &mut Vec<Vector3>,
         source_triangles: &mut Vec<usize>,
         connections: &mut BTreeSet<(usize, usize)>,
-        branches_of_point: &mut BTreeMap<usize, BTreeSet<usize>>,
+        branches_of_point: &mut CxxMap<CxxSet>,
         crossing_position: Vector3,
         crossing_edge: (usize, usize),
     ) -> usize {
@@ -2409,22 +2409,16 @@ impl<'a> QuadExtractor<'a> {
         connections.remove(&(edge_first, edge_second));
         connections.remove(&(edge_second, edge_first));
         connection_infos.remove(&crossing_edge);
-        if let Some(set) = branches_of_point.get_mut(&edge_first) {
-            set.remove(&edge_second);
-        }
-        if let Some(set) = branches_of_point.get_mut(&edge_second) {
-            set.remove(&edge_first);
-        }
+        // C++ `operator[]` + erase (both endpoints are present: the branch
+        // map tracks `connections` exactly).
+        branches_of_point.get_or_default(edge_first).remove(&edge_second);
+        branches_of_point.get_or_default(edge_second).remove(&edge_first);
         for endpoint in [edge_first, edge_second] {
             connections.insert((endpoint, new_point_index));
             connection_infos.insert(Self::edge_of(endpoint, new_point_index), info);
+            branches_of_point.get_or_default(endpoint).insert(new_point_index);
             branches_of_point
-                .entry(endpoint)
-                .or_default()
-                .insert(new_point_index);
-            branches_of_point
-                .entry(new_point_index)
-                .or_default()
+                .get_or_default(new_point_index)
                 .insert(endpoint);
         }
         new_point_index
@@ -2436,7 +2430,7 @@ impl<'a> QuadExtractor<'a> {
         added_connections: &mut BTreeSet<(usize, usize)>,
         connections: &mut BTreeSet<(usize, usize)>,
         source_triangles: &[usize],
-        branches_of_point: &mut BTreeMap<usize, BTreeSet<usize>>,
+        branches_of_point: &mut CxxMap<CxxSet>,
         from_point_index: usize,
         to_point_index: usize,
     ) -> bool {
@@ -2458,12 +2452,10 @@ impl<'a> QuadExtractor<'a> {
         );
         added_connections.insert(edge);
         branches_of_point
-            .entry(from_point_index)
-            .or_default()
+            .get_or_default(from_point_index)
             .insert(to_point_index);
         branches_of_point
-            .entry(to_point_index)
-            .or_default()
+            .get_or_default(to_point_index)
             .insert(from_point_index);
         true
     }
@@ -2471,9 +2463,9 @@ impl<'a> QuadExtractor<'a> {
     #[allow(clippy::too_many_arguments)]
     fn find_node_ahead(
         cross_points: &[Vector3],
-        branches_of_point: &BTreeMap<usize, BTreeSet<usize>>,
+        branches_of_point: &CxxMap<CxxSet>,
         local_edges: &BTreeMap<(usize, usize), ConnectionInfo>,
-        behind_points: &BTreeSet<usize>,
+        behind_points: &CxxSet,
         nearby_radius: f64,
         ahead_cosine_threshold: f64,
         position: Vector3,
@@ -2513,7 +2505,7 @@ impl<'a> QuadExtractor<'a> {
         triangles: &[Vec<usize>],
         cross_points: &[Vector3],
         local_edges: &BTreeMap<(usize, usize), ConnectionInfo>,
-        behind_points: &BTreeSet<usize>,
+        behind_points: &CxxSet,
         parallel_cosine_threshold: f64,
         tolerance: f64,
         position: Vector3,
@@ -2612,18 +2604,17 @@ impl<'a> QuadExtractor<'a> {
                 .or_insert(i);
         }
 
-        let mut branches_of_point: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        let mut branches_of_point: CxxMap<CxxSet> = CxxMap::new();
         for (first, second) in connections.iter() {
-            branches_of_point.entry(*first).or_default().insert(*second);
-            branches_of_point.entry(*second).or_default().insert(*first);
+            branches_of_point.get_or_default(*first).insert(*second);
+            branches_of_point.get_or_default(*second).insert(*first);
         }
 
-        let mut triangles_around_vertex: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        let mut triangles_around_vertex: CxxMap<Vec<usize>> = CxxMap::new();
         for (triangle_index, triangle) in self.triangles.iter().enumerate() {
             for vertex_index in triangle {
                 triangles_around_vertex
-                    .entry(*vertex_index)
-                    .or_default()
+                    .get_or_default(*vertex_index)
                     .push(triangle_index);
             }
         }
@@ -2657,11 +2648,11 @@ impl<'a> QuadExtractor<'a> {
             };
             starved_cones += 1;
 
-            let mut neighbor_triangles = BTreeSet::new();
+            let mut neighbor_triangles = CxxSet::new();
             {
-                let mut ring_vertices = BTreeSet::from([singular_vertex_index]);
+                let mut ring_vertices = CxxSet::from([singular_vertex_index]);
                 for _ in 0..RING_COUNT {
-                    let mut next_ring_vertices = BTreeSet::new();
+                    let mut next_ring_vertices = CxxSet::new();
                     for vertex_index in &ring_vertices {
                         let Some(find_triangles) = triangles_around_vertex.get(vertex_index) else {
                             continue;
@@ -2788,7 +2779,7 @@ impl<'a> QuadExtractor<'a> {
                 continue;
             }
 
-            let behind_points = BTreeSet::from([singular_point_index, coming_from_point_index]);
+            let behind_points = CxxSet::from([singular_point_index, coming_from_point_index]);
 
             #[derive(Clone, Copy)]
             struct WalkCrossing {
