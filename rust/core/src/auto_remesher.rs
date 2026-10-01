@@ -68,10 +68,18 @@
 //!   `select_nth_unstable`: both place the rank-`k` value at `k`, so the
 //!   reference value is identical.
 //!
-//! FMA audit: the expressions this module evaluates itself contain no
-//! multiply-add form that Clang fuses (verified in IR during development;
-//! see the lane report). All heavy FP goes through the joined siblings,
-//! which carry their own audits.
+//! FMA audit (mandatory, done): seven multiply-add forms in this
+//! module's own expressions fuse under Clang at -O3 (verified in IR, brew
+//! Clang 23.1.2, ARM64 — sites A..G, each commented at its transcription
+//! with the exact `llvm.fmuladd` shape). All seven transcribe with
+//! explicit `mul_add`. Every other local expression is fusion-free by
+//! shape (division or calls break the patterns), and cross-call fusion is
+//! impossible without LTO (the CMake build uses none). The single libm
+//! transcendental this module evaluates itself is `acos` (isolated calls
+//! — no adjacent sin/cos pair exists on either side, so `sincos` fusion
+//! is impossible and `double_utils::joint_sin_cos` is unneeded). All
+//! heavy FP goes through the joined siblings, which carry their own
+//! audits.
 
 use crate::density::Density;
 use crate::isotropic_remesher::IsotropicRemesher;
@@ -459,6 +467,10 @@ fn pack_island_uvs_into_atlas(uvs: &mut [Vector2], spans: &[(usize, usize)]) {
         gutter = 0.5 / gaps as f64;
     }
 
+    // FMA audit (site E): Clang fuses `1.0 - gutter * count` to
+    // llvm.fmuladd(-gutter, count, 1.0) (negation first, then one fused
+    // op); the division stays separate. Transcribed explicitly at both
+    // occurrences below.
     let mut scale = 1.0;
     for shelf in &shelves {
         if shelf.width <= 0.0 {
@@ -466,13 +478,13 @@ fn pack_island_uvs_into_atlas(uvs: &mut [Vector2], spans: &[(usize, usize)]) {
         }
         scale = cxx_min(
             scale,
-            (1.0 - gutter * (shelf.members.len() - 1) as f64) / shelf.width,
+            (-gutter).mul_add((shelf.members.len() - 1) as f64, 1.0) / shelf.width,
         );
     }
     if total_height > 0.0 {
         scale = cxx_min(
             scale,
-            (1.0 - gutter * (shelves.len() - 1) as f64) / total_height,
+            (-gutter).mul_add((shelves.len() - 1) as f64, 1.0) / total_height,
         );
     }
     scale = cxx_min(1.0, cxx_max(1e-9, scale));
@@ -485,17 +497,23 @@ fn pack_island_uvs_into_atlas(uvs: &mut [Vector2], spans: &[(usize, usize)]) {
             let begin = spans[island].0;
             let end = (begin + spans[island].1).min(uvs.len());
             for slot in &mut uvs[begin..end] {
-                let u = (slot.x() - bx.min_u) * scale + x;
-                let v = (slot.y() - bx.min_v) * scale + y;
+                // FMA audit (site F): Clang fuses to
+                // llvm.fmuladd(u - min, scale, origin). Transcribed
+                // explicitly.
+                let u = (slot.x() - bx.min_u).mul_add(scale, x);
+                let v = (slot.y() - bx.min_v).mul_add(scale, y);
                 // `std::min(1.0, std::max(0.0, u))`, transcribed
                 // literally (NOT `clamp`: clamp keeps a NaN self where the
                 // C++ yields 0.0, and clippy's manual_clamp must not
                 // "fix" this).
                 *slot = Vector2::new(cxx_min(1.0, cxx_max(0.0, u)), cxx_min(1.0, cxx_max(0.0, v)));
             }
-            x += bx.width * scale + gutter;
+            // FMA audit (site G): Clang fuses the inner `(w * scale) +
+            // gutter` to llvm.fmuladd(w, scale, gutter), then adds the
+            // running origin separately. Transcribed explicitly.
+            x += bx.width.mul_add(scale, gutter);
         }
-        y += shelf.height * scale + gutter;
+        y += shelf.height.mul_add(scale, gutter);
     }
 }
 
@@ -599,14 +617,22 @@ impl ProgressState {
             data.thread_status[thread_index] = Some(name.to_string());
         }
         if progress > data.thread_progress[thread_index] {
-            data.progress_sum += f64::from(progress - data.thread_progress[thread_index])
-                * f64::from(data.thread_progress_weights[thread_index]);
+            // FMA audit (site B): Clang fuses to
+            // llvm.fmuladd(delta, weight, sum) (both f32 operands
+            // extended first, then one fused op). Transcribed explicitly.
+            data.progress_sum = f64::from(progress - data.thread_progress[thread_index]).mul_add(
+                f64::from(data.thread_progress_weights[thread_index]),
+                data.progress_sum,
+            );
             data.thread_progress[thread_index] = progress;
         }
 
-        let overall = f64::from(PARALLEL_PHASE_BEGIN)
-            + f64::from(PARALLEL_PHASE_END - PARALLEL_PHASE_BEGIN)
-                * cxx_min(1.0, cxx_max(0.0, data.progress_sum));
+        // FMA audit (site C): Clang fuses to
+        // llvm.fmuladd(clamped, end - begin, begin). Transcribed explicitly.
+        let overall = cxx_min(1.0, cxx_max(0.0, data.progress_sum)).mul_add(
+            f64::from(PARALLEL_PHASE_END - PARALLEL_PHASE_BEGIN),
+            f64::from(PARALLEL_PHASE_BEGIN),
+        );
 
         // Steps now report many times per island, so only wake the UI when
         // the bar would actually move or the status line would change.
@@ -1428,7 +1454,11 @@ impl AutoRemesher {
                             4.0,
                             vertex_curvature[v] / cxx_max(curvature_reference, epsilon),
                         );
-                        *slot += strength * normalized * normalized;
+                        // FMA audit (site A): Clang fuses the outer
+                        // multiply-add (IR: plain fmul, then
+                        // llvm.fmuladd(t, normalized, slot)); the first
+                        // multiply stays unfused. Transcribed explicitly.
+                        *slot = (strength * normalized).mul_add(normalized, *slot);
                     });
                     if density_usable {
                         // Fold the mask in multiplicatively: local triangle
@@ -1563,12 +1593,11 @@ impl AutoRemesher {
             capture.last_order = stage_order + fraction;
             drop(capture);
             let mut data = progress.lock_progress();
-            ProgressState::update_locked(
-                &mut data,
-                island_index,
-                begin + (end - begin) * fraction,
-                Some(name),
-            );
+            // FMA audit (site D): Clang fuses the f32 map to
+            // llvm.fmuladd(end - begin, fraction, begin). Transcribed
+            // explicitly.
+            let mapped = (end - begin).mul_add(fraction, begin);
+            ProgressState::update_locked(&mut data, island_index, mapped, Some(name));
         })
     }
 
