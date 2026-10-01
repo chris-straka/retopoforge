@@ -38,8 +38,3 @@ pub mod quad_extractor;
 pub(crate) mod par;
 // Wave 3 lane: rs-autoremesher (meshoptimizer stays C++ via build.rs FFI).
 pub mod auto_remesher;
-// Lane/par-single-island scaffolding: pre-optimization container reference
-// for the randomized old-vs-new differential test (deleted before the lane
-// lands; never compiled into the library itself).
-#[cfg(test)]
-pub(crate) mod cxx_reference;
