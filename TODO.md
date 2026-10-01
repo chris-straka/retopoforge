@@ -78,6 +78,13 @@ when comparing back ends.
       deterministic containers simplify and speed it up (re-baseline)
 - [ ] Reduce tiling chaos from decimation (meshopt collapse order flips
       under 1e-9 noise; see docs/igm-validity-spike.md)
+- [ ] Migrate meshoptimizer (the last C++ in `thirdparty/`, called via
+      `rust/core/build.rs` for weld-on-load + decimation) to Rust: a
+      decimator designed to be stable under tiny input noise (fixed
+      tie-breaks, error quantization), then a Rust weld; delete
+      `thirdparty/` and the `cc` build step. Gate: noise.py spread on
+      decimated cases shrinks, bench + contract tests green. Do after the
+      chaos item above shows the decimator is the cause.
 - [ ] Joint loops: rigforge landmarks -> guide rings via `--guides`
 - [ ] Deformation score in bench (rig + pose + joint distortion) as the
       main gate
