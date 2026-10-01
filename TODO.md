@@ -339,10 +339,15 @@ and QtAwesome deleted as dead code before the removal.
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only
       fallback.
-- [ ] Single-island parallelism (research): one island uses ~1 core;
-      top bottleneck is "merging shared five edge faces" (5.5s on
-      dragon-50k). Profile-guided; quality-gated (no --check regressions).
-      Natural post-switch Rust work (fearless concurrency).
+- [x] Single-island parallelism (research, landed 2026-10-01 on
+      lane/par-single-island): profile showed the Rust bottleneck was NOT
+      the C++ one — O(n^2) Cxx container emulation made dragon-50k take
+      >20min (99.9% of samples in insert_fresh). Fixed with O(1)
+      exact-order containers + sorted per-round fixpoint indexes +
+      scoped-thread data-parallel loops (frame field, smooth/project,
+      remap phases). Dragon-50k: >20min -> 22.3s (C++: 22.7s);
+      dragon-5k: 7.9s -> 1.8s. Bitwise-identical outputs (10 bench
+      cases), strict run-to-run determinism, bench + full cargo test green.
 - [x] beast/tiny 680-vs-779 mode split (found at switch, 2026-10-01;
       verdict MODE 2026-10-01, no code change): stage-dump bisection
       (adopted dead lane's env-gated harness) shows decimate +

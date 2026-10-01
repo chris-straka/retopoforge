@@ -5,9 +5,10 @@
 //! Line-by-line mirror of the C++ implementation: same functions in the
 //! same order, same thresholds, same solver call sequence. Deliberate
 //! restructures, each noted at the site:
-//! - the TBB data-parallel loops run sequentially (every one is a disjoint
-//!   per-element write, so the C++ is already deterministic and the op order
-//!   per element is unchanged);
+//! - the TBB data-parallel loops run over scoped threads via
+//!   [`crate::par::parallel_each`] (every one is a disjoint per-element
+//!   write, so the C++ is already deterministic and the op order per
+//!   element is unchanged);
 //! - `Guides::influenceRadius` / `Guides::tangentNear` were private
 //!   minimal mirrors while the guides lane was in flight; both are
 //!   deduped against the joined sibling port now (the dedup also fixed
@@ -40,6 +41,7 @@
 //! [`crate::double_utils::joint_sin_cos`] below.
 
 use crate::guides::Guides;
+use crate::par::parallel_each;
 use crate::surface_mesh::SurfaceMesh;
 use crate::vector3::Vector3;
 use retopo_solvers::constrained::ConstrainedLeastSquares;
@@ -47,6 +49,7 @@ use std::f64::consts::PI;
 
 const K_SYMMETRY: f64 = 4.0;
 
+#[derive(Clone, Copy)]
 struct FacetTangentBasis {
     tangent: Vector3,
     perpendicular_tangent: Vector3,
@@ -270,10 +273,18 @@ impl FrameField {
             return None;
         }
         let faces = mesh.face_count();
-        let mut facet_bases = Vec::with_capacity(faces);
-        for face_index in 0..faces {
-            facet_bases.push(create_facet_tangent_basis(mesh, face_index));
-        }
+        // Disjoint per-face writes (the C++ `tbb::parallel_for` site).
+        let mut facet_bases = vec![
+            FacetTangentBasis {
+                tangent: Vector3::default(),
+                perpendicular_tangent: Vector3::default(),
+                normal: Vector3::default(),
+            };
+            faces
+        ];
+        parallel_each(&mut facet_bases, |face_index, basis| {
+            *basis = create_facet_tangent_basis(mesh, face_index);
+        });
 
         let mut periodic = vec![0.0; 2 * faces];
         let mut certainty = vec![0.0; faces];
@@ -319,9 +330,14 @@ impl FrameField {
             accumulate_curvature_tensor(&mut vertex_tensor[tail], edge, dihedral);
         }
         let mut maximum_certainty = 0.0;
-        for face_index in 0..faces {
+        // Disjoint per-face eigensolves (the C++ `tbb::parallel_for` site):
+        // workers fill a per-face outcome each, then one serial pass
+        // applies them in face order — locked/skipped faces keep their
+        // sharp-lock values exactly as the serial loop left them.
+        let mut eig_outcomes: Vec<Option<(f64, f64, f64)>> = vec![None; faces];
+        parallel_each(&mut eig_outcomes, |face_index, outcome| {
             if locked[face_index] {
-                continue;
+                return;
             }
             let mut total = [0.0; 6];
             for corner_index in 3 * face_index..3 * face_index + 3 {
@@ -337,7 +353,7 @@ impl FrameField {
             tensor[1][1] += regularizer;
             tensor[2][2] += regularizer;
             let Some((eigenvalues, eigenvectors)) = symmetric_eigen_3x3(&tensor) else {
-                continue;
+                return;
             };
             // Stable insertion sort of the indices by |eigenvalue|,
             // descending: mirrors `std::sort` on 3 elements (insertion sort
@@ -361,9 +377,18 @@ impl FrameField {
                 K_SYMMETRY * tangent_angle(&principal_direction, &facet_bases[face_index]);
             // Fused `sincos` in C++ (cpp:223-224, reloc 0x51ac): joint call.
             let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
-            periodic[2 * face_index] = cs;
-            periodic[2 * face_index + 1] = sn;
-            certainty[face_index] = (eigenvalues[primary] - eigenvalues[secondary]).abs();
+            *outcome = Some((
+                cs,
+                sn,
+                (eigenvalues[primary] - eigenvalues[secondary]).abs(),
+            ));
+        });
+        for (face_index, outcome) in eig_outcomes.iter().enumerate() {
+            if let Some((cs, sn, face_certainty)) = outcome {
+                periodic[2 * face_index] = *cs;
+                periodic[2 * face_index + 1] = *sn;
+                certainty[face_index] = *face_certainty;
+            }
         }
         for certainty_value in &certainty {
             // Exact `std::max` semantics for the accumulator (NaN can never
@@ -436,14 +461,15 @@ impl FrameField {
             normalize_periodic(&mut periodic, faces);
         }
         let mut field = vec![Vector3::default(); faces];
-        for face_index in 0..faces {
+        // Disjoint per-face writes (the C++ `tbb::parallel_for` site).
+        parallel_each(&mut field, |face_index, slot| {
             let field_angle =
                 periodic[2 * face_index + 1].atan2(periodic[2 * face_index]) / K_SYMMETRY;
             // Fused `sincos` in C++ (cpp:294, relocs 0x7934/0x7cac): joint call.
             let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
-            field[face_index] = cs * facet_bases[face_index].tangent
+            *slot = cs * facet_bases[face_index].tangent
                 + sn * facet_bases[face_index].perpendicular_tangent;
-        }
+        });
         Some(field)
     }
 }
