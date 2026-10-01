@@ -52,20 +52,18 @@
 //! or inline. The vector-internal fusions (dot, length) are already
 //! mirrored by [`crate::vector2`]/[`crate::vector3`].
 //!
-//! Inline mirrors (NOT owned by this lane; delete when the sibling joins):
-//!
-//! - `PositionKey`: private mirror of `retopo.core.position_key`
-//!   (rs-positionkey lane, not yet joined). Same truncation, same factor,
-//!   same ordering. Used only as a `BTreeMap` key here.
-//! - `TpVector3`/`AxisAlignedBox`/`AxisAlignedBoxTree`: private mirror of
-//!   the thirdparty isotropicremesher bounding-box tree
-//!   (rs-isotropicremesher lane, not yet joined). Same `float` center
-//!   divisor, same `f32` span axis vote, same split/partition walk, same
-//!   pair-test recursion and emission order, so candidate-triangle sets
-//!   AND their order match the C++ exactly.
+//! Former inline mirrors, deduped at join: `PositionKey` was a private
+//! mirror of `retopo.core.position_key` and
+//! `TpVector3`/`AxisAlignedBox`/`AxisAlignedBoxTree` a private mirror of
+//! the thirdparty isotropicremesher bounding-box tree, both vendored while
+//! the sibling lanes ran concurrently. The port now uses the joined
+//! `crate::position_key` and `crate::iso_remesh_kernel` directly
+//! (call sites adapted to the joined owned-box API).
 
 use crate::double_utils::is_zero;
+use crate::iso_remesh_kernel::{AxisAlignedBoundingBox, AxisAlignedBoundingBoxTree};
 use crate::mesh_separator::MeshSeparator;
+use crate::position_key::PositionKey;
 use crate::progress::ProgressHandler;
 use crate::vector2::Vector2;
 use crate::vector3::Vector3;
@@ -124,406 +122,6 @@ fn fma_first(p: f64, b: f64, q: f64, d: f64) -> f64 {
 #[inline]
 fn fma_first_sub(p: f64, b: f64, q: f64, d: f64) -> f64 {
     p.mul_add(b, q * -d)
-}
-
-// ---------------------------------------------------------------------------
-// Inline mirror of retopo.core.position_key (rs-positionkey lane).
-// DELETE when the sibling joins: replace with
-// `use crate::position_key::PositionKey;`.
-// ---------------------------------------------------------------------------
-
-/// Quantized position key (mirrors `AutoRemesher::PositionKey` exactly:
-/// truncation toward zero after scaling by 100000, ordered by the integer
-/// triple only).
-///
-/// Finite-coordinate inputs only: out-of-range/NaN float-to-int casts are
-/// saturating in Rust (`as`) but undefined in C++, so the two sides can
-/// disagree there. Real meshes never carry such coordinates; the oracle
-/// keeps inputs finite.
-#[derive(Clone, Copy, Debug)]
-struct PositionKey {
-    int_x: i64,
-    int_y: i64,
-    int_z: i64,
-}
-
-impl PositionKey {
-    const TO_INT_FACTOR: f64 = 100000.0;
-
-    #[inline]
-    fn from_vector(v: &Vector3) -> Self {
-        Self::from_xyz(v.x(), v.y(), v.z())
-    }
-
-    #[inline]
-    fn from_xyz(x: f64, y: f64, z: f64) -> Self {
-        Self {
-            int_x: (x * Self::TO_INT_FACTOR) as i64,
-            int_y: (y * Self::TO_INT_FACTOR) as i64,
-            int_z: (z * Self::TO_INT_FACTOR) as i64,
-        }
-    }
-}
-
-impl PartialEq for PositionKey {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.int_x == other.int_x && self.int_y == other.int_y && self.int_z == other.int_z
-    }
-}
-
-impl Eq for PositionKey {}
-
-impl PartialOrd for PositionKey {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PositionKey {
-    #[inline]
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.int_x, self.int_y, self.int_z).cmp(&(other.int_x, other.int_y, other.int_z))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Inline mirror of the thirdparty isotropicremesher AABB tree
-// (rs-isotropicremesher lane). DELETE when the sibling joins.
-// ---------------------------------------------------------------------------
-
-/// Thirdparty `::Vector3` subset used by the box tree: plain doubles, no
-/// epsilon semantics, `operator/=(double)`.
-#[derive(Clone, Copy, Debug, Default)]
-struct TpVector3 {
-    data: [f64; 3],
-}
-
-impl TpVector3 {
-    #[inline]
-    fn new(x: f64, y: f64, z: f64) -> Self {
-        Self { data: [x, y, z] }
-    }
-
-    #[inline]
-    fn add_assign(&mut self, other: &Self) {
-        self.data[0] += other.data[0];
-        self.data[1] += other.data[1];
-        self.data[2] += other.data[2];
-    }
-
-    #[inline]
-    fn div_assign(&mut self, number: f64) {
-        self.data[0] /= number;
-        self.data[1] /= number;
-        self.data[2] /= number;
-    }
-}
-
-impl std::ops::Index<usize> for TpVector3 {
-    type Output = f64;
-    #[inline]
-    fn index(&self, index: usize) -> &f64 {
-        &self.data[index]
-    }
-}
-
-impl std::ops::IndexMut<usize> for TpVector3 {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut f64 {
-        &mut self.data[index]
-    }
-}
-
-/// Thirdparty `AxisAlignedBoudingBox` (note the upstream typo, kept in the
-/// C++ name; the Rust mirror uses the correct spelling).
-#[derive(Clone, Debug)]
-struct AxisAlignedBox {
-    min: TpVector3,
-    max: TpVector3,
-    sum: TpVector3,
-    num: usize,
-    center: TpVector3,
-}
-
-impl Default for AxisAlignedBox {
-    fn default() -> Self {
-        Self {
-            min: TpVector3::new(f64::MAX, f64::MAX, f64::MAX),
-            max: TpVector3::new(f64::MIN, f64::MIN, f64::MIN),
-            sum: TpVector3::default(),
-            num: 0,
-            center: TpVector3::default(),
-        }
-    }
-}
-
-impl AxisAlignedBox {
-    #[inline]
-    fn update(&mut self, vertex: &TpVector3) {
-        for i in 0..3 {
-            if vertex[i] > self.max[i] {
-                self.max[i] = vertex[i];
-            }
-            if vertex[i] < self.min[i] {
-                self.min[i] = vertex[i];
-            }
-            self.sum[i] += vertex[i];
-        }
-        self.num += 1;
-    }
-
-    #[inline]
-    fn update_center(&mut self) {
-        if 0 == self.num {
-            return;
-        }
-        // The divisor is `(float)m_num` converted back to double.
-        let divisor = (self.num as f32) as f64;
-        self.sum.div_assign(divisor);
-        self.center = self.sum;
-    }
-
-    #[inline]
-    fn intersect_with(&self, other: &Self) -> bool {
-        for i in 0..3 {
-            if self.min[i] <= other.max[i] && self.max[i] >= other.min[i] {
-                continue;
-            }
-            return false;
-        }
-        true
-    }
-}
-
-/// Thirdparty `AxisAlignedBoudingBoxTree` node. The C++ uses raw
-/// child pointers; the mirror owns children in boxes (same shape).
-struct BoxTreeNode {
-    bounding_box: AxisAlignedBox,
-    center: TpVector3,
-    box_indices: Vec<usize>,
-    left: Option<Box<BoxTreeNode>>,
-    right: Option<Box<BoxTreeNode>>,
-}
-
-impl BoxTreeNode {
-    #[inline]
-    fn is_leaf(&self) -> bool {
-        self.left.is_none() && self.right.is_none()
-    }
-}
-
-/// Thirdparty `AxisAlignedBoudingBoxTree`.
-struct AxisAlignedBoxTree<'a> {
-    boxes: &'a [AxisAlignedBox],
-    root: BoxTreeNode,
-    order_list: Vec<usize>,
-    spans: [(usize, f32); 3],
-}
-
-impl<'a> AxisAlignedBoxTree<'a> {
-    const LEAF_MAX_NODE_SIZE: usize = 20;
-
-    fn new(boxes: &'a [AxisAlignedBox], box_indices: &[usize], outer_box: &AxisAlignedBox) -> Self {
-        let mut root = BoxTreeNode {
-            bounding_box: outer_box.clone(),
-            center: TpVector3::default(),
-            box_indices: box_indices.to_vec(),
-            left: None,
-            right: None,
-        };
-        if !box_indices.is_empty() {
-            for box_index in box_indices {
-                root.center.add_assign(&boxes[*box_index].center);
-            }
-            // `(float)boxIndices.size()` converted back to double.
-            root.center.div_assign((box_indices.len() as f32) as f64);
-        }
-        let mut tree = Self {
-            boxes,
-            root,
-            order_list: Vec::new(),
-            spans: [(0, 0.0), (1, 0.0), (2, 0.0)],
-        };
-        // Restructure: the C++ recurses on raw pointers with `m_boxes` and
-        // scratch members on the side; the mirror threads boxes/scratch
-        // through an associated function. Same splits, same order.
-        Self::split_node(
-            &mut tree.root,
-            tree.boxes,
-            &mut tree.order_list,
-            &mut tree.spans,
-        );
-        tree
-    }
-
-    fn split_node(
-        node: &mut BoxTreeNode,
-        boxes: &[AxisAlignedBox],
-        order_list: &mut Vec<usize>,
-        spans: &mut [(usize, f32); 3],
-    ) {
-        let box_indices = node.box_indices.clone();
-        if box_indices.len() <= Self::LEAF_MAX_NODE_SIZE {
-            return;
-        }
-        let lower = node.bounding_box.min;
-        let upper = node.bounding_box.max;
-        for (i, span) in spans.iter_mut().enumerate() {
-            // Narrowed to `float` exactly like the C++ pair vector.
-            *span = (i, (upper[i] - lower[i]) as f32);
-        }
-        // `std::max_element` with `<`: the FIRST maximum.
-        let mut longest_axis = 0;
-        for candidate in 1..3 {
-            if spans[longest_axis].1 < spans[candidate].1 {
-                longest_axis = candidate;
-            }
-        }
-        let split_point = node.center[longest_axis];
-        order_list.resize(box_indices.len() + box_indices.len() + 2, 0);
-        let mut left_offset = box_indices.len();
-        let mut right_offset = box_indices.len() - 1;
-        let mut left_count = 0;
-        let mut right_count = 0;
-        for box_index in &box_indices {
-            let center = boxes[*box_index].center[longest_axis];
-            if center < split_point {
-                left_offset -= 1;
-                order_list[left_offset] = *box_index;
-                left_count += 1;
-            } else {
-                right_offset += 1;
-                order_list[right_offset] = *box_index;
-                right_count += 1;
-            }
-        }
-
-        if 0 == left_count {
-            left_count = right_count / 2;
-            // Dead in the C++ too (`rightCount` is never read after this);
-            // kept as a line-by-line mirror.
-            #[allow(unused_assignments)]
-            {
-                right_count -= left_count;
-            }
-            left_offset = right_offset - box_indices.len() + 1;
-        } else if 0 == right_count {
-            right_count = left_count / 2;
-            left_count -= right_count;
-            right_offset = left_offset + box_indices.len() - 1;
-        }
-
-        let middle = left_offset + left_count - 1;
-
-        let mut left = BoxTreeNode {
-            bounding_box: AxisAlignedBox::default(),
-            center: TpVector3::default(),
-            box_indices: Vec::new(),
-            left: None,
-            right: None,
-        };
-        for &box_index in &order_list[left_offset..=middle] {
-            let bbox = &boxes[box_index];
-            left.bounding_box.update(&bbox.min);
-            left.bounding_box.update(&bbox.max);
-            left.box_indices.push(box_index);
-            left.center.add_assign(&bbox.center);
-        }
-
-        let mut right = BoxTreeNode {
-            bounding_box: AxisAlignedBox::default(),
-            center: TpVector3::default(),
-            box_indices: Vec::new(),
-            left: None,
-            right: None,
-        };
-        for &box_index in &order_list[middle + 1..=right_offset] {
-            let bbox = &boxes[box_index];
-            right.bounding_box.update(&bbox.min);
-            right.bounding_box.update(&bbox.max);
-            right.box_indices.push(box_index);
-            right.center.add_assign(&bbox.center);
-        }
-
-        left.center
-            .div_assign((left.box_indices.len() as f32) as f64);
-        Self::split_node(&mut left, boxes, order_list, spans);
-
-        right
-            .center
-            .div_assign((right.box_indices.len() as f32) as f64);
-        Self::split_node(&mut right, boxes, order_list, spans);
-
-        node.left = Some(Box::new(left));
-        node.right = Some(Box::new(right));
-    }
-
-    fn test_nodes(
-        first: &BoxTreeNode,
-        first_boxes: &[AxisAlignedBox],
-        second: &BoxTreeNode,
-        second_boxes: &[AxisAlignedBox],
-        pairs: &mut Vec<(usize, usize)>,
-    ) {
-        if first.bounding_box.intersect_with(&second.bounding_box) {
-            if first.is_leaf() {
-                if second.is_leaf() {
-                    for a in &first.box_indices {
-                        for b in &second.box_indices {
-                            if first_boxes[*a].intersect_with(&second_boxes[*b]) {
-                                pairs.push((*a, *b));
-                            }
-                        }
-                    }
-                } else {
-                    // Invariant: a non-leaf always has both children (built
-                    // together in split_node); degrade gracefully.
-                    let (Some(second_left), Some(second_right)) =
-                        (second.left.as_ref(), second.right.as_ref())
-                    else {
-                        return;
-                    };
-                    Self::test_nodes(first, first_boxes, second_left, second_boxes, pairs);
-                    Self::test_nodes(first, first_boxes, second_right, second_boxes, pairs);
-                }
-            } else if second.is_leaf() {
-                let (Some(first_left), Some(first_right)) =
-                    (first.left.as_ref(), first.right.as_ref())
-                else {
-                    return;
-                };
-                Self::test_nodes(first_left, first_boxes, second, second_boxes, pairs);
-                Self::test_nodes(first_right, first_boxes, second, second_boxes, pairs);
-            } else if first.box_indices.len() < second.box_indices.len() {
-                let (Some(second_left), Some(second_right)) =
-                    (second.left.as_ref(), second.right.as_ref())
-                else {
-                    return;
-                };
-                Self::test_nodes(first, first_boxes, second_left, second_boxes, pairs);
-                Self::test_nodes(first, first_boxes, second_right, second_boxes, pairs);
-            } else {
-                let (Some(first_left), Some(first_right)) =
-                    (first.left.as_ref(), first.right.as_ref())
-                else {
-                    return;
-                };
-                Self::test_nodes(first_left, first_boxes, second, second_boxes, pairs);
-                Self::test_nodes(first_right, first_boxes, second, second_boxes, pairs);
-            }
-        }
-    }
-
-    fn test(
-        &self,
-        second: &Self,
-        second_boxes: &[AxisAlignedBox],
-        pairs: &mut Vec<(usize, usize)>,
-    ) {
-        Self::test_nodes(&self.root, self.boxes, &second.root, second_boxes, pairs);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3157,24 +2755,19 @@ impl<'a> QuadExtractor<'a> {
             }
         }
 
-        let mut target_vertices = Vec::with_capacity(self.vertices.len());
-        for it in self.vertices {
-            target_vertices.push(TpVector3::new(it.x(), it.y(), it.z()));
-        }
-
-        let mut triangle_boxes = vec![AxisAlignedBox::default(); self.triangles.len()];
+        let mut triangle_boxes = vec![AxisAlignedBoundingBox::default(); self.triangles.len()];
         let mut triangle_indices = vec![0; self.triangles.len()];
-        let mut group_box = AxisAlignedBox::default();
+        let mut group_box = AxisAlignedBoundingBox::default();
         for (i, triangle) in self.triangles.iter().enumerate() {
             for k in 0..3 {
-                triangle_boxes[i].update(&target_vertices[triangle[k]]);
-                group_box.update(&target_vertices[triangle[k]]);
+                triangle_boxes[i].update(&self.vertices[triangle[k]]);
+                group_box.update(&self.vertices[triangle[k]]);
             }
             triangle_boxes[i].update_center();
             triangle_indices[i] = i;
         }
         group_box.update_center();
-        let tree = AxisAlignedBoxTree::new(&triangle_boxes, &triangle_indices, &group_box);
+        let tree = AxisAlignedBoundingBoxTree::new(triangle_boxes, triangle_indices, group_box);
 
         // Average quad edge length drives the initial search radius
         let mut total_edge_length = 0.0;
@@ -3236,27 +2829,28 @@ impl<'a> QuadExtractor<'a> {
     fn project_to_target_mesh(
         vertices: &[Vector3],
         triangles: &[Vec<usize>],
-        tree: &AxisAlignedBoxTree,
+        tree: &AxisAlignedBoundingBoxTree,
         average_edge_length: f64,
         position: Vector3,
     ) -> Option<Vector3> {
         let mut radius = average_edge_length;
         while radius <= average_edge_length * 8.0 {
-            let mut query_boxes = vec![AxisAlignedBox::default()];
-            query_boxes[0].update(&TpVector3::new(
+            let mut query_boxes = vec![AxisAlignedBoundingBox::default()];
+            query_boxes[0].update(&Vector3::new(
                 position.x() - radius,
                 position.y() - radius,
                 position.z() - radius,
             ));
-            query_boxes[0].update(&TpVector3::new(
+            query_boxes[0].update(&Vector3::new(
                 position.x() + radius,
                 position.y() + radius,
                 position.z() + radius,
             ));
             query_boxes[0].update_center();
-            let query_tree = AxisAlignedBoxTree::new(&query_boxes, &[0], &query_boxes[0]);
+            let outer = query_boxes[0].clone();
+            let query_tree = AxisAlignedBoundingBoxTree::new(query_boxes, vec![0], outer);
             let mut pairs = Vec::new();
-            tree.test(&query_tree, &query_boxes, &mut pairs);
+            tree.test(tree.root(), &query_tree, query_tree.root(), &mut pairs);
             let mut min_distance2 = f64::MAX;
             let mut projected = None;
             for (key, _) in &pairs {
@@ -3294,24 +2888,19 @@ impl<'a> QuadExtractor<'a> {
         // smoothAndProject: output vertices lie on the source surface, so
         // an expanding-radius query finds the home triangle in a few
         // probes.
-        let mut target_vertices = Vec::with_capacity(self.vertices.len());
-        for it in self.vertices {
-            target_vertices.push(TpVector3::new(it.x(), it.y(), it.z()));
-        }
-
-        let mut triangle_boxes = vec![AxisAlignedBox::default(); self.triangles.len()];
+        let mut triangle_boxes = vec![AxisAlignedBoundingBox::default(); self.triangles.len()];
         let mut triangle_indices = vec![0; self.triangles.len()];
-        let mut group_box = AxisAlignedBox::default();
+        let mut group_box = AxisAlignedBoundingBox::default();
         for (i, triangle) in self.triangles.iter().enumerate() {
             for k in 0..3 {
-                triangle_boxes[i].update(&target_vertices[triangle[k]]);
-                group_box.update(&target_vertices[triangle[k]]);
+                triangle_boxes[i].update(&self.vertices[triangle[k]]);
+                group_box.update(&self.vertices[triangle[k]]);
             }
             triangle_boxes[i].update_center();
             triangle_indices[i] = i;
         }
         group_box.update_center();
-        let tree = AxisAlignedBoxTree::new(&triangle_boxes, &triangle_indices, &group_box);
+        let tree = AxisAlignedBoundingBoxTree::new(triangle_boxes, triangle_indices, group_box);
 
         let mut total_edge_length = 0.0;
         let mut edge_num = 0;
@@ -3451,7 +3040,7 @@ impl<'a> QuadExtractor<'a> {
     fn find_home_triangle(
         vertices: &[Vector3],
         triangles: &[Vec<usize>],
-        tree: &AxisAlignedBoxTree,
+        tree: &AxisAlignedBoundingBoxTree,
         average_edge_length: f64,
         position: Vector3,
         projected: &mut Vector3,
@@ -3459,21 +3048,22 @@ impl<'a> QuadExtractor<'a> {
         let mut home = 0;
         let mut radius = average_edge_length;
         while radius <= average_edge_length * 8.0 {
-            let mut query_boxes = vec![AxisAlignedBox::default()];
-            query_boxes[0].update(&TpVector3::new(
+            let mut query_boxes = vec![AxisAlignedBoundingBox::default()];
+            query_boxes[0].update(&Vector3::new(
                 position.x() - radius,
                 position.y() - radius,
                 position.z() - radius,
             ));
-            query_boxes[0].update(&TpVector3::new(
+            query_boxes[0].update(&Vector3::new(
                 position.x() + radius,
                 position.y() + radius,
                 position.z() + radius,
             ));
             query_boxes[0].update_center();
-            let query_tree = AxisAlignedBoxTree::new(&query_boxes, &[0], &query_boxes[0]);
+            let outer = query_boxes[0].clone();
+            let query_tree = AxisAlignedBoundingBoxTree::new(query_boxes, vec![0], outer);
             let mut pairs = Vec::new();
-            tree.test(&query_tree, &query_boxes, &mut pairs);
+            tree.test(tree.root(), &query_tree, query_tree.root(), &mut pairs);
             let mut min_distance2 = f64::MAX;
             for (key, _) in &pairs {
                 let triangle = &triangles[*key];
