@@ -263,10 +263,15 @@ fn normalize_argv0(line: &str) -> String {
 // (project stderr-gap memo: quad/frame/parameterizer/engine precedent,
 // decided before this lane; restoration would need engine API the CLI
 // cannot see, so this lane specs the new output story instead).
-// Two classes are path-dependent counts rather than omitted prints
-// (merge-five-faces, split-seven-faces): the Rust port keeps the print
-// behind identical gates but systematically counts 0 — same spec, cited
-// mechanism, engine-lane follow-up flagged in the lane report:
+// One class is a path-dependent count rather than an omitted print
+// (split-seven-faces): the Rust port keeps the print behind the same
+// count>0 + handler gates but counts 0 where C++ splits (5/0,
+// preventive; split-seven gates verified identical, so this one is
+// genuinely state-driven — engine-lane follow-up stays open).
+// Merge-five-faces was allowlisted the same way until the parked-
+// handler bug was found and fixed (lane/merge-five): the Rust merge
+// always ran — only its print was gated on the parked handler — so
+// the line now matches like any other diagnostic:
 // - the engine's bare phase-report dump (the CLI's indented copy keeps
 //   the same content; the C++ binary prints both, the duplication is
 //   dropped, not the information),
@@ -280,18 +285,14 @@ fn dropped_diagnostic_class(line: &str) -> Option<&'static str> {
     if line.starts_with("Simplified cross field singularities: ") {
         return Some("simplified-singularities");
     }
-    // Path-dependent extractor counts (spec, not silence — see the audit
-    // header): the Rust port keeps these prints behind the same
-    // count>0 + handler gates, but its extraction path systematically
-    // yields 0 where C++ merges/splits (demonstrated: byte-identical
-    // twocubes mesh, C++ Merge-five universal 30/30 with counts
-    // deterministic per mesh, Rust 0/777 runs; Split-seven 5/0, same
-    // code pattern, preventive). Meshes still match; the divergence is
-    // engine-path forensics, flagged for the engine lanes. Recorded per
-    // case via the drop: note, never asserted.
-    if line.starts_with("Merge shared five edge faces:") {
-        return Some("merge-five-faces");
-    }
+    // Path-dependent extractor count (spec, not silence — see the audit
+    // header): Split-seven stays allowlisted (C++ splits where Rust
+    // counts 0, 5/0 preventive; gates verified identical, genuinely
+    // state-driven — engine-lane follow-up stays open). Merge-five is
+    // NOT dropped: both sides print it behind the same gates since the
+    // parked-handler fix, so it matches 1:1 (or via the census/robust
+    // tiers when counts are mode-sensitive). Recorded per case via the
+    // drop: note, never asserted.
     if line.starts_with("Split seven edge faces:") {
         return Some("split-seven-faces");
     }
