@@ -33,6 +33,11 @@
 //! fusions sit inside Eigen's eigensolver internals, which the Jacobi
 //! restructure replaces algorithmically (nothing to fuse against); the
 //! oracle's 1e-6 tolerance covers its backend-class noise.
+//!
+//! Sincos audit (Release machine code, `___sincos_stret` relocs): all six
+//! adjacent `cos`/`sin` pairs fuse (cpp:111-112, 145-146, 175-176 unrolled
+//! x3, 223-224, 261, 294 unrolled x2), each mirrored with
+//! [`crate::double_utils::joint_sin_cos`] below.
 
 use crate::guides::Guides;
 use crate::surface_mesh::SurfaceMesh;
@@ -192,8 +197,10 @@ fn lock_guide_faces(
             continue;
         }
         let field_angle = K_SYMMETRY * tangent_angle(&tangent, &facet_bases[face_index]);
-        periodic[2 * face_index] = field_angle.cos();
-        periodic[2 * face_index + 1] = field_angle.sin();
+        // Fused `sincos` in C++ (cpp:111-112, reloc 0x688): joint call.
+        let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
+        periodic[2 * face_index] = cs;
+        periodic[2 * face_index + 1] = sn;
         locked[face_index] = true;
     }
 }
@@ -225,8 +232,10 @@ fn lock_sharp_faces(
             continue;
         }
         let field_angle = K_SYMMETRY * tangent_angle(&tangent, &facet_bases[face_index]);
-        periodic[2 * face_index] = field_angle.cos();
-        periodic[2 * face_index + 1] = field_angle.sin();
+        // Fused `sincos` in C++ (cpp:145-146, reloc 0x510): joint call.
+        let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
+        periodic[2 * face_index] = cs;
+        periodic[2 * face_index + 1] = sn;
         locked[face_index] = true;
     }
 }
@@ -280,8 +289,10 @@ impl FrameField {
                 }
                 let field_angle = K_SYMMETRY
                     * tangent_angle(&mesh.edge_vector(corner_index), &facet_bases[face_index]);
-                periodic[2 * face_index] = field_angle.cos();
-                periodic[2 * face_index + 1] = field_angle.sin();
+                // Fused `sincos` in C++ (cpp:175-176, relocs 0x21c/0x2c8/0x35c): joint call.
+                let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
+                periodic[2 * face_index] = cs;
+                periodic[2 * face_index + 1] = sn;
                 locked[face_index] = true;
             }
         }
@@ -348,8 +359,10 @@ impl FrameField {
             );
             let field_angle =
                 K_SYMMETRY * tangent_angle(&principal_direction, &facet_bases[face_index]);
-            periodic[2 * face_index] = field_angle.cos();
-            periodic[2 * face_index + 1] = field_angle.sin();
+            // Fused `sincos` in C++ (cpp:223-224, reloc 0x51ac): joint call.
+            let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
+            periodic[2 * face_index] = cs;
+            periodic[2 * face_index + 1] = sn;
             certainty[face_index] = (eigenvalues[primary] - eigenvalues[secondary]).abs();
         }
         for certainty_value in &certainty {
@@ -387,8 +400,8 @@ impl FrameField {
             let edge = mesh.edge_vector(c);
             let transport = -K_SYMMETRY
                 * (tangent_angle(&edge, &facet_bases[g]) - tangent_angle(&edge, &facet_bases[f]));
-            let co = transport.cos();
-            let si = transport.sin();
+            // Fused `sincos` in C++ (cpp:261, reloc 0xc44): joint call.
+            let (si, co) = crate::double_utils::joint_sin_cos(transport);
             system.add_energy(&[(2 * f, co), (2 * f + 1, si), (2 * g, -1.0)], 0.0, 1.0);
             system.add_energy(
                 &[(2 * f, -si), (2 * f + 1, co), (2 * g + 1, -1.0)],
@@ -426,8 +439,10 @@ impl FrameField {
         for face_index in 0..faces {
             let field_angle =
                 periodic[2 * face_index + 1].atan2(periodic[2 * face_index]) / K_SYMMETRY;
-            field[face_index] = field_angle.cos() * facet_bases[face_index].tangent
-                + field_angle.sin() * facet_bases[face_index].perpendicular_tangent;
+            // Fused `sincos` in C++ (cpp:294, relocs 0x7934/0x7cac): joint call.
+            let (sn, cs) = crate::double_utils::joint_sin_cos(field_angle);
+            field[face_index] = cs * facet_bases[face_index].tangent
+                + sn * facet_bases[face_index].perpendicular_tangent;
         }
         Some(field)
     }
