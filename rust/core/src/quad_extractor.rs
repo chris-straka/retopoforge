@@ -737,6 +737,9 @@ impl<'a> QuadExtractor<'a> {
             for (node, neighbors) in &edge_connect_map {
                 eprintln!("TRACE   {node}: {neighbors:?}");
             }
+            for (i, v) in cross_points.iter().enumerate() {
+                eprintln!("TRACE   xp{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
+            }
         }
 
         self.diagnose(|| "Extract edges done\n".to_string());
@@ -840,6 +843,8 @@ impl<'a> QuadExtractor<'a> {
         } else {
             self.merge_shared_five_edge_faces(None);
         }
+        // TEMP-TRACE2 (remove before finish).
+        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "merge_five");
         // Runs last, it only reconnects quad pairs, so it wants the
         // triangles and pentagons to have become quads already
         self.report(0.85, "Switching high valence edges");
