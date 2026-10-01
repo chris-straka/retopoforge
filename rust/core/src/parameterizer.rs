@@ -669,10 +669,7 @@ impl<'a> Parameterizer<'a> {
         let remap: Option<ProgressHandler> = self.progress_handler.clone().map(|shared| {
             Box::new(move |fraction: f32, name: &str| {
                 // FMA audit: the C++ fuses this into one f32 fmuladd.
-                shared(
-                    (0.99f32 - 0.28f32).mul_add(fraction, 0.28f32),
-                    name,
-                );
+                shared((0.99f32 - 0.28f32).mul_add(fraction, 0.28f32), name);
             }) as ProgressHandler
         });
         let sharps_arg: Option<&[Vec<Vector3>]> = if snapped_sharps.is_empty() {
@@ -997,9 +994,9 @@ mod vendored_singularity {
                         continue;
                     }
                     let g = self.mesh.corner_face(other);
-                    let turns =
-                        ((self.angles[g] - (self.angles[f] + self.connection[c])) / (PI / 2.0))
-                            .round() as i32;
+                    let turns = ((self.angles[g] - (self.angles[f] + self.connection[c]))
+                        / (PI / 2.0))
+                        .round() as i32;
                     self.mismatch[c] = ((turns % 4) + 4) % 4;
                     self.mismatch[other] = (4 - self.mismatch[c]) % 4;
                 }
@@ -1206,7 +1203,8 @@ mod vendored_singularity {
                     if other == SurfaceMesh::NPOS {
                         continue;
                     }
-                    jump[c] = ((self.angles[self.mesh.corner_face(other)] - self.angles[f]
+                    jump[c] = ((self.angles[self.mesh.corner_face(other)]
+                        - self.angles[f]
                         - self.connection[c])
                         / (PI / 2.0))
                         .round() as i32;
@@ -1253,7 +1251,11 @@ mod vendored_singularity {
                         // `f64::max` would drop NaN instead, so mirror the
                         // comparison explicitly.
                         let delta = (value - self.angles[f]).abs();
-                        max_change = if max_change < delta { delta } else { max_change };
+                        max_change = if max_change < delta {
+                            delta
+                        } else {
+                            max_change
+                        };
                         self.angles[f] = value;
                     }
                 }
@@ -1364,7 +1366,9 @@ mod vendored_singularity {
                 let mut used = vec![false; singular.len()];
                 let mut cancelled = 0usize;
                 for c in &candidates {
-                    if !used[c.a] && !used[c.b] && self.cancel_pair(singular[c.a], singular[c.b], c.hops)
+                    if !used[c.a]
+                        && !used[c.b]
+                        && self.cancel_pair(singular[c.a], singular[c.b], c.hops)
                     {
                         used[c.a] = true;
                         used[c.b] = true;

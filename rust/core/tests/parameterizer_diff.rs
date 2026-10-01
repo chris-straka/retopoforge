@@ -345,12 +345,11 @@ fn differential_replay() {
         }
         // Mirror the dump's setter/nullptr rules exactly (id parity picks
         // the sharp alias, exercising both Rust setters).
-        let sharps_arg: Option<&[Vec<Vector3>]> =
-            if sharps.is_empty() && id % 3 != 0 {
-                None
-            } else {
-                Some(&sharps)
-            };
+        let sharps_arg: Option<&[Vec<Vector3>]> = if sharps.is_empty() && id % 3 != 0 {
+            None
+        } else {
+            Some(&sharps)
+        };
         if id % 2 == 0 {
             parameterizer.set_feature_polylines(sharps_arg);
         } else {
@@ -449,12 +448,8 @@ fn differential_replay() {
                     break;
                 }
                 for (l, (o, t)) in o_tri.iter().zip(t_tri.iter()).enumerate() {
-                    if o.x().to_bits() != t.x().to_bits()
-                        || o.y().to_bits() != t.y().to_bits()
-                    {
-                        mismatches.push(format!(
-                            "{case}: original[{f}][{l}] != taken (bitwise)"
-                        ));
+                    if o.x().to_bits() != t.x().to_bits() || o.y().to_bits() != t.y().to_bits() {
+                        mismatches.push(format!("{case}: original[{f}][{l}] != taken (bitwise)"));
                         break;
                     }
                 }
