@@ -238,6 +238,12 @@ set_tests_properties(test_pole_manifold PROPERTIES TIMEOUT 600)
 add_executable(density_diff_dump density_diff_dump.cpp)
 set_target_properties(density_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(density_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the guides Rust port (rs-guides lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/guides_diff.txt for rust/core/tests/guides_diff.rs.
+add_executable(guides_diff_dump guides_diff_dump.cpp)
+set_target_properties(guides_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(guides_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.

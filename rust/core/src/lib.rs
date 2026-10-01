@@ -22,3 +22,5 @@ pub mod density;
 pub mod symmetry;
 // Wave 2 lane: quad parameterizer (+ private SurfaceMesh/Guides mirrors).
 pub mod quad_parameterizer;
+// Wave 3 lane: rs-guides.
+pub mod guides;
