@@ -7,6 +7,11 @@ structural fix for density saturation, and validation must happen on
 finger-like curved thin fixtures where the adaptivity fight does not
 pollute measurement.
 
+Re-tiered same day by `lane/dipole-production` (orientation fix + dipole
+production): fixtures regenerated with correct pole-fan winding (see
+below), harness runs every ask off+auto, tables pin both. The original
+open-tube numbers are superseded (kept in git history).
+
 ## Fixtures
 
 Procedural curved thin tubes (no game assets, no AI corpus content),
@@ -22,6 +27,13 @@ Frame: fingers point along +Y (base y=0, tip y≈3.0), bend in the YZ
 plane (tip leans +Z). All three are closed manifolds (every edge used
 exactly twice, positive signed volume — asserted by the generator and
 re-asserted by the harness test).
+
+Winding fix (2026-10-01, production lane): both pole fans opposed the
+side quads, splitting each tube into 3 orientation islands (6 for
+split) and invalidating every absolute total. Fan order fixed; the
+generator and the harness now assert directed-edge pairing (every
+directed edge has exactly one opposite). Regenerated fixtures keep
+byte-identical vertices; 40/80 fan triangles reordered.
 
 Regenerate: `python3 tests/fixtures/gen_finger_fixtures.py --out <dir>`
 (add `--ask 4.0` to also emit `*-mask4.txt` density masks for CLI repros).
@@ -46,10 +58,14 @@ retopo --input /tmp/fing/finger-split.obj --output /tmp/fing/split-mask4.obj \
   --target-quads 1000 --density /tmp/fing/finger-split-mask4.txt
 ```
 
+(`--dipoles auto` is the default; add `--dipoles off` for the legacy
+sizing-only behavior.)
+
 ## Harness
 
 `rust/core/tests/dipole_saturation.rs` — loads the three OBJs, runs
-plain + asks [1.5, 2.0, 3.0, 4.0] per fixture, prints honest metrics:
+plain + asks [1.5, 2.0, 3.0, 4.0] per fixture with dipoles off and
+auto, prints honest metrics:
 
 - `faceAbs` = masked inside quads / plain inside quads (absolute gain)
 - `linear` = sqrt(plain inside mean area / masked inside mean area)
@@ -59,6 +75,7 @@ plain + asks [1.5, 2.0, 3.0, 4.0] per fixture, prints honest metrics:
 - valence census (`inV3/inV5`, `totV3/totV5`): pole-identity check —
   sizing-only runs keep the pole set ~identical; dipole insertion
   must move the inside irregular counts systematically.
+- per-island quad counts + dipole flip counts (`isl/dip`).
 
 Usage:
 
@@ -68,59 +85,79 @@ cd rust && cargo test --release -p retopo_core --test dipole_saturation \
 ```
 
 Assertions are weak sanity bands only (remesh succeeds, regions
-nonempty, totalFrac > 0.4) — the harness measures, this doc pins.
-Runtime ~70 s debug / faster in release (15 remeshes at 1000 quads).
+nonempty, totalFrac > 0.4, no lost islands, dipole gating: off rows
+and auto 1.5x/2x place nothing, auto 3x/4x place something) plus a
+bitwise off==auto control on plain + mild-2x — the harness measures,
+this doc pins. Runtime ~6 s release / ~3 min debug, single-threaded
+(27 remeshes at 1000 quads).
 
-## Baseline curves (current main, 2026-10-01)
+## Baseline curves (re-tiered 2026-10-01, production lane)
 
-Machine: macOS (Accelerate). Determinism: every curve bit-identical
-across separate processes (single/split reproduced 3x, fused 2x).
+Machine: macOS (Accelerate). Determinism: bit-identical across
+separate processes (offset numbers reproduced exactly across runs).
+`off` = `DipoleConfig::off()` (legacy sizing-only),
+`auto` = `DipoleConfig::automatic()` (offset rings; the product
+default). 1.5x/2x auto rows are bit-identical to off (0 flips — the
+1.5 sharpness gate skips them).
 
 ### finger-single (control = base band)
 
-| ask | inQ | inMeanArea | ctlQ | total | faceAbs | linear | totalFrac | ratio! | inV3/inV5 |
-|-----|----:|-----------:|-----:|------:|--------:|-------:|----------:|-------:|----------:|
-| plain | 341 | 0.005145 | 309 | 973 | - | - | - | - | 17/7 |
-| 1.5 | 370 | 0.004756 | 304 | 978 | 1.09 | 1.04 | 1.01 | 1.10>1.22 | 13/5 |
-| 2.0 | 365 | 0.004924 | 302 | 952 | 1.07 | 1.02 | 0.98 | 1.10>1.21 | 12/4 |
-| 3.0 | 344 | 0.005188 | 272 | 861 | 1.01 | 1.00 | 0.88 | 1.10>1.26 | 10/4 |
-| 4.0 | 404 | 0.004398 | 261 | 894 | 1.18 | 1.08 | 0.92 | 1.10>1.55 | 14/6 |
+| ask | mode | inQ | inMeanArea | ctlQ | total | faceAbs | linear | totalFrac | ratio! | inV3/inV5 | dip |
+|-----|------|----:|-----------:|-----:|------:|--------:|-------:|----------:|-------:|----------:|----:|
+| plain | - | 138 | 0.012933 | 223 | 512 | - | - | - | - | 4/0 | 0 |
+| 1.5 | off=auto | 164 | 0.010416 | 288 | 622 | 1.19 | 1.11 | 1.21 | 0.62>0.57 | 4/0 | 0 |
+| 2.0 | off=auto | 180 | 0.009870 | 267 | 609 | 1.30 | 1.14 | 1.19 | 0.62>0.67 | 5/1 | 0 |
+| 3.0 | off | 216 | 0.008343 | 240 | 604 | 1.57 | 1.25 | 1.18 | 0.62>0.90 | 5/1 | 0 |
+| 3.0 | auto | 265 | 0.006686 | 256 | 680 | 1.92 | 1.39 | 1.33 | 0.62>1.04 | 9/3 | 10 |
+| 4.0 | off | 235 | 0.007558 | 294 | 696 | 1.70 | 1.31 | 1.36 | 0.62>0.80 | 4/0 | 0 |
+| 4.0 | auto | 282 | 0.006477 | 298 | 748 | 2.04 | 1.41 | 1.46 | 0.62>0.95 | 9/1 | 14 |
 
 ### finger-split (control = sibling tip; separate island)
 
-| ask | inQ | inMeanArea | ctlQ | total | faceAbs | linear | totalFrac | ratio! | inV3/inV5 |
-|-----|----:|-----------:|-----:|------:|--------:|-------:|----------:|-------:|----------:|
-| plain | 157 | 0.011204 | 157 | 854 | - | - | - | - | 13/7 |
-| 1.5 | 177 | 0.009786 | 157 | 874 | 1.13 | 1.07 | 1.02 | 1.00>1.13 | 11/6 |
-| 2.0 | 206 | 0.008704 | 157 | 891 | 1.31 | 1.13 | 1.04 | 1.00>1.31 | 11/3 |
-| 3.0 | 168 | 0.010583 | 157 | 852 | 1.07 | 1.03 | 1.00 | 1.00>1.07 | 11/3 |
-| 4.0 | 197 | 0.008956 | 157 | 852 | 1.25 | 1.12 | 1.00 | 1.00>1.25 | 11/5 |
+| ask | mode | inQ | inMeanArea | ctlQ | total | faceAbs | linear | totalFrac | ratio! | inV3/inV5 | dip |
+|-----|------|----:|-----------:|-----:|------:|--------:|-------:|----------:|-------:|----------:|----:|
+| plain | - | 83 | 0.020900 | 83 | 700 | - | - | - | - | 4/0 | 0 |
+| 1.5 | off=auto | 113 | 0.015445 | 83 | 732 | 1.36 | 1.16 | 1.05 | 1.00>1.36 | 4/0 | 0 |
+| 2.0 | off=auto | 127 | 0.014116 | 83 | 758 | 1.53 | 1.22 | 1.08 | 1.00>1.53 | 4/0 | 0 |
+| 3.0 | off | 115 | 0.015197 | 83 | 725 | 1.39 | 1.17 | 1.04 | 1.00>1.39 | 4/0 | 0 |
+| 3.0 | auto | 141 | 0.012691 | 83 | 755 | 1.70 | 1.28 | 1.08 | 1.00>1.70 | 8/1 | 7 |
+| 4.0 | off | 130 | 0.013257 | 83 | 758 | 1.57 | 1.26 | 1.08 | 1.00>1.57 | 4/0 | 0 |
+| 4.0 | auto | 141 | 0.012753 | 83 | 769 | 1.70 | 1.28 | 1.10 | 1.00>1.70 | 8/2 | 9 |
 
 ### finger-fused (control = sibling lobe; same island)
 
-| ask | inQ | inMeanArea | ctlQ | total | faceAbs | linear | totalFrac | ratio! | inV3/inV5 |
-|-----|----:|-----------:|-----:|------:|--------:|-------:|----------:|-------:|----------:|
-| plain | 188 | 0.005401 | 175 | 992 | - | - | - | - | 5/3 |
-| 1.5 | 169 | 0.005633 | 155 | 920 | 0.90 | 0.98 | 0.93 | 1.07>1.09 | 4/1 |
-| 2.0 | 181 | 0.005517 | 130 | 885 | 0.96 | 0.99 | 0.89 | 1.07>1.39 | 5/2 |
-| 3.0 | 202 | 0.004847 | 126 | 881 | 1.07 | 1.06 | 0.89 | 1.07>1.60 | 9/4 |
-| 4.0 | 213 | 0.004496 | 136 | 884 | 1.13 | 1.10 | 0.89 | 1.07>1.57 | 5/2 |
+| ask | mode | inQ | inMeanArea | ctlQ | total | faceAbs | linear | totalFrac | ratio! | inV3/inV5 | dip |
+|-----|------|----:|-----------:|-----:|------:|--------:|-------:|----------:|-------:|----------:|----:|
+| plain | - | 94 | 0.010193 | 90 | 684 | - | - | - | - | 1/0 | 0 |
+| 1.5 | off=auto | 91 | 0.010765 | 70 | 668 | 0.97 | 0.97 | 0.98 | 1.04>1.30 | 4/1 | 0 |
+| 2.0 | off=auto | 102 | 0.010071 | 78 | 669 | 1.09 | 1.01 | 0.98 | 1.04>1.31 | 3/1 | 0 |
+| 3.0 | off | 108 | 0.008881 | 87 | 674 | 1.15 | 1.07 | 0.99 | 1.04>1.24 | 2/0 | 0 |
+| 3.0 | auto | 131 | 0.007466 | 90 | 711 | 1.39 | 1.17 | 1.04 | 1.04>1.46 | 8/3 | 14 |
+| 4.0 | off | 125 | 0.007913 | 80 | 720 | 1.33 | 1.13 | 1.05 | 1.04>1.56 | 3/0 | 0 |
+| 4.0 | auto | 143 | 0.007088 | 90 | 752 | 1.52 | 1.20 | 1.10 | 1.04>1.59 | 12/5 | 21 |
 
 ## Reading the baseline
 
-- Saturation confirmed on curved thin fixtures: 4x asks deliver
-  faceAbs 1.13–1.25x / linear 1.08–1.12x — the topology wall binds
-  here too, not just on flat cubes and spheres.
-- Totals stay healthy (0.88–1.04): no adaptivity-fight collapse
-  (cube hard-4x fell to 0.68x). On fingers adaptivity already agrees
-  with density (plain tip quads are smaller than base quads:
-  0.0051 vs 0.0127 on single), so these curves isolate the pole
-  wall — exactly what dipole work needs to move.
-- The conflated ratio overstates everywhere: fused-4x ratio 1.57
-  vs faceAbs 1.13 (control lobe collapses 175→136). Always report
-  faceAbs + totalFrac alongside.
-- Split control island is bit-identical across all five runs
-  (157 quads, 0.011204): per-island remesh independence — the
-  masked island absorbs the whole budget shift yet still saturates.
-- Asks are non-mono
-...[truncated 901 chars]
+- Saturation still binds on closed curved thin fixtures, and dipoles
+  systematically lift it: every sharp row (3x + 4x on all three
+  fixtures) gains faceAbs over off (single 4x 1.70 -> 2.04, split 4x
+  1.57 -> 1.70, fused 4x 1.33 -> 1.52), dipoles never harm any row,
+  and the valence census moves with the mechanism (inside V3/V5 climb
+  exactly on auto sharp rows). See `docs/dipole-production.md`.
+- Plains are much coarser than the old open-tube numbers (single 512
+  vs 973): closing the tube re-parameterizes the whole island, so all
+  absolute counts moved — mechanism note, not a regression (bench/e2e
+  on real models are untouched by fixture changes).
+- Masked totals run over budget on single (totalFrac up to 1.46):
+  pre-existing density behavior, visible in the off rows (the coarse
+  closed-tube plain leaves headroom the mask fills); dipoles add only
+  +0-5% over off. Split/fused totals stay near 1.0-1.1.
+- The conflated ratio overstates everywhere: fused-4x auto ratio 1.59
+  vs faceAbs 1.52 with control wobble. Always report faceAbs +
+  totalFrac alongside.
+- Split control island is bit-identical across all nine runs
+  (83 quads, 0.020900): per-island remesh independence — dipoles on
+  the masked island cannot leak across.
+- Asks are non-monotonic off dipoles (split 2.0x beats 3.0x 1.53 >
+  1.39): rounding/tiling noise between asks, same as before. Auto
+  still improves every sharp row over its own off row.

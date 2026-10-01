@@ -10,6 +10,7 @@
 // the symmetry getters.
 use retopo_core::auto_remesher::{AutoRemesher, ModelType};
 use retopo_core::mesh_separator::MeshSeparator;
+use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector3::Vector3;
 
 fn build_box(offset: f64) -> (Vec<Vector3>, Vec<Vec<usize>>) {
@@ -189,6 +190,7 @@ fn setters_cover_the_full_cli_surface() {
     r.set_sharp_polylines(vec![]);
     r.set_feature_polylines(vec![]);
     r.set_density_multipliers(&[]);
+    r.set_dipoles(DipoleConfig::automatic());
     r.set_scaling(1.5);
     r.set_model_type(ModelType::HardSurface);
     r.set_gradient_adaptivity(0.7);
@@ -267,6 +269,17 @@ fn symmetry_fallback_reports_minus_one() {
     r.set_symmetry_enabled(true);
     assert!(r.remesh());
     assert_eq!(r.symmetry_plane_axis(), -1);
+}
+
+#[test]
+fn dipole_default_is_automatic() {
+    // Product default (no C++ counterpart): automatic placement. The
+    // differential oracles pin off explicitly; this pins the shipped
+    // default itself. See docs/dipole-production.md for the evidence.
+    let (v, t) = build_box(0.0);
+    let r = AutoRemesher::new(&v, &t);
+    assert_eq!(r.dipoles(), DipoleConfig::automatic());
+    assert!(r.island_dipole_counts().is_empty());
 }
 
 #[test]

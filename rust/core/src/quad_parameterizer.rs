@@ -750,9 +750,9 @@ pub const DIPOLE_MIN_RING_EDGES: usize = 4;
 /// Where the flip pair sits relative to the density step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DipolePlacement {
-    /// Production rule (see `insert_dipoles`): currently on-boundary for
-    /// every ring; offset stays an explicit override until offset rings
-    /// validate end to end (see docs/dipole-production.md).
+    /// Production rule (see `insert_dipoles`): offset rings everywhere
+    /// (measured best on the finger fixtures; `OnBoundary` stays an
+    /// explicit override).
     Auto,
     /// Flip the step-crossing edge itself (+1 on the denser-side
     /// endpoint): the validated isolated-boundary placement.
@@ -1034,8 +1034,12 @@ fn insert_dipoles(
         out.retain(|&y| y != v);
         out
     };
-    // Production placement rule (see DipolePlacement::Auto).
-    let auto_offset = false;
+    // Production placement rule: offset everywhere. Measured on the
+    // finger fixtures (docs/dipole-production.md): offset beats or ties
+    // on-boundary on 5 of 6 sharp rows and fixes the one harm case
+    // (fused 3x: 1.02 -> 1.39 faceAbs); both poles land dense-side, so
+    // shared steps cannot leak refinement across.
+    let auto_offset = true;
     let mut used = vec![false; mesh.vertex_count()];
     let mut flips: Vec<(usize, usize)> = Vec::new();
     for (id, edges) in ring_crossings.iter().enumerate() {
@@ -1870,11 +1874,15 @@ mod dipole_tests {
     }
 
     #[test]
-    fn dipole_auto_places_disjoint_ring() {
+    fn dipole_onboundary_places_disjoint_ring() {
         let mesh = grid_mesh();
         let density = step_density(&mesh, 4.0);
+        let cfg = DipoleConfig {
+            placement: DipolePlacement::OnBoundary,
+            ..DipoleConfig::automatic()
+        };
         let mut rotation = vec![0; mesh.corner_count()];
-        let flips = insert_dipoles(&mesh, &mut rotation, &density, DipoleConfig::automatic());
+        let flips = insert_dipoles(&mesh, &mut rotation, &density, cfg);
         assert!(flips > 1, "sharp step must place a ring, got {flips}");
         assert_antisymmetric(&mesh, &rotation);
         // Disjoint endpoints: every changed vert in exactly one flip.
@@ -1888,26 +1896,43 @@ mod dipole_tests {
     }
 
     #[test]
+    fn dipole_auto_resolves_to_offset() {
+        // Pins the production rule: Auto must behave exactly like
+        // explicit Offset (change this test consciously with the rule).
+        let mesh = grid_mesh();
+        let density = step_density(&mesh, 4.0);
+        let off = DipoleConfig {
+            placement: DipolePlacement::Offset,
+            ..DipoleConfig::automatic()
+        };
+        let mut ra = vec![0; mesh.corner_count()];
+        let mut ro = vec![0; mesh.corner_count()];
+        let fa = insert_dipoles(&mesh, &mut ra, &density, DipoleConfig::automatic());
+        let fo = insert_dipoles(&mesh, &mut ro, &density, off);
+        assert!(fa > 0);
+        assert_eq!(fa, fo);
+        assert_eq!(ra, ro);
+    }
+
+    #[test]
     fn dipole_explicit_stride_thins_dose() {
         let mesh = grid_mesh();
         let density = step_density(&mesh, 4.0);
-        let mut full = vec![0; mesh.corner_count()];
-        let auto = insert_dipoles(&mesh, &mut full, &density, DipoleConfig::automatic());
-        assert!(auto > 1);
-        let one = DipoleConfig {
-            every: 1,
+        let base = DipoleConfig {
+            placement: DipolePlacement::OnBoundary,
             ..DipoleConfig::automatic()
         };
+        let mut full = vec![0; mesh.corner_count()];
+        let auto = insert_dipoles(&mesh, &mut full, &density, base);
+        assert!(auto > 1);
+        let one = DipoleConfig { every: 1, ..base };
         let mut r1 = vec![0; mesh.corner_count()];
         assert_eq!(
             insert_dipoles(&mesh, &mut r1, &density, one),
             auto,
             "every=1 places the full disjoint set"
         );
-        let thin = DipoleConfig {
-            every: 1000,
-            ..DipoleConfig::automatic()
-        };
+        let thin = DipoleConfig { every: 1000, ..base };
         let mut r2 = vec![0; mesh.corner_count()];
         assert_eq!(
             insert_dipoles(&mesh, &mut r2, &density, thin),
@@ -1915,10 +1940,7 @@ mod dipole_tests {
             "huge stride places exactly one flip"
         );
         // Sharpness override: an absurd ratio gates everything off.
-        let strict = DipoleConfig {
-            ratio: 100.0,
-            ..DipoleConfig::automatic()
-        };
+        let strict = DipoleConfig { ratio: 100.0, ..base };
         let mut r3 = vec![0; mesh.corner_count()];
         assert_eq!(insert_dipoles(&mesh, &mut r3, &density, strict), 0);
     }

@@ -27,6 +27,7 @@
 //   verts/quads/uvs, IUV/IOUV/SING values and singular counts,
 //   connections) are reported, not asserted.
 use retopo_core::auto_remesher::{AutoRemesher, AutoRemesherProgressHandler, ModelType};
+use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector2::Vector2;
 use retopo_core::vector3::Vector3;
 use std::ffi::c_void;
@@ -329,6 +330,11 @@ fn differential_replay() {
             remesher.set_sharp_polylines(sharps);
         }
         remesher.set_density_multipliers(&rho);
+        // Parity tier: the C++ has no dipoles, so the differential
+        // oracle pins the no-dipole path explicitly (34 density cases
+        // carry sharp steps the product default would ring). The dipole
+        // path itself is covered by dipole_saturation + unit tests.
+        remesher.set_dipoles(DipoleConfig::off());
         remesher.set_compute_remeshed_uvs(want_uvs);
         remesher.set_quiet(quiet);
         let handler: AutoRemesherProgressHandler = record_event;

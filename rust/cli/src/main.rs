@@ -85,8 +85,8 @@ impl Params {
             features_path: String::new(),
             density_path: String::new(),
             // Rust-only post-switch feature (the C++ has no dipoles):
-            // default off, see docs/dipole-production.md.
-            dipoles: DipoleConfig::off(),
+            // default auto, see docs/dipole-production.md.
+            dipoles: DipoleConfig::automatic(),
             emit_uvs: false,
             quiet: false,
         }
@@ -157,7 +157,7 @@ fn print_usage(argv0: &str) {
             "  --dipoles <off|auto>         Density-boundary dipole insertion:\n",
             "                              singularity rings along sharp --density\n",
             "                              steps unlock localized refinement\n",
-            "                              (default: off; auto fires on asks\n",
+            "                              (default: auto; fires on asks\n",
             "                              above ~2.5x, mild masks unaffected)\n",
             "  --dipole-every <count>       Dipole dose stride override: place\n",
             "                              every k-th ring candidate (default: 0\n",

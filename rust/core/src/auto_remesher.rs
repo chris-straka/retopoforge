@@ -832,9 +832,10 @@ impl AutoRemesher {
             island_output_quad_counts: Vec::new(),
             island_dipole_counts: Vec::new(),
             // Product default for dipole insertion (no C++ counterpart;
-            // see set_dipoles). Off until offset rings validate end to
-            // end — the saturation harness opts in explicitly per row.
-            dipoles: DipoleConfig::off(),
+            // see set_dipoles): automatic. Validated end to end on the
+            // finger fixtures (docs/dipole-production.md) — systematic
+            // masked gains, unmasked/mild runs bit-identical via gating.
+            dipoles: DipoleConfig::automatic(),
             scaling: 0.0,
             target_triangle_count: 0,
             voxel_size: 0.0,
@@ -1087,9 +1088,11 @@ impl AutoRemesher {
         &self.island_dipole_counts
     }
 
-    /// Dipole-insertion config (no C++ counterpart). Default off: enable
-    /// explicitly (CLI `--dipoles auto`) for density-boundary singularity
-    /// rings on sharp masked steps.
+    /// Dipole-insertion config (no C++ counterpart). Default automatic:
+    /// density-boundary singularity rings on sharp masked steps (asks
+    /// above ~2.5x); unmasked, mild, and smooth masks gate to a no-op.
+    /// Pass `DipoleConfig::off()` (CLI `--dipoles off`) for the legacy
+    /// sizing-only behavior.
     pub fn set_dipoles(&mut self, config: DipoleConfig) {
         self.dipoles = config;
     }
