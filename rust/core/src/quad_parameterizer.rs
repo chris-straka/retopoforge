@@ -9,11 +9,11 @@
 //! - the TBB data-parallel loops run sequentially (every one is a disjoint
 //!   per-element write, so the C++ is already deterministic and the op order
 //!   per element is unchanged);
-//! - `Guides::tangentNear` is a private minimal mirror (only the query
-//!   this module uses): no lane owns guides yet, so this file stays
-//!   self-contained until the guides port lands and the coordinator
-//!   dedups it (the `SurfaceMesh` mirror was already deduped against
-//!   the joined sibling `surface_mesh` port);
+//! - `Guides::tangentNear` and `SurfaceMesh` were private minimal mirrors
+//!   while their lanes were in flight; both are deduped against the
+//!   joined sibling ports now (the guides dedup also fixed a latent NaN
+//!   bug: the mirror used Rust `.min/.max`, the sibling uses C++-exact
+//!   `cxx_min/cxx_max`);
 //! - progress remap closures pass `&dyn Fn` instead of rebundling the
 //!   `'static` [`ProgressHandler`] box, which cannot capture the caller's
 //!   handler reference;
@@ -33,6 +33,7 @@
 //! +1/-1/0 constants, where fused and unfused round identically), but it is
 //! mirrored anyway.
 
+use crate::guides::Guides;
 use crate::progress::ProgressHandler;
 use crate::surface_mesh::SurfaceMesh;
 use crate::vector2::Vector2;
@@ -41,52 +42,6 @@ use retopo_solvers::constrained::ConstrainedLeastSquares;
 use retopo_solvers::mixed_integer::MixedIntegerLeastSquares;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
-
-/// Private mirror of `Guides::tangentNear` (the only guide query the
-/// parameterizer uses). Pending coordinator dedup once the guides port
-/// lands (wave 3 owns guides).
-fn tangent_near(
-    guides: &[Vec<Vector3>],
-    point: &Vector3,
-    normal: &Vector3,
-    radius: f64,
-) -> Vector3 {
-    if !(radius > 0.0) {
-        return Vector3::default();
-    }
-    let radius_squared = radius * radius;
-    let mut best_direction = Vector3::default();
-    let mut best_distance_squared = radius_squared;
-    let mut found = false;
-    for polyline in guides {
-        for i in 0..polyline.len().saturating_sub(1) {
-            let delta = polyline[i + 1] - polyline[i];
-            let length = delta.length();
-            if length <= 1e-12 {
-                continue;
-            }
-            let direction = delta / length;
-            let rel = *point - polyline[i];
-            let along = Vector3::dot_product(&rel, &direction).min(length).max(0.0);
-            let proj = polyline[i] + direction * along;
-            let diff = *point - proj;
-            let distance_squared = diff.length_squared();
-            if distance_squared < best_distance_squared {
-                best_distance_squared = distance_squared;
-                best_direction = direction;
-                found = true;
-            }
-        }
-    }
-    if !found {
-        return Vector3::default();
-    }
-    let tangent = best_direction - Vector3::dot_product(&best_direction, normal) * *normal;
-    if tangent.length() <= 0.5 {
-        return Vector3::default();
-    }
-    tangent.normalized()
-}
 
 /// Mirrors `unit` (by value: `Vector3` is `Copy`, so this compiles to the
 /// same loads as the C++ const refs).
@@ -219,7 +174,7 @@ fn sharp_edge_constraint(
     let v0 = mesh.corner_vertex(c);
     let v1 = mesh.corner_vertex(mesh.next_corner(c));
     let midpoint = (*mesh.position(v0) + *mesh.position(v1)) / 2.0;
-    if tangent_near(sharps, &midpoint, &normals[f], radius).length() <= 1e-12 {
+    if Guides::tangent_near(sharps, &midpoint, &normals[f], radius).length() <= 1e-12 {
         return EdgeConstraint::ConstraintNone;
     }
     let edge = unit(mesh.edge_vector(c), Vector3::new(1.0, 0.0, 0.0));
