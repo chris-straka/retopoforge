@@ -14,3 +14,5 @@ pub mod vector2;
 pub mod vector3;
 pub mod position_key;
 pub mod surface_mesh;
+// Wave 2 lane: rs-density.
+pub mod density;

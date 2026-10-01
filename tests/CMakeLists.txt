@@ -211,6 +211,13 @@ target_compile_definitions(test_pole_manifold PRIVATE
 add_dependencies(test_pole_manifold retopo)
 set_tests_properties(test_pole_manifold PROPERTIES TIMEOUT 600)
 
+# Differential oracle dump for the density Rust port (rs-density lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/density_diff.txt for rust/core/tests/density_diff.rs.
+add_executable(density_diff_dump density_diff_dump.cpp)
+set_target_properties(density_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(density_diff_dump PRIVATE retopo_core)
+
 # Engine follow-ups: --quiet silences engine-owned stderr (progress and
 # phase-report lines) on both streams while errors still print.
 retopo_add_test(test_cli_engine_quiet test_cli_engine_quiet.cpp)
