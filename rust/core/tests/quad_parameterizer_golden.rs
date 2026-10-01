@@ -92,6 +92,7 @@ fn run_with_prog(
         fsv,
         Some(&handler),
         sharps,
+        &[],
     );
     let aliases = events.lock().unwrap().clone();
     (got, aliases)
@@ -503,11 +504,11 @@ fn golden_invalid_inputs_return_none() {
     let quad_t = vec![vec![0, 1, 2], vec![0, 2, 3]];
     // Empty vertices / empty triangles.
     assert!(
-        QuadParameterizer::parameterize(&[], &tri, &[], 1.0, 90.0, &[], &[], &[], None, None)
+        QuadParameterizer::parameterize(&[], &tri, &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
             .is_none()
     );
     assert!(
-        QuadParameterizer::parameterize(&one, &[], &[], 1.0, 90.0, &[], &[], &[], None, None)
+        QuadParameterizer::parameterize(&one, &[], &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
             .is_none()
     );
     // Non-positive scaling.
@@ -522,7 +523,8 @@ fn golden_invalid_inputs_return_none() {
             &[],
             &[],
             None,
-            None
+            None,
+            &[]
         )
         .is_none()
     );
@@ -537,7 +539,8 @@ fn golden_invalid_inputs_return_none() {
             &[],
             &[],
             None,
-            None
+            None,
+            &[]
         )
         .is_none()
     );
@@ -545,11 +548,11 @@ fn golden_invalid_inputs_return_none() {
     let bad2 = vec![vec![0, 1, 2], vec![0, 1]];
     let bad4 = vec![vec![0, 1, 2], vec![0, 1, 2, 3]];
     assert!(
-        QuadParameterizer::parameterize(&quad_v, &bad2, &[], 1.0, 90.0, &[], &[], &[], None, None)
+        QuadParameterizer::parameterize(&quad_v, &bad2, &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
             .is_none()
     );
     assert!(
-        QuadParameterizer::parameterize(&quad_v, &bad4, &[], 1.0, 90.0, &[], &[], &[], None, None)
+        QuadParameterizer::parameterize(&quad_v, &bad4, &[], 1.0, 90.0, &[], &[], &[], None, None, &[])
             .is_none()
     );
 }
@@ -576,6 +579,7 @@ fn golden_none_progress_matches_recording() {
         &[],
         None,
         None,
+        &[],
     )
     .expect("bare solve must succeed");
     let (recorded, aliases) =

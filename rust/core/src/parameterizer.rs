@@ -556,16 +556,20 @@ impl<'a> Parameterizer<'a> {
         // Local density control, default off: an empty field skips
         // everything so the scaling field stays bit-identical to a run
         // without any mask.
-        if !self.density_field.is_empty() {
-            let density = Density::normalize_field(&self.density_field);
-            if !density.is_empty() {
-                Density::apply_to_scaling_field(
-                    self.vertices,
-                    self.triangles,
-                    &density,
-                    &mut face_scaling_field,
-                );
-            }
+        // EXPERIMENTAL SPIKE (lane/dipole-mechanism): hoisted so the raw
+        // mask can feed the env-gated dipole insertion downstream.
+        let density = if !self.density_field.is_empty() {
+            Density::normalize_field(&self.density_field)
+        } else {
+            Vec::new()
+        };
+        if !density.is_empty() {
+            Density::apply_to_scaling_field(
+                self.vertices,
+                self.triangles,
+                &density,
+                &mut face_scaling_field,
+            );
         }
 
         report_progress(
@@ -690,6 +694,9 @@ impl<'a> Parameterizer<'a> {
             &face_scaling_v,
             remap.as_ref(),
             sharps_arg,
+            // EXPERIMENTAL SPIKE (lane/dipole-mechanism): raw mask for the
+            // env-gated dipole insertion (no-op when the var is unset).
+            &density,
         );
         let cover = match cover {
             Some(cover) => cover,

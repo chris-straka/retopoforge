@@ -756,7 +756,15 @@ fn dipole_flip_edge(mesh: &SurfaceMesh, rotation: &mut [i32], c: usize) -> (usiz
 /// Spec: RETOPO_DIPOLES="loop[:every[:ratio]]" (ring along the boundary,
 /// alternating charges, every k-th edge) or "radial[...]" (edges crossing
 /// the boundary, greedy disjoint, +1 on the denser-side endpoint).
-fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: &[f64]) {
+/// The boundary is keyed off the raw per-vertex density multipliers (sharp
+/// steps only the mask makes); face_scaling is the fallback when no mask
+/// is present (uniform density => no boundary => no-op either way).
+fn maybe_insert_dipoles(
+    mesh: &SurfaceMesh,
+    rotation: &mut [i32],
+    face_scaling: &[f64],
+    density_field: &[f64],
+) {
     let spec = match std::env::var("RETOPO_DIPOLES") {
         Ok(s) => s,
         Err(_) => return,
@@ -780,14 +788,29 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
         );
         return;
     }
-    // Boundary vertices: incident face scalings straddle the global
-    // geometric mid AND span more than `ratio`. The straddle rejects
-    // adaptivity-only ripple (all incident faces on one side of mid);
-    // only the density step crosses mid. Note dense == SMALLER edge
-    // scale (edge_scale_for = 1/sqrt(density)).
+    // Boundary signal: per-face mean DENSITY multiplier when a mask is
+    // present (sharp mask steps; adaptivity never enters), else the
+    // combined face_scaling fallback. Dense == LARGER multiplier here
+    // (opposite sense from edge scales); only ratios matter below.
+    let use_density = density_field.len() == mesh.vertex_count()
+        && density_field.iter().any(|&d| d != 1.0);
+    let face_key: Vec<f64> = if use_density {
+        (0..mesh.face_count())
+            .map(|f| {
+                (density_field[mesh.corner_vertex(3 * f)]
+                    + density_field[mesh.corner_vertex(3 * f + 1)]
+                    + density_field[mesh.corner_vertex(3 * f + 2)])
+                    / 3.0
+            })
+            .collect()
+    } else {
+        face_scaling.to_vec()
+    };
+    // Boundary vertices: incident face keys straddle the global
+    // geometric mid AND span more than `ratio`.
     let mut glo = f64::INFINITY;
     let mut ghi = 0.0f64;
-    for &m in face_scaling {
+    for &m in &face_key {
         glo = glo.min(m);
         ghi = ghi.max(m);
     }
@@ -800,7 +823,7 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
         let mut lo = f64::INFINITY;
         let mut hi = 0.0f64;
         for &c in mesh.corners_around_vertex(v) {
-            let m = face_scaling[mesh.corner_face(c)];
+            let m = face_key[mesh.corner_face(c)];
             lo = lo.min(m);
             hi = hi.max(m);
         }
@@ -833,8 +856,8 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             if oc == SurfaceMesh::NPOS || oc < c {
                 continue;
             }
-            let mf = face_scaling[mesh.corner_face(c)];
-            let mg = face_scaling[mesh.corner_face(oc)];
+            let mf = face_key[mesh.corner_face(c)];
+            let mg = face_key[mesh.corner_face(oc)];
             if mf <= 0.0 || mg <= 0.0 || mf.max(mg) / mf.min(mg) <= ratio {
                 continue;
             }
@@ -843,13 +866,20 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             if used[u] || used[w] || sums[u] != 0 || sums[w] != 0 {
                 continue;
             }
-            // +1 on the denser-side endpoint (smaller mean incident scale).
+            // +1 on the denser-side endpoint (larger mean multiplier with
+            // density keys, smaller mean edge scale with scaling keys).
             let mean = |v: usize| {
                 let fan = mesh.corners_around_vertex(v);
-                fan.iter().map(|&k| face_scaling[mesh.corner_face(k)]).sum::<f64>()
+                fan.iter().map(|&k| face_key[mesh.corner_face(k)]).sum::<f64>()
                     / fan.len().max(1) as f64
             };
-            let (plus, _minus) = if (mean(u), u) <= (mean(w), w) { (u, w) } else { (w, u) };
+            let (plus, _minus) = if use_density {
+                if (mean(u), u) >= (mean(w), w) { (u, w) } else { (w, u) }
+            } else if (mean(u), u) <= (mean(w), w) {
+                (u, w)
+            } else {
+                (w, u)
+            };
             let cc = if plus == u { c } else { oc };
             let (a, b) = dipole_flip_edge(mesh, rotation, cc);
             debug_assert!(a == plus);
@@ -962,13 +992,26 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
             used[pb] = true;
             flips.push((pa, pb));
         }
+        // Flip-y extent + histogram over the mesh height (placement check).
         let (mut ylo, mut yhi) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut mylo, mut myhi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for v in 0..mesh.vertex_count() {
+            mylo = mylo.min(mesh.position(v).y());
+            myhi = myhi.max(mesh.position(v).y());
+        }
+        let mut hist = [0usize; 8];
         for &(a, b) in &flips {
-            ylo = ylo.min(mesh.position(a).y()).min(mesh.position(b).y());
-            yhi = yhi.max(mesh.position(a).y()).max(mesh.position(b).y());
+            for &v in &[a, b] {
+                let y = mesh.position(v).y();
+                ylo = ylo.min(y);
+                yhi = yhi.max(y);
+                let bin = (((y - mylo) / (myhi - mylo).max(1e-12) * 8.0) as usize).min(7);
+                hist[bin] += 1;
+            }
         }
         eprintln!(
-            "DIPOLEDBG mode=loop boundary_verts={n_boundary} walk_len={} flips={} sing_before={n_sing_before} sing_after={} flip_y=[{ylo:.3},{yhi:.3}]",
+            "DIPOLEDBG mode=loop key={} boundary_verts={n_boundary} walk_len={} flips={} sing_before={n_sing_before} sing_after={} flip_y=[{ylo:.3},{yhi:.3}] yhist={hist:?}",
+            if use_density { "density" } else { "scaling" },
             walk.len(),
             flips.len(),
             sums.iter().filter(|&&s| s != 0).count(),
@@ -976,12 +1019,24 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
         return;
     }
     let (mut ylo, mut yhi) = (f64::INFINITY, f64::NEG_INFINITY);
+    let (mut mylo, mut myhi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for v in 0..mesh.vertex_count() {
+        mylo = mylo.min(mesh.position(v).y());
+        myhi = myhi.max(mesh.position(v).y());
+    }
+    let mut hist = [0usize; 8];
     for &(a, b) in &flips {
-        ylo = ylo.min(mesh.position(a).y()).min(mesh.position(b).y());
-        yhi = yhi.max(mesh.position(a).y()).max(mesh.position(b).y());
+        for &v in &[a, b] {
+            let y = mesh.position(v).y();
+            ylo = ylo.min(y);
+            yhi = yhi.max(y);
+            let bin = (((y - mylo) / (myhi - mylo).max(1e-12) * 8.0) as usize).min(7);
+            hist[bin] += 1;
+        }
     }
     eprintln!(
-        "DIPOLEDBG mode=radial boundary_verts={n_boundary} flips={} sing_before={n_sing_before} sing_after={} flip_y=[{ylo:.3},{yhi:.3}]",
+        "DIPOLEDBG mode=radial key={} boundary_verts={n_boundary} flips={} sing_before={n_sing_before} sing_after={} flip_y=[{ylo:.3},{yhi:.3}] yhist={hist:?}",
+        if use_density { "density" } else { "scaling" },
         flips.len(),
         sums.iter().filter(|&&s| s != 0).count(),
     );
@@ -991,6 +1046,8 @@ fn maybe_insert_dipoles(mesh: &SurfaceMesh, rotation: &mut [i32], face_scaling: 
 /// world unit over dense faces (fs <= geometric mid) vs coarse faces.
 /// Iteration 0 solves purely continuous (nothing fixed yet); iteration 1
 /// rounds + fixes all integers. Stderr only, no state touched.
+/// RETOPO_DIPOLE_DEBUG=y<val> additionally splits faces by centroid
+/// height (mask-region bands comparable across plain/masked runs).
 fn dipole_log_cover_gradients(
     s: &MixedIntegerLeastSquares,
     mesh: &SurfaceMesh,
@@ -1010,7 +1067,12 @@ fn dipole_log_cover_gradients(
         return;
     }
     let mid = (lo * hi).sqrt();
+    let ycut: Option<f64> = std::env::var("RETOPO_DIPOLE_DEBUG")
+        .ok()
+        .and_then(|v| v.split('y').nth(1).map(|t| t.parse().unwrap_or(f64::NAN)))
+        .filter(|t| t.is_finite());
     let (mut dg, mut dn, mut cg, mut cn) = (0.0, 0usize, 0.0, 0usize);
+    let (mut yg, mut yn, mut ng, mut nn) = (0.0, 0usize, 0.0, 0usize);
     for f in 0..mesh.face_count() {
         let mut g = 0.0;
         for l in 0..3 {
@@ -1029,12 +1091,32 @@ fn dipole_log_cover_gradients(
             cg += g;
             cn += 1;
         }
+        if let Some(cut) = ycut {
+            let mut cy = 0.0;
+            for l in 0..3 {
+                cy += mesh.position(mesh.corner_vertex(3 * f + l)).y();
+            }
+            if cy / 3.0 > cut {
+                yg += g;
+                yn += 1;
+            } else {
+                ng += g;
+                nn += 1;
+            }
+        }
     }
     eprintln!(
         "DIPOLEDBG cover-iter={iteration} dense-lpu={:.3} (n={dn}) coarse-lpu={:.3} (n={cn})",
         dg / dn.max(1) as f64,
         cg / cn.max(1) as f64,
     );
+    if ycut.is_some() {
+        eprintln!(
+            "DIPOLEDBG cover-iter={iteration} yhi-lpu={:.3} (n={yn}) ylo-lpu={:.3} (n={nn})",
+            yg / yn.max(1) as f64,
+            ng / nn.max(1) as f64,
+        );
+    }
 }
 // ===== END EXPERIMENTAL SPIKE =====
 
@@ -1301,6 +1383,9 @@ impl QuadParameterizer {
     /// Mirrors `QuadParameterizer::parameterize`: `None` exactly where the
     /// C++ returns `false` (empty input, non-positive scaling, dropped
     /// triangles, or a cover solve that fails to converge).
+    /// EXPERIMENTAL SPIKE (lane/dipole-mechanism): trailing
+    /// `density_field` (per-vertex multipliers, empty when unmasked) feeds
+    /// only the env-gated dipole insertion; the C++ has no such param.
     #[allow(clippy::too_many_arguments)]
     pub fn parameterize(
         vertices: &[Vector3],
@@ -1313,6 +1398,7 @@ impl QuadParameterizer {
         face_scaling_v: &[f64],
         progress_handler: Option<&ProgressHandler>,
         sharps: Option<&[Vec<Vector3>]>,
+        density_field: &[f64],
     ) -> Option<ParameterizeResult> {
         let progress = |fraction: f32, name: &str| {
             if let Some(p) = progress_handler {
@@ -1383,7 +1469,7 @@ impl QuadParameterizer {
         );
         // EXPERIMENTAL SPIKE (lane/dipole-mechanism): env-gated dipole
         // insertion after curl correction, before seam + cover solve.
-        maybe_insert_dipoles(&mesh, &mut rotation, face_scaling);
+        maybe_insert_dipoles(&mesh, &mut rotation, face_scaling, density_field);
         let seam = compute_seam(&mesh, &rotation);
 
         let ctx = CoverContext {
