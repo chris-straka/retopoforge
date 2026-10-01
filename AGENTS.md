@@ -9,6 +9,10 @@ original C++ (proven by differential oracles, see
 only — NEVER git-merge upstream into this tree (fully diverged). Port
 individual upstream engine fixes by hand when relevant, bench green.
 
+Scope and next engine work: read `docs/direction.md` first (retopoforge
+is for one-off monsters, accessories, and making new bases; humanoids go
+through `~/SWE/wrapforge`).
+
 ## Standing rules
 
 - Commit and push to `origin/main` on your own after each completed chunk

@@ -59,6 +59,18 @@ push main from lanes (explicit refspec only); game assets never committed.
       sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
       redesign (flags/errors/progress), single-island parallelism in Rust
 
+## Direction (2026-10-01, see docs/direction.md)
+
+- [ ] Deformation test first: pose a few monsters (current remesh vs
+      joint-loop guides vs decimated triangles + normal map), measure
+      joint stretch and volume loss; decides how much to build below
+- [ ] Deformation score in bench (rig + pose + joint distortion) as the
+      main gate for engine work
+- [ ] Patch-layout back end in Rust (clean-room QuadWild + Bi-MDF), with
+      patch boundaries from the cross field, rigforge joint loops, and
+      owner strokes drawn in Blender
+- [ ] Humanoid faces/hands: out of scope here, handled by wrapforge
+
 ## Game-asset pipeline (owner's core loop)
 
 - [x] AI-soup sliver output (was BLOCKER): fixed by weld-on-load +
