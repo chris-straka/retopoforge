@@ -25,8 +25,10 @@
 //! - Materials, textures, skins, animations, images, and their index fixups
 //!   are unparsed: dangling refs there fail the C++ parse but are ignored
 //!   here. Attribute/target values ARE validated as required indices.
-//! - The JSON parser is strict: inputs jsmn tolerates but JSON forbids
-//!   (`nan` literals, `+1`, trailing commas, ...) fail here.
+//! - The JSON parser is strict except for `inf`/`nan` bare words (any
+//!   case, optional sign), which the writer itself emits for non-finite
+//!   min/max: other inputs jsmn tolerates but JSON forbids (`+1`, partial
+//!   exponents, trailing commas, ...) fail here.
 //! - FP fusion: Clang fuses the transform/apply multiply-add chains at -O3
 //!   (53 `llvm.fmuladd` sites, TRS compose vectorized), so C++ itself has no
 //!   stable bitwise contract on inexact intermediates (-O0 differs too).
@@ -196,10 +198,61 @@ impl<'a> Parser<'a> {
             Some(b'"') => Ok(Json::Str(self.parse_string()?)),
             Some(b't') => self.parse_literal("true", Json::Bool(true)),
             Some(b'f') => self.parse_literal("false", Json::Bool(false)),
-            Some(b'n') => self.parse_literal("null", Json::Null),
-            Some(b'-') | Some(b'0'..=b'9') => Ok(Json::Num(self.parse_number()?)),
+            Some(b'n') | Some(b'N') => {
+                // `null`, or the non-standard `nan` the writer emits for
+                // NaN min/max (jsmn reads it as a primitive either way).
+                let save = self.pos;
+                if self.parse_word("nan") {
+                    let raw = self.bytes[save..self.pos].to_vec();
+                    return Ok(Json::Num(String::from_utf8(raw).map_err(|_| ())?));
+                }
+                self.pos = save;
+                self.parse_literal("null", Json::Null)
+            }
+            Some(b'-') | Some(b'+') | Some(b'0'..=b'9') | Some(b'i') | Some(b'I') => {
+                // Optional sign + inf/infinity/nan (any case): the writer
+                // emits these for non-finite min/max, and jsmn accepts any
+                // bare word as a primitive. Anything else falls through to
+                // the strict number grammar.
+                let save = self.pos;
+                if matches!(self.peek(), Some(b'-' | b'+')) {
+                    self.pos += 1;
+                }
+                if self.parse_word("inf") || self.parse_word("infinity") || self.parse_word("nan") {
+                    let raw = self.bytes[save..self.pos].to_vec();
+                    // Infallible: ASCII sign + ASCII letters by construction.
+                    return Ok(Json::Num(String::from_utf8(raw).map_err(|_| ())?));
+                }
+                self.pos = save;
+                Ok(Json::Num(self.parse_number()?))
+            }
             _ => Err(()),
         }
+    }
+
+    /// Match an ASCII word case-insensitively at the cursor; on success the
+    /// cursor moves past it. The caller checks the following delimiter via
+    /// the normal value-end rules (strict: a letter must not follow).
+    fn parse_word(&mut self, word: &str) -> bool {
+        let end = self.pos + word.len();
+        if self.bytes.get(self.pos..end).is_none() {
+            return false;
+        }
+        let matches = self.bytes[self.pos..end]
+            .iter()
+            .zip(word.bytes())
+            .all(|(a, b)| a.to_ascii_lowercase() == b);
+        if !matches {
+            return false;
+        }
+        // A letter immediately after means a longer word (`info`, `nanx`).
+        if let Some(next) = self.bytes.get(end) {
+            if next.is_ascii_alphabetic() {
+                return false;
+            }
+        }
+        self.pos = end;
+        true
     }
 
     fn parse_literal(&mut self, word: &str, value: Json) -> Result<Json, ()> {
@@ -249,7 +302,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
         }
-        // SAFETY: the token is ASCII digits/punctuation by construction.
+        // Infallible: the token is ASCII digits/punctuation by construction.
         Ok(String::from_utf8(self.bytes[start..self.pos].to_vec()).map_err(|_| ())?)
     }
 
@@ -310,8 +363,6 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b',') => {
                     self.pos += 1;
-                    items.push(self.parse_value()?);
-                    self.skip_space();
                 }
                 Some(b']') => {
                     self.pos += 1;
@@ -412,7 +463,6 @@ fn c_atoll(text: &str) -> i64 {
     let value = mag as i64;
     if neg { value.wrapping_neg() } else { value }
 }
-
 
 // ---------------------------------------------------------------------------
 // glTF document subset (mirror of the cgltf structs + fixups the loader
@@ -640,15 +690,25 @@ fn float_array(value: &Json, out: &mut [f32]) -> Result<(), ()> {
 
 /// Attribute-name match (`POSITION` or `POSITION_<n>`, compared raw:
 /// cgltf never decodes attribute names, so an escaped spelling matches
-/// nothing).
+/// nothing; a negative index disqualifies the name entirely).
 fn is_position_attribute(raw_name: &str) -> bool {
-    let head = raw_name.split('_').next().unwrap_or("");
-    head == "POSITION"
+    let (head, tail) = match raw_name.split_once('_') {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (raw_name, None),
+    };
+    if head != "POSITION" {
+        return false;
+    }
+    match tail {
+        Some(index) => c_atoll(index) >= 0,
+        None => true,
+    }
 }
 
 /// Validate every value of an attribute object as a required accessor
-/// index, returning the POSITION one (cgltf fixes up all attributes,
-/// including custom and indexed names, with the required rule).
+/// index, returning the FIRST POSITION one (cgltf keeps attributes as an
+/// ordered list and the loader takes the first POSITION entry; every value
+/// still validates, including custom and indexed names).
 fn parse_attribute_list(
     value: &Json,
     accessor_count: usize,
@@ -657,7 +717,7 @@ fn parse_attribute_list(
     let members = value.as_object().ok_or(())?;
     for (name, data) in members {
         let index = req_index(data, accessor_count)?;
-        if is_position_attribute(name) {
+        if position.is_none() && is_position_attribute(name) {
             *position = Some(index);
         }
     }
@@ -682,24 +742,17 @@ fn parse_accessor(value: &Json, views_count: usize) -> Result<Accessor, ()> {
         .and_then(Json::as_str)
         .map_or(AccessorType::Invalid, accessor_type_from_str);
     let normalized = value.member("normalized").is_some_and(prim_bool);
-    // Sparse contents are validated like cgltf (required views) but never
-    // read: every sparse read fails, mirroring cgltf_accessor_read_*.
+    // Sparse contents are validated like cgltf (both views required) but
+    // never read: every sparse read fails, mirroring cgltf_accessor_read_*.
     let mut sparse = false;
     if let Some(s) = value.member("sparse") {
-        let obj = s.as_object().ok_or(())?;
-        let _ = obj;
-        if let Some(indices) = s.member("indices") {
-            let obj = indices.as_object().ok_or(())?;
-            let _ = obj;
-            let view = indices.member("bufferView").ok_or(())?;
-            req_index(view, views_count)?;
-        }
-        if let Some(values) = s.member("values") {
-            let obj = values.as_object().ok_or(())?;
-            let _ = obj;
-            let view = values.member("bufferView").ok_or(())?;
-            req_index(view, views_count)?;
-        }
+        let _ = s.as_object().ok_or(())?;
+        let indices = s.member("indices").ok_or(())?;
+        let _ = indices.as_object().ok_or(())?;
+        req_index(indices.member("bufferView").ok_or(())?, views_count)?;
+        let values = s.member("values").ok_or(())?;
+        let _ = values.as_object().ok_or(())?;
+        req_index(values.member("bufferView").ok_or(())?, views_count)?;
         sparse = true;
     }
     Ok(Accessor {
@@ -910,7 +963,6 @@ fn parse_doc(root: &Json) -> Result<Doc, ()> {
         Some(v) => opt_index(v, scene_count)?,
         None => None,
     };
-    let _ = scene;
 
     // Cycle guard: C++ spins `while (parent)` forever here; fail loudly.
     for start in 0..node_count {
@@ -938,7 +990,7 @@ fn parse_doc(root: &Json) -> Result<Doc, ()> {
         meshes,
         nodes,
         scenes,
-        scene: None,
+        scene,
     })
 }
 

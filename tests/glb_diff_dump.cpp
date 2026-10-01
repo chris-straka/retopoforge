@@ -1274,6 +1274,46 @@ static int runFixedReads()
         b.meshes[0] = "{\"primitives\":[" + primJson("{\"POS\\u0049TION\":0}", "1", "4") + "]}";
         dumpReadCase(id++, 0, b.build(), ".glb", 0);
     }
+    // R81: indexed "POSITION_0" attribute loads (ok).
+    {
+        GlbBuilder b = basicTriBuilder();
+        b.meshes[0] = "{\"primitives\":[" + primJson("{\"POSITION_0\":0}", "1", "4") + "]}";
+        dumpReadCase(id++, 0, b.build(), ".glb", 1);
+    }
+    // R82: "POSITION_-1" is disqualified (negative index) -> position-less
+    // prim -> no-triangle fatal.
+    {
+        GlbBuilder b = basicTriBuilder();
+        b.meshes[0] = "{\"primitives\":[" + primJson("{\"POSITION_-1\":0}", "1", "4") + "]}";
+        dumpReadCase(id++, 0, b.build(), ".glb", 0);
+    }
+    // R83: duplicate POSITION keys -> the FIRST wins (accessor 0's data).
+    {
+        GlbBuilder b;
+        size_t pa = b.binSize();
+        float a[9] = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+        b.pushBytes(a, sizeof(a));
+        size_t pb = b.binSize();
+        float c[9] = { 7, 7, 7, 8, 7, 7, 7, 8, 7 };
+        b.pushBytes(c, sizeof(c));
+        b.addView(pa, 36);
+        b.addView(pb, 36);
+        int aa = b.addAccessor("VEC3", 5126, 3, "0");
+        int ab = b.addAccessor("VEC3", 5126, 3, "1");
+        std::ostringstream attrs;
+        attrs << "{\"POSITION\":" << aa << ",\"POSITION\":" << ab << "}";
+        b.addMesh("[" + primJson(attrs.str(), "", "4") + "]");
+        b.addNode(nodeJson("0", ""));
+        b.addScene("[0]");
+        b.topScene = "0";
+        dumpReadCase(id++, 0, b.build(), ".glb", 1);
+    }
+    // R84: bare "sparse":{} lacks the required views -> parse fatal.
+    {
+        GlbBuilder b = basicTriBuilder();
+        b.accessors[0] = "{\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"bufferView\":0,\"sparse\":{}}";
+        dumpReadCase(id++, 0, b.build(), ".glb", 0);
+    }
     return id;
 }
 
