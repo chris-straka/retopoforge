@@ -424,8 +424,7 @@ impl<'a> AxisAlignedBoxTree<'a> {
             left: None,
             right: None,
         };
-        for i in left_offset..=middle {
-            let box_index = order_list[i];
+        for &box_index in &order_list[left_offset..=middle] {
             let bbox = &boxes[box_index];
             left.bounding_box.update(&bbox.min);
             left.bounding_box.update(&bbox.max);
@@ -440,8 +439,7 @@ impl<'a> AxisAlignedBoxTree<'a> {
             left: None,
             right: None,
         };
-        for i in middle + 1..=right_offset {
-            let box_index = order_list[i];
+        for &box_index in &order_list[middle + 1..=right_offset] {
             let bbox = &boxes[box_index];
             right.bounding_box.update(&bbox.min);
             right.bounding_box.update(&bbox.max);
@@ -572,7 +570,8 @@ impl<'a> AxisAlignedBoxTree<'a> {
 // Deliberately missing `insert`/`entry` on [`CxxMap`]: `BTreeMap::insert`
 // overwrites while C++ `insert` keeps the old value, so every map write
 // site names its C++ counterpart explicitly (`insert_new` keeps,
-// `set`/`get_or_default`/`get_or_insert` overwrite-or-insert).
+// `set`/`get_or_default` overwrite-or-insert; `set` is currently only
+// reached by the container oracle tests).
 // ---------------------------------------------------------------------------
 
 /// `std::__constrain_hash`, literal (the `bc == 0` arm yields `h`, exactly
@@ -606,14 +605,14 @@ fn cxx_next_prime(n: usize) -> usize {
     }
     // `n + 1` cannot overflow: `usize::MAX` is odd, so an even `n` here is
     // at most `MAX - 1`.
-    let mut candidate = if n % 2 == 0 { n + 1 } else { n };
+    let mut candidate = if n.is_multiple_of(2) { n + 1 } else { n };
     loop {
         if cxx_is_prime(candidate as u64) {
             return candidate;
         }
         // Past the last representable prime the C++ throws `overflow_error`;
         // that needs a table with ~2^63 elements, so saturate instead.
-        candidate = candidate.checked_add(2).unwrap_or(usize::MAX);
+        candidate = candidate.saturating_add(2);
         if candidate == usize::MAX {
             return usize::MAX;
         }
@@ -629,13 +628,13 @@ fn cxx_is_prime(n: u64) -> bool {
         if n == p {
             return true;
         }
-        if n % p == 0 {
+        if n.is_multiple_of(p) {
             return false;
         }
     }
     let mut d = n - 1;
     let mut r = 0u32;
-    while d % 2 == 0 {
+    while d.is_multiple_of(2) {
         d /= 2;
         r += 1;
     }
@@ -717,8 +716,7 @@ fn cxx_regroup(order: &mut Vec<usize>, buckets: usize) {
 /// below 2^24 elements.) Returns whether a rehash regrouped `order`.
 fn cxx_maybe_rehash(order: &mut Vec<usize>, buckets: &mut usize) -> bool {
     if order.len() + 1 > *buckets {
-        let arg = (2 * *buckets + usize::from(!cxx_is_hash_pow2(*buckets)))
-            .max(order.len() + 1);
+        let arg = (2 * *buckets + usize::from(!cxx_is_hash_pow2(*buckets))).max(order.len() + 1);
         let grown = if arg == 1 {
             2
         } else if arg & (arg - 1) != 0 {
@@ -817,14 +815,10 @@ impl CxxSet {
     }
 
     /// `clear`: empties the table but keeps the bucket count.
+    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn clear(&mut self) {
         self.order.clear();
         self.present.clear();
-    }
-
-    /// `*begin()`: the list head, or `None` when empty.
-    fn first(&self) -> Option<&usize> {
-        self.order.first()
     }
 
     fn iter(&self) -> std::slice::Iter<'_, usize> {
@@ -918,6 +912,7 @@ impl<V> CxxMap<V> {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn len(&self) -> usize {
         self.order.len()
     }
@@ -967,6 +962,7 @@ impl<V> CxxMap<V> {
 
     /// C++ `operator[] = value`: overwrites when present, inserts (with the
     /// same order effects) when absent.
+    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn set(&mut self, key: usize, value: V) {
         if let Some(at) = self.index.get(&key) {
             self.order[*at].1 = value;
@@ -984,15 +980,6 @@ impl<V> CxxMap<V> {
             return &mut self.order[at].1;
         }
         let at = self.insert_fresh(key, V::default());
-        &mut self.order[at].1
-    }
-
-    /// `insert` then use: keeps the old value when present.
-    fn get_or_insert(&mut self, key: usize, value: V) -> &mut V {
-        if let Some(&at) = self.index.get(&key) {
-            return &mut self.order[at].1;
-        }
-        let at = self.insert_fresh(key, value);
         &mut self.order[at].1
     }
 
@@ -1043,6 +1030,7 @@ impl<V> CxxMap<V> {
     }
 
     /// `clear`: empties the table but keeps the bucket count.
+    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
     fn clear(&mut self) {
         self.order.clear();
         self.index.clear();
@@ -1057,10 +1045,6 @@ impl<V> CxxMap<V> {
     /// First key in list order (`nextMap.begin()`), or `None` when empty.
     fn first_key(&self) -> Option<&usize> {
         self.order.first().map(|(key, _)| key)
-    }
-
-    fn keys(&self) -> impl Iterator<Item = &usize> {
-        self.order.iter().map(|(key, _)| key)
     }
 }
 
@@ -1126,6 +1110,10 @@ pub struct QuadExtractor<'a> {
     added_connections: BTreeSet<(usize, usize)>,
     half_edges: BTreeSet<(usize, usize)>,
 }
+
+/// A walked cleanup-ladder route: the rungs, the dissolved faces, and the
+/// sink face (`usize::MAX` for a border sink).
+type CleanupRoute = (Vec<(usize, usize)>, BTreeSet<usize>, usize);
 
 impl<'a> QuadExtractor<'a> {
     #[must_use]
@@ -1244,20 +1232,20 @@ impl<'a> QuadExtractor<'a> {
         self.extracted_connection_moved.clear();
         self.extracted_connections.reserve(connections.len());
         let mut triangle_moved = Vec::new();
-        if let Some(original) = self.original_triangle_uvs {
-            if original.len() == self.triangle_uvs.len() {
-                triangle_moved = vec![0u8; self.triangle_uvs.len()];
-                for (i, moved) in triangle_moved.iter_mut().enumerate() {
-                    let before = &original[i];
-                    let after = &self.triangle_uvs[i];
-                    for k in 0..3 {
-                        if k >= before.len() || k >= after.len() {
-                            break;
-                        }
-                        if before[k].x() != after[k].x() || before[k].y() != after[k].y() {
-                            *moved = 1;
-                            break;
-                        }
+        if let Some(original) = self.original_triangle_uvs
+            && original.len() == self.triangle_uvs.len()
+        {
+            triangle_moved = vec![0u8; self.triangle_uvs.len()];
+            for (i, moved) in triangle_moved.iter_mut().enumerate() {
+                let before = &original[i];
+                let after = &self.triangle_uvs[i];
+                for k in 0..3 {
+                    if k >= before.len() || k >= after.len() {
+                        break;
+                    }
+                    if before[k].x() != after[k].x() || before[k].y() != after[k].y() {
+                        *moved = 1;
+                        break;
                     }
                 }
             }
@@ -1294,30 +1282,15 @@ impl<'a> QuadExtractor<'a> {
         if Self::remove_single_endpoints(&mut cross_points, &mut edge_connect_map) {
             Self::simplify_graph(&mut edge_connect_map);
         }
-        // TEMP-TRACE (remove before finish).
-        if std::env::var("QE_TRACE").is_ok() {
-            eprintln!("TRACE collapse_graph: {} nodes", edge_connect_map.len());
-            for (node, neighbors) in &edge_connect_map {
-                eprintln!("TRACE   {node}: {:?}", neighbors.order);
-            }
-            for (i, v) in cross_points.iter().enumerate() {
-                eprintln!("TRACE   xp{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
-            }
-        }
-
         self.diagnose(|| "Extract edges done\n".to_string());
 
         self.report(0.25, "Extracting mesh");
         self.diagnose(|| "Extract mesh...\n".to_string());
         self.extract_mesh(cross_points, cross_point_source_triangles, edge_connect_map);
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "extract_mesh");
         self.diagnose(|| "Extract mesh done\n".to_string());
 
         self.report(0.29, "Fixing holes");
         self.fix_holes();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "fix_holes1");
 
         self.report(0.30, "Removing non-manifold faces");
         let mut changed = false;
@@ -1332,8 +1305,6 @@ impl<'a> QuadExtractor<'a> {
         if changed {
             self.rebuild_half_edges();
             self.fix_holes();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "fix_holes");
         }
 
         {
@@ -1362,25 +1333,17 @@ impl<'a> QuadExtractor<'a> {
         self.report(0.31, "Smoothing and projecting");
         self.diagnose(|| "Smooth and project...\n".to_string());
         self.smooth_and_project(5, None);
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "smooth");
         self.diagnose(|| "Smooth and project done\n".to_string());
 
         self.report(0.44, "Splitting seven edge faces");
         self.split_seven_edge_faces();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "split_seven");
         self.report(0.45, "Splitting six edge faces");
         self.split_six_edge_faces();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "split_six");
         // A pentagon is the best place for a triangle to end up, it comes
         // out of the collapse as a quad, so the triangles run first and the
         // merge takes care of whatever pentagons are left over
         self.report(0.46, "Cleaning up triangles");
         self.cleanup_triangles();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "cleanup_tris");
         self.report(0.53, "Merging shared five edge faces");
         // Restructure: the C++ builds a remapping closure borrowing the
         // outer handler while calling a `&mut self` method; the mirror
@@ -1406,42 +1369,24 @@ impl<'a> QuadExtractor<'a> {
         } else {
             self.merge_shared_five_edge_faces(None);
         }
-        // TEMP-TRACE2 (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "merge_five");
         // Runs last, it only reconnects quad pairs, so it wants the
         // triangles and pentagons to have become quads already
         self.report(0.85, "Switching high valence edges");
         self.switch_high_valence_edges();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "switch_high");
         self.report(0.89, "Converting triangle and five edge fans");
         self.convert_triangle_and_five_edge_fans();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "convert_fans");
         self.report(0.93, "Collapsing three valence diagonals");
         self.collapse_three_valence_diagonals();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "collapse_diag");
         self.report(0.95, "Merging double shared edge quads");
         self.merge_double_shared_edge_quads();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "merge_double");
         self.report(0.96, "Merging three and five valence triangles");
         self.merge_three_and_five_valence_triangles();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "merge_35");
         self.report(0.97, "Collapsing three valence corners");
         self.collapse_three_valence_corners();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "collapse_corners");
         self.report(0.98, "Splitting high valence triangle fans");
         self.split_high_valence_triangle_fans();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "split_fans");
         self.report(0.99, "Collapsing three valence edge pairs");
         self.collapse_three_valence_edge_pairs();
-        // TEMP-TRACE (remove before finish).
-        Self::trace_stage(&self.remeshed_vertices, &self.remeshed_polygons, "collapse_pairs");
         self.report(1.0, "");
 
         // Pure post-pass over the final positions: reads m_remeshedVertices,
@@ -1451,20 +1396,6 @@ impl<'a> QuadExtractor<'a> {
         }
 
         true
-    }
-
-    // TEMP-TRACE helper (remove before finish).
-    fn trace_stage(vertices: &[Vector3], faces: &[Vec<usize>], name: &str) {
-        if std::env::var("QE_TRACE").is_err() {
-            return;
-        }
-        eprintln!("TRACE stage {name}: {}v {}f", vertices.len(), faces.len());
-        for (i, v) in vertices.iter().enumerate() {
-            eprintln!("TRACE   v{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
-        }
-        for f in faces {
-            eprintln!("TRACE   f{f:?}");
-        }
     }
 
     fn extract_edges(
@@ -1546,10 +1477,7 @@ impl<'a> QuadExtractor<'a> {
         }
         for endpoint in endpoints {
             let mut loop_index = endpoint;
-            loop {
-                let Some(neighbors) = edge_connect_map.get(&loop_index) else {
-                    break;
-                };
+            while let Some(neighbors) = edge_connect_map.get(&loop_index) {
                 if neighbors.len() != 1 {
                     break;
                 }
@@ -1661,31 +1589,10 @@ impl<'a> QuadExtractor<'a> {
         }
         let average_edge_length = total_length / edge_count as f64;
         let collapsed_length = average_edge_length * 0.01;
-        // TEMP-TRACE: collapse threshold forensics (remove before finish).
-        if std::env::var("QE_TRACE").is_ok() {
-            eprintln!(
-                "TRACE collapse_short: total={:?} avg={:?} thresh={:?} edges={}",
-                total_length, average_edge_length, collapsed_length, edge_count
-            );
-            for (edge, length) in &edge_lengths {
-                let d = (length - collapsed_length).abs();
-                if d < 1e-9 {
-                    eprintln!(
-                        "TRACE   edge {edge:?} len={length:?} (dthresh={d:.3e}) p0={:?} p1={:?}",
-                        (cross_points[edge.0].x(), cross_points[edge.0].y()),
-                        (cross_points[edge.1].x(), cross_points[edge.1].y()),
-                    );
-                }
-            }
-        }
         let mut collapsed = false;
         for (edge, length) in &edge_lengths {
             if *length > collapsed_length {
                 continue;
-            }
-            // TEMP-TRACE (remove before finish).
-            if std::env::var("QE_TRACE").is_ok() {
-                eprintln!("TRACE   COLLAPSE {edge:?} len={length:?}");
             }
             Self::collapse_edge(cross_points, edge_connect_map, *edge);
             collapsed = true;
@@ -1751,11 +1658,7 @@ impl<'a> QuadExtractor<'a> {
         normals.normalized()
     }
 
-    fn ring_side(
-        points: &[Vector3],
-        triangle_normals: &CxxMap<Vector3>,
-        corners: &[usize],
-    ) -> i32 {
+    fn ring_side(points: &[Vector3], triangle_normals: &CxxMap<Vector3>, corners: &[usize]) -> i32 {
         let ring_normal = Self::ring_face_normal(points, corners);
         let mut original_normal = Vector3::default();
         for it in corners {
@@ -2236,10 +2139,8 @@ impl<'a> QuadExtractor<'a> {
                             if ratio < 0.0 || ratio > 1.0 {
                                 continue;
                             }
-                            if is_zero(ratio) || is_zero(ratio - 1.0) {
-                                if edge_collapsed[i][j] {
-                                    continue;
-                                }
+                            if (is_zero(ratio) || is_zero(ratio - 1.0)) && edge_collapsed[i][j] {
+                                continue;
                             }
                             let point = CrossPoint {
                                 // Unfused operator lerp (see module FMA note).
@@ -2411,12 +2312,18 @@ impl<'a> QuadExtractor<'a> {
         connection_infos.remove(&crossing_edge);
         // C++ `operator[]` + erase (both endpoints are present: the branch
         // map tracks `connections` exactly).
-        branches_of_point.get_or_default(edge_first).remove(&edge_second);
-        branches_of_point.get_or_default(edge_second).remove(&edge_first);
+        branches_of_point
+            .get_or_default(edge_first)
+            .remove(&edge_second);
+        branches_of_point
+            .get_or_default(edge_second)
+            .remove(&edge_first);
         for endpoint in [edge_first, edge_second] {
             connections.insert((endpoint, new_point_index));
             connection_infos.insert(Self::edge_of(endpoint, new_point_index), info);
-            branches_of_point.get_or_default(endpoint).insert(new_point_index);
+            branches_of_point
+                .get_or_default(endpoint)
+                .insert(new_point_index);
             branches_of_point
                 .get_or_default(new_point_index)
                 .insert(endpoint);
@@ -2473,7 +2380,7 @@ impl<'a> QuadExtractor<'a> {
     ) -> usize {
         let mut nearest = usize::MAX;
         let mut nearest_distance = nearby_radius;
-        for (edge, _) in local_edges {
+        for edge in local_edges.keys() {
             for endpoint in [edge.0, edge.1] {
                 if behind_points.contains(&endpoint) {
                     continue;
@@ -2546,6 +2453,8 @@ impl<'a> QuadExtractor<'a> {
             } else {
                 b.mul_add(c, -d) / denominator
             };
+            // Manual clamp like the C++ (NaN passes through on both sides).
+            #[allow(clippy::manual_clamp)]
             if edge_ratio < 0.0 {
                 edge_ratio = 0.0;
             } else if edge_ratio > 1.0 {
@@ -3057,11 +2966,11 @@ impl<'a> QuadExtractor<'a> {
                     continue;
                 }
                 let mut remain_points = Vec::new();
-                for w in 0..hole.len() {
+                for (w, point) in hole.iter().enumerate() {
                     if w == i || w == j || w == h || w == k {
                         continue;
                     }
-                    remain_points.push(hole[w]);
+                    remain_points.push(*point);
                 }
                 if Self::test_point_in_triangle(
                     &self.remeshed_vertices,
@@ -3084,11 +2993,11 @@ impl<'a> QuadExtractor<'a> {
                 self.record_half_edges_of_last_polygon();
 
                 let mut new_hole = Vec::new();
-                for w in 0..hole.len() {
+                for (w, point) in hole.iter().enumerate() {
                     if w == i || w == j {
                         continue;
                     }
-                    new_hole.push(hole[w]);
+                    new_hole.push(*point);
                 }
                 *hole = new_hole;
                 hole_changed = true;
@@ -3176,7 +3085,7 @@ impl<'a> QuadExtractor<'a> {
         let mut edge_to_face_map = BTreeMap::new();
         MeshSeparator::build_edge_to_face_map(&self.remeshed_polygons, &mut edge_to_face_map);
         let mut vertex_open_boundary_count_map: BTreeMap<usize, usize> = BTreeMap::new();
-        for (edge, _) in &edge_to_face_map {
+        for edge in edge_to_face_map.keys() {
             if edge_to_face_map.contains_key(&(edge.1, edge.0)) {
                 continue;
             }
@@ -3208,8 +3117,8 @@ impl<'a> QuadExtractor<'a> {
     fn smooth_and_project(
         &mut self,
         iterations: usize,
-        // TEMP-SWAP (flip to `Option<&CxxSet>` with smooth_around_vertices in
-        // the last chunk; membership-only use is already exact).
+        // `BTreeSet`: membership-only use (`contains`, `is_empty`),
+        // exact for the C++ `unordered_set` (container audit).
         movable_vertices: Option<&BTreeSet<usize>>,
     ) {
         if 0 == iterations
@@ -3270,7 +3179,7 @@ impl<'a> QuadExtractor<'a> {
         // Average quad edge length drives the initial search radius
         let mut total_edge_length = 0.0;
         let mut edge_num = 0;
-        for (edge, _) in &edge_use_count {
+        for edge in edge_use_count.keys() {
             total_edge_length +=
                 (self.remeshed_vertices[edge.0] - self.remeshed_vertices[edge.1]).length();
             edge_num += 1;
@@ -3288,11 +3197,7 @@ impl<'a> QuadExtractor<'a> {
         // is independent and the parallel result is the same as the serial
         // one. (Restructure: serial loops for `tbb::parallel_for`.)
         const SMOOTH_FACTOR: f64 = 0.5;
-        for iteration in 0..iterations {
-            // TEMP-TRACE (remove before finish).
-            if std::env::var("QE_TRACE_SMOOTH").is_ok() {
-                eprintln!("TRACE smooth iter {iteration} locked={locked:?}");
-            }
+        for _ in 0..iterations {
             let mut smoothed_vertices = self.remeshed_vertices.clone();
             for (i, smoothed) in smoothed_vertices.iter_mut().enumerate() {
                 if locked[i] || neighbors[i].is_empty() {
@@ -3314,15 +3219,6 @@ impl<'a> QuadExtractor<'a> {
                 if locked[i] || neighbors[i].is_empty() {
                     continue;
                 }
-                // TEMP-TRACE (remove before finish).
-                if std::env::var("QE_TRACE_SMOOTH").is_ok() {
-                    eprintln!(
-                        "TRACE   pre-proj v{i} {:?} {:?} {:?}",
-                        smoothed_vertices[i].x(),
-                        smoothed_vertices[i].y(),
-                        smoothed_vertices[i].z()
-                    );
-                }
                 if let Some(projected) = Self::project_to_target_mesh(
                     self.vertices,
                     self.triangles,
@@ -3331,12 +3227,6 @@ impl<'a> QuadExtractor<'a> {
                     smoothed_vertices[i],
                 ) {
                     smoothed_vertices[i] = projected;
-                }
-            }
-            // TEMP-TRACE (remove before finish).
-            if std::env::var("QE_TRACE_SMOOTH").is_ok() {
-                for (i, v) in smoothed_vertices.iter().enumerate() {
-                    eprintln!("TRACE   post v{i} {:?} {:?} {:?}", v.x(), v.y(), v.z());
                 }
             }
             self.remeshed_vertices = smoothed_vertices;
@@ -3442,7 +3332,7 @@ impl<'a> QuadExtractor<'a> {
             return;
         }
         let average_edge_length = total_edge_length / edge_num as f64;
-        if !(average_edge_length > 0.0) {
+        if average_edge_length <= 0.0 {
             return;
         }
 
@@ -3475,6 +3365,8 @@ impl<'a> QuadExtractor<'a> {
                 &self.vertices[triangle[1]],
                 &self.vertices[triangle[2]],
             );
+            // `!(area > ...)` like the C++ (NaN takes this arm on both sides).
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
             if !(area > 1e-18) {
                 *uv = Vector2::new(
                     (corner_uvs[0].x() + corner_uvs[1].x() + corner_uvs[2].x()) / 3.0,
@@ -5965,7 +5857,7 @@ impl<'a> QuadExtractor<'a> {
         edge_faces: &BTreeMap<(usize, usize), Vec<usize>>,
         start_face: usize,
         start_edge: (usize, usize),
-    ) -> Option<(Vec<(usize, usize)>, BTreeSet<usize>, usize)> {
+    ) -> Option<CleanupRoute> {
         const MAX_ROUTE_LENGTH: usize = 20;
         const NO_FACE: usize = usize::MAX;
 
@@ -6920,11 +6812,7 @@ mod cxx_hash_tests {
                     }
                     "E" => {
                         let key = parse_usize(op[2]);
-                        assert_eq!(
-                            set.remove(&key),
-                            flag(op[3], "erased="),
-                            "line: {line}"
-                        );
+                        assert_eq!(set.remove(&key), flag(op[3], "erased="), "line: {line}");
                     }
                     "EI" => {
                         let pos = parse_usize(op[2]);
@@ -7040,8 +6928,7 @@ mod cxx_hash_tests {
                         let snap = &map_snaps[id];
                         assert_eq!(snap.buckets, bc, "line: {line}");
                         assert_eq!(snap.len(), n, "line: {line}");
-                        let pairs: Vec<(usize, usize)> =
-                            snap.order.iter().copied().collect();
+                        let pairs: Vec<(usize, usize)> = snap.order.to_vec();
                         assert_eq!(pairs, parse_order_map(tail), "line: {line}");
                         continue;
                     }
@@ -7054,8 +6941,7 @@ mod cxx_hash_tests {
                         }
                         assert_eq!(fresh.buckets, bc, "line: {line}");
                         assert_eq!(fresh.len(), n, "line: {line}");
-                        let pairs: Vec<(usize, usize)> =
-                            fresh.order.iter().copied().collect();
+                        let pairs: Vec<(usize, usize)> = fresh.order.to_vec();
                         assert_eq!(pairs, parse_order_map(tail), "line: {line}");
                         continue;
                     }
@@ -7063,7 +6949,7 @@ mod cxx_hash_tests {
                 }
                 assert_eq!(map.buckets, bc, "line: {line}");
                 assert_eq!(map.len(), n, "line: {line}");
-                let pairs: Vec<(usize, usize)> = map.order.iter().copied().collect();
+                let pairs: Vec<(usize, usize)> = map.order.to_vec();
                 assert_eq!(pairs, parse_order_map(tail), "line: {line}");
             }
         }
@@ -7127,7 +7013,9 @@ mod cxx_hash_tests {
         let keys: Vec<usize> = map.order.iter().map(|(k, _)| *k).collect();
         assert_eq!(
             keys,
-            vec![57, 54, 51, 48, 45, 42, 39, 36, 33, 30, 27, 24, 21, 18, 15, 12, 9, 6, 3, 0]
+            vec![
+                57, 54, 51, 48, 45, 42, 39, 36, 33, 30, 27, 24, 21, 18, 15, 12, 9, 6, 3, 0
+            ]
         );
         // 999 lands in 33's chain (both = 10 mod 23): ahead of 33.
         map.set(999, 5);
