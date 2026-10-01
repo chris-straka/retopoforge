@@ -328,3 +328,9 @@ and QtAwesome deleted as dead code before the removal.
       then isotropic/param/extract stages via scratch intermediate
       dumps; compare geometric fidelity (Hausdorff-ish), not just
       counts. Bug -> fix + re-verify; mode -> document + keep.
+      Data point (CI run 36846299121): Rust-on-Linux gives 772 on
+      beast/tiny (vs 680 mac-Rust, 779 mac-C++, 790 linux-C++) — three
+      cluster 772-790, mac-Rust alone at 680. FP-provenance cliff
+      (platform libm) is a live hypothesis alongside port bug; the
+      lane must determine which. Linux baseline re-pointed at
+      Rust-on-Linux actuals (same pending-verdict disclosure).
