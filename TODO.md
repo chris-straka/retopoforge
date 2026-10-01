@@ -321,7 +321,13 @@ and QtAwesome deleted as dead code before the removal.
       from; sizing-aware rounding exonerated on cube (wall is
       continuous-infeasibility); adaptivity fight quantified; dipole
       insertion still the only structural candidate. See
-      `docs/density-poles-spike.md`.
+      `docs/density-poles-spike.md`. VALIDATED 2026-10-01
+      (`lane/dipole-mechanism`, `docs/dipole-mechanism-spike.md`):
+      env-gated prototype; dipole rings open the continuous gradient
+      (+10% finger-single, dose-responsive) and convert to refinement
+      (4x faceAbs 1.18→1.45, total 0.92→0.99). Follow-up: production
+      placement (auto rings + dose, offset rings for shared
+      boundaries, sliver guards) — not done here.
 - [x] Tetra non-monotonic collapse (research, time-boxed): tiny inputs
       collapse non-monotonically with target count (empty at 8 and 2,
       OK at 4). Probe whether a principled floor exists; report-only

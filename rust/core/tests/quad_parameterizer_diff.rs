@@ -260,6 +260,7 @@ fn differential_replay() {
             fsv_arg,
             Some(&handler),
             sharps_arg,
+            &[],
         );
         if strict {
             strict_cases += 1;

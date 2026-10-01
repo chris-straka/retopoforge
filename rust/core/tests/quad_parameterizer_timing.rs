@@ -67,6 +67,7 @@ fn timing_cover_solve() {
             &[],
             None,
             None,
+            &[],
         );
         assert!(r.is_some(), "warmup solve must succeed");
     }
@@ -94,6 +95,7 @@ fn timing_cover_solve() {
             &[],
             Some(&handler),
             None,
+            &[],
         );
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
         let result = result.expect("timing solve must succeed");
