@@ -177,6 +177,13 @@ target_link_libraries(meshsep_diff_dump PRIVATE retopo_core)
 add_executable(objreader_diff_dump objreader_diff_dump.cpp)
 set_target_properties(objreader_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(objreader_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the position_key Rust port (rs-positionkey lane).
+# Build-only helper (not a ctest test): run it and redirect stdout to
+# tests/fixtures/positionkey_diff.txt for
+# rust/core/tests/position_key_diff.rs.
+add_executable(positionkey_diff_dump positionkey_diff_dump.cpp)
+set_target_properties(positionkey_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(positionkey_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
