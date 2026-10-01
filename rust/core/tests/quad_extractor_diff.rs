@@ -68,6 +68,17 @@ fn parse_cases(text: &str) -> Vec<Case> {
         if line.starts_with("T ") {
             continue;
         }
+        // Container-oracle sections (replayed by the `cxx_hash_oracle` unit
+        // test, not here).
+        if line.starts_with("CXXHASH")
+            || line.starts_with("NEXTPRIME")
+            || line.starts_with("HS ")
+            || line.starts_with("HM ")
+            || line.starts_with("NP ")
+            || line.starts_with("NP_")
+        {
+            continue;
+        }
         let index: usize = parse_usize(line.strip_prefix("CASE ").unwrap());
 
         let n: usize = parse_usize(lines.next().unwrap().strip_prefix("V ").unwrap());

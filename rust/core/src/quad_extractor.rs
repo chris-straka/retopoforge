@@ -7,13 +7,14 @@
 //! Deliberate restructures (all behavior-preserving, each marked at the
 //! site with `// Restructure:`):
 //!
-//! - `std::unordered_map/set` iteration order is hash-bucket order, which
-//!   no Rust map reproduces. Every unordered container here is a
-//!   [`BTreeMap`]/[`BTreeSet`], so iteration is sorted and deterministic
-//!   across runs and platforms. Pure order effects (face order, loop
-//!   discovery order, which endpoint of a collapsed edge survives) are
-//!   absorbed by the oracle's canonical comparison; the report justifies
-//!   each site. Membership/size/lookup behavior is identical.
+//! - `std::unordered_map/set` iteration order is libc++ `__hash_table`
+//!   order, which no stock Rust map reproduces — and the greedy passes
+//!   observe it (collapse survivors, face discovery, neighbor sums), so
+//!   sorted iteration diverges structurally. Every unordered container here
+//!   is a `CxxSet`/`CxxMap` (exact order emulation, proved by the
+//!   `cxx_hash_oracle` unit test against the fixture's CXXHASH section).
+//!   Containers mirroring `std::map`/`std::set` stay
+//!   [`BTreeMap`]/[`BTreeSet`] (same sorted order as the C++).
 //! - C++ erases from maps/sets while iterating (`simplifyGraph`,
 //!   `smoothAroundVertices`) and default-inserts on `operator[]` reads;
 //!   Rust collects keys first, then mutates, and reads through `get` with
@@ -524,6 +525,562 @@ impl<'a> AxisAlignedBoxTree<'a> {
         pairs: &mut Vec<(usize, usize)>,
     ) {
         Self::test_nodes(&self.root, self.boxes, &second.root, second_boxes, pairs);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inline emulation of libc++ `unordered_set<size_t>` / `unordered_map<size_t, V>`
+// iteration order. Every container below that mirrors a C++ unordered container
+// is a [`CxxSet`]/[`CxxMap`]; containers mirroring `std::map`/`std::set` stay
+// [`BTreeMap`]/[`BTreeSet`].
+//
+// Why: the extractor's greedy passes (collapse survivor selection, face
+// discovery order in `extract_mesh`, neighbor summation order in
+// `smooth_and_project`, first-come-wins tiling) observe unordered iteration
+// order, so sorted iteration diverges structurally from the C++ (83/227
+// fixture cases diverge before `extract_mesh` even runs). The emulation
+// reproduces libc++ `__hash_table` order bit-for-bit; see `cxx_hash_oracle`
+// below, proved against the CXXHASH + NEXTPRIME fixture sections.
+//
+// Rules (from brew LLVM 23 `__hash_table`, each cited; all keys here are
+// `size_t`, hashed by identity — `__scalar_hash<size_t, 1>`):
+//
+// - A table is a node list (iteration order) plus a bucket count. New keys
+//   go immediately before their bucket chain's first node, or at the list
+//   front when the chain is empty (`__emplace_unique`: "insert_after
+//   __bucket_list_[__chash], or __first_node if bucket is null").
+// - Bucket index is `__constrain_hash`: mask when the count is a power of
+//   two, modulo otherwise.
+// - A rehash regroups in place: nodes met out of chain order are spliced to
+//   the front of their chain (`__do_rehash`, unique-keys path). It triggers
+//   on insert when `size + 1 > buckets * max_load` (load factor 1, never
+//   changed) with the new count `next_prime(max(2 * buckets + 1, size + 1))`
+//   (`2` for a fresh table). Erase never rehashes.
+// - Erase unlinks (`remove`); survivors keep order. `clear` keeps the bucket
+//   count. Copies preserve list order and the count (`__copy_construct`),
+//   EXCEPT copies of empty tables, which come out fresh (`bc == 0`): the
+//   copy ctor early-returns before allocating buckets when size is 0.
+// - `std::__next_prime` is the true smallest-prime-`>=`-n function (probed
+//   densely to 300000 plus tail values; the dylib throws past the last
+//   representable prime, which needs a 2^63-element table and is
+//   unreachable — the mirror saturates there, documented at the site).
+//
+// Bounds: float/int exactness below 2^24 elements (`size + 1 > bc * 1.0f`
+// in the C++); every container here holds hundreds of entries at most.
+// `u64`/`usize` are interchangeable below (LP64, like `PositionKey`).
+//
+// Deliberately missing `insert`/`entry` on [`CxxMap`]: `BTreeMap::insert`
+// overwrites while C++ `insert` keeps the old value, so every map write
+// site names its C++ counterpart explicitly (`insert_new` keeps,
+// `set`/`get_or_default`/`get_or_insert` overwrite-or-insert).
+// ---------------------------------------------------------------------------
+
+/// `std::__constrain_hash`, literal (the `bc == 0` arm yields `h`, exactly
+/// like the C++; unreachable here — every caller rehashes from 0 first).
+#[inline]
+fn cxx_constrain_hash(hash: usize, buckets: usize) -> usize {
+    if buckets & buckets.wrapping_sub(1) == 0 {
+        hash & buckets.wrapping_sub(1)
+    } else if hash < buckets {
+        hash
+    } else {
+        hash % buckets
+    }
+}
+
+/// `std::__is_hash_power2`, literal.
+#[inline]
+fn cxx_is_hash_pow2(buckets: usize) -> bool {
+    buckets > 2 && buckets & (buckets - 1) == 0
+}
+
+/// Smallest prime `>= n` (`std::__next_prime`, probed; `next_prime(0) == 0`
+/// is a dylib quirk the mirror keeps). Primality is deterministic
+/// Miller-Rabin (7-base set, exact for all `u64`).
+fn cxx_next_prime(n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    if n <= 2 {
+        return 2;
+    }
+    // `n + 1` cannot overflow: `usize::MAX` is odd, so an even `n` here is
+    // at most `MAX - 1`.
+    let mut candidate = if n % 2 == 0 { n + 1 } else { n };
+    loop {
+        if cxx_is_prime(candidate as u64) {
+            return candidate;
+        }
+        // Past the last representable prime the C++ throws `overflow_error`;
+        // that needs a table with ~2^63 elements, so saturate instead.
+        candidate = candidate.checked_add(2).unwrap_or(usize::MAX);
+        if candidate == usize::MAX {
+            return usize::MAX;
+        }
+    }
+}
+
+/// Deterministic Miller-Rabin for `u64` (bases 2, 325, 9375, 28178, 450775,
+/// 9780504, 1795265022 — exact over the full range).
+fn cxx_is_prime(n: u64) -> bool {
+    // Trial division first: exact, and fast for the small counts tables use.
+    const SMALL: [u64; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+    for p in SMALL {
+        if n == p {
+            return true;
+        }
+        if n % p == 0 {
+            return false;
+        }
+    }
+    let mut d = n - 1;
+    let mut r = 0u32;
+    while d % 2 == 0 {
+        d /= 2;
+        r += 1;
+    }
+    const BASES: [u64; 7] = [2, 325, 9375, 28178, 450775, 9780504, 1795265022];
+    'bases: for a in BASES {
+        let a = a % n;
+        if a == 0 {
+            continue;
+        }
+        let mut x = cxx_mod_pow(a, d, n);
+        if x == 1 || x == n - 1 {
+            continue;
+        }
+        for _ in 1..r {
+            x = ((x as u128 * x as u128) % n as u128) as u64;
+            if x == n - 1 {
+                continue 'bases;
+            }
+        }
+        return false;
+    }
+    true
+}
+
+fn cxx_mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
+    let mut result = 1u64;
+    base %= modulus;
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result = ((result as u128 * base as u128) % modulus as u128) as u64;
+        }
+        base = ((base as u128 * base as u128) % modulus as u128) as u64;
+        exp /= 2;
+    }
+    result
+}
+
+/// `__do_rehash` unique-keys path, literal: regroup `order` in place under
+/// the new bucket count. `chain_start` plays `__bucket_list_` (run-start
+/// index per chain; chains stay contiguous, so runs and chains coincide).
+fn cxx_regroup(order: &mut Vec<usize>, buckets: usize) {
+    if order.is_empty() {
+        return;
+    }
+    let mut chain_start: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut previous_hash = cxx_constrain_hash(order[0], buckets);
+    chain_start.insert(previous_hash, 0);
+    let mut i = 1;
+    while i < order.len() {
+        let chained = cxx_constrain_hash(order[i], buckets);
+        if chained == previous_hash {
+            i += 1;
+        } else if !chain_start.contains_key(&chained) {
+            chain_start.insert(chained, i);
+            previous_hash = chained;
+            i += 1;
+        } else {
+            let front = chain_start[&chained];
+            debug_assert!(front < i);
+            let node = order.remove(i);
+            order.insert(front, node);
+            // Refresh run starts over the shifted window only.
+            chain_start.retain(|_, index| *index < front || *index > i);
+            for k in front..=i {
+                if k == 0
+                    || cxx_constrain_hash(order[k], buckets)
+                        != cxx_constrain_hash(order[k - 1], buckets)
+                {
+                    chain_start.insert(cxx_constrain_hash(order[k], buckets), k);
+                }
+            }
+        }
+    }
+}
+
+/// Grow step shared by both containers: mirrors the `size + 1 > bc *
+/// max_load` trigger plus `__rehash_unique(max(2 * bc + !is_pow2(bc),
+/// size + 1))`. (`usize` math is exact here; the C++ float spell agrees
+/// below 2^24 elements.) Returns whether a rehash regrouped `order`.
+fn cxx_maybe_rehash(order: &mut Vec<usize>, buckets: &mut usize) -> bool {
+    if order.len() + 1 > *buckets {
+        let arg = (2 * *buckets + usize::from(!cxx_is_hash_pow2(*buckets)))
+            .max(order.len() + 1);
+        let grown = if arg == 1 {
+            2
+        } else if arg & (arg - 1) != 0 {
+            cxx_next_prime(arg)
+        } else {
+            arg
+        };
+        debug_assert!(grown > *buckets);
+        *buckets = grown;
+        cxx_regroup(order, grown);
+        return true;
+    }
+    false
+}
+
+/// `__emplace_unique` position rule: before the chain's first node, or at
+/// the list front when the chain is empty.
+fn cxx_insert_position(order: &[usize], buckets: usize, key: usize) -> usize {
+    let chained = cxx_constrain_hash(key, buckets);
+    order
+        .iter()
+        .position(|k| cxx_constrain_hash(*k, buckets) == chained)
+        .unwrap_or(0)
+}
+
+/// Emulated `std::unordered_set<size_t>`: `order` is the node list
+/// (iteration order), `present` the membership index, `buckets` the table's
+/// bucket count. Iteration yields list order, like the C++ iterators.
+#[derive(Debug, Default)]
+struct CxxSet {
+    order: Vec<usize>,
+    present: BTreeSet<usize>,
+    buckets: usize,
+}
+
+impl Clone for CxxSet {
+    /// Copy ctor: a copy of an EMPTY table is fresh (`bc == 0`) — the C++
+    /// copy ctor early-returns before allocating buckets when the source
+    /// has no nodes. Non-empty tables keep list order and the count.
+    fn clone(&self) -> Self {
+        if self.order.is_empty() {
+            Self::new()
+        } else {
+            Self {
+                order: self.order.clone(),
+                present: self.present.clone(),
+                buckets: self.buckets,
+            }
+        }
+    }
+}
+
+impl CxxSet {
+    fn new() -> Self {
+        Self {
+            order: Vec::new(),
+            present: BTreeSet::new(),
+            buckets: 0,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
+    fn contains(&self, key: &usize) -> bool {
+        self.present.contains(key)
+    }
+
+    /// C++ `insert`: no-op (returns `false`) when the key is present.
+    fn insert(&mut self, key: usize) -> bool {
+        if self.present.contains(&key) {
+            return false;
+        }
+        cxx_maybe_rehash(&mut self.order, &mut self.buckets);
+        let at = cxx_insert_position(&self.order, self.buckets, key);
+        self.order.insert(at, key);
+        self.present.insert(key);
+        true
+    }
+
+    fn remove(&mut self, key: &usize) -> bool {
+        if !self.present.remove(key) {
+            return false;
+        }
+        // Unlink: survivors keep order, the count never shrinks (`remove`).
+        if let Some(at) = self.order.iter().position(|k| k == key) {
+            debug_assert!(self.order[at] == *key);
+            self.order.remove(at);
+        }
+        true
+    }
+
+    /// `clear`: empties the table but keeps the bucket count.
+    fn clear(&mut self) {
+        self.order.clear();
+        self.present.clear();
+    }
+
+    /// `*begin()`: the list head, or `None` when empty.
+    fn first(&self) -> Option<&usize> {
+        self.order.first()
+    }
+
+    fn iter(&self) -> std::slice::Iter<'_, usize> {
+        self.order.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a CxxSet {
+    type Item = &'a usize;
+    type IntoIter = std::slice::Iter<'a, usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.order.iter()
+    }
+}
+
+impl FromIterator<usize> for CxxSet {
+    /// Range/iterator insert: sequential per-element inserts in order.
+    fn from_iter<I: IntoIterator<Item = usize>>(iter: I) -> Self {
+        let mut set = Self::new();
+        set.extend(iter);
+        set
+    }
+}
+
+impl Extend<usize> for CxxSet {
+    fn extend<I: IntoIterator<Item = usize>>(&mut self, iter: I) {
+        for key in iter {
+            self.insert(key);
+        }
+    }
+}
+
+/// Emulated `std::unordered_map<size_t, V>`: same list/count machine as
+/// [`CxxSet`], with values stored inline so iteration needs no lookup.
+/// There is deliberately no `insert` or `entry` (see the section note);
+/// every write names its C++ counterpart.
+#[derive(Debug, Default)]
+struct CxxMap<V> {
+    order: Vec<(usize, V)>,
+    index: BTreeMap<usize, usize>,
+    buckets: usize,
+}
+
+impl<V: Clone> Clone for CxxMap<V> {
+    /// Copy ctor (see [`CxxSet`]): empty tables copy fresh (`bc == 0`).
+    fn clone(&self) -> Self {
+        if self.order.is_empty() {
+            Self::new()
+        } else {
+            Self {
+                order: self.order.clone(),
+                index: self.index.clone(),
+                buckets: self.buckets,
+            }
+        }
+    }
+}
+
+/// Borrowed `(key, value)` pairs in list order.
+struct CxxMapIter<'a, V> {
+    inner: std::slice::Iter<'a, (usize, V)>,
+}
+
+impl<'a, V> Iterator for CxxMapIter<'a, V> {
+    type Item = (&'a usize, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(key, value)| (key, value))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<'a, V> ExactSizeIterator for CxxMapIter<'a, V> {}
+
+impl<V> CxxMap<V> {
+    fn new() -> Self {
+        Self {
+            order: Vec::new(),
+            index: BTreeMap::new(),
+            buckets: 0,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
+    fn contains_key(&self, key: &usize) -> bool {
+        self.index.contains_key(key)
+    }
+
+    fn get(&self, key: &usize) -> Option<&V> {
+        self.index.get(key).map(|at| &self.order[*at].1)
+    }
+
+    fn get_mut(&mut self, key: &usize) -> Option<&mut V> {
+        let at = *self.index.get(key)?;
+        Some(&mut self.order[at].1)
+    }
+
+    /// Insert the key at list position `at`, shifting later indices.
+    fn insert_at(&mut self, at: usize, key: usize, value: V) {
+        for slot in self.index.values_mut() {
+            if *slot >= at {
+                *slot += 1;
+            }
+        }
+        self.order.insert(at, (key, value));
+        self.index.insert(key, at);
+    }
+
+    /// The key list, for the shared order helpers.
+    fn key_list(&self) -> Vec<usize> {
+        self.order.iter().map(|(key, _)| *key).collect()
+    }
+
+    /// C++ `insert`/`emplace`: keeps the old value (returns `false`) when
+    /// the key is present.
+    fn insert_new(&mut self, key: usize, value: V) -> bool {
+        if self.index.contains_key(&key) {
+            return false;
+        }
+        self.insert_fresh(key, value);
+        true
+    }
+
+    /// C++ `operator[] = value`: overwrites when present, inserts (with the
+    /// same order effects) when absent.
+    fn set(&mut self, key: usize, value: V) {
+        if let Some(at) = self.index.get(&key) {
+            self.order[*at].1 = value;
+            return;
+        }
+        self.insert_fresh(key, value);
+    }
+
+    /// C++ `operator[]` for read-mutate: default-inserts on absence.
+    fn get_or_default(&mut self, key: usize) -> &mut V
+    where
+        V: Default,
+    {
+        if let Some(&at) = self.index.get(&key) {
+            return &mut self.order[at].1;
+        }
+        let at = self.insert_fresh(key, V::default());
+        &mut self.order[at].1
+    }
+
+    /// `insert` then use: keeps the old value when present.
+    fn get_or_insert(&mut self, key: usize, value: V) -> &mut V {
+        if let Some(&at) = self.index.get(&key) {
+            return &mut self.order[at].1;
+        }
+        let at = self.insert_fresh(key, value);
+        &mut self.order[at].1
+    }
+
+    /// Fresh-key insert with the C++ order effects (rehash, then
+    /// front-of-chain placement). The key must be absent. Returns the list
+    /// position the key landed on.
+    fn insert_fresh(&mut self, key: usize, value: V) -> usize {
+        debug_assert!(!self.index.contains_key(&key));
+        let mut keys = self.key_list();
+        if cxx_maybe_rehash(&mut keys, &mut self.buckets) {
+            self.reorder_like(&keys);
+        }
+        let at = cxx_insert_position(&self.key_list(), self.buckets, key);
+        self.insert_at(at, key, value);
+        at
+    }
+
+    /// Reorder value pairs (and the index) to match a regrouped key list.
+    fn reorder_like(&mut self, keys: &[usize]) {
+        debug_assert_eq!(keys.len(), self.order.len());
+        let mut pairs: BTreeMap<usize, (usize, V)> = BTreeMap::new();
+        for (key, value) in std::mem::take(&mut self.order) {
+            pairs.insert(key, (key, value));
+        }
+        let mut reordered = Vec::with_capacity(keys.len());
+        for key in keys {
+            if let Some(pair) = pairs.remove(key) {
+                reordered.push(pair);
+            }
+        }
+        debug_assert!(pairs.is_empty() && reordered.len() == keys.len());
+        self.order = reordered;
+        self.index.clear();
+        for (at, (key, _)) in self.order.iter().enumerate() {
+            self.index.insert(*key, at);
+        }
+    }
+
+    fn remove(&mut self, key: &usize) -> Option<V> {
+        let at = self.index.remove(key)?;
+        debug_assert!(at < self.order.len() && self.order[at].0 == *key);
+        for slot in self.index.values_mut() {
+            if *slot > at {
+                *slot -= 1;
+            }
+        }
+        Some(self.order.remove(at).1)
+    }
+
+    /// `clear`: empties the table but keeps the bucket count.
+    fn clear(&mut self) {
+        self.order.clear();
+        self.index.clear();
+    }
+
+    fn iter(&self) -> CxxMapIter<'_, V> {
+        CxxMapIter {
+            inner: self.order.iter(),
+        }
+    }
+
+    /// First key in list order (`nextMap.begin()`), or `None` when empty.
+    fn first_key(&self) -> Option<&usize> {
+        self.order.first().map(|(key, _)| key)
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &usize> {
+        self.order.iter().map(|(key, _)| key)
+    }
+}
+
+impl<'a, V> IntoIterator for &'a CxxMap<V> {
+    type Item = (&'a usize, &'a V);
+    type IntoIter = CxxMapIter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<V> FromIterator<(usize, V)> for CxxMap<V> {
+    /// Range/iterator insert: sequential per-element inserts in order.
+    fn from_iter<I: IntoIterator<Item = (usize, V)>>(iter: I) -> Self {
+        let mut map = Self::new();
+        map.extend(iter);
+        map
+    }
+}
+
+impl<V> Extend<(usize, V)> for CxxMap<V> {
+    fn extend<I: IntoIterator<Item = (usize, V)>>(&mut self, iter: I) {
+        for (key, value) in iter {
+            self.insert_new(key, value);
+        }
     }
 }
 
@@ -6271,4 +6828,340 @@ fn closest_point_on_triangle(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> 
     let v = vb / denom;
     let w = vc / denom;
     add_two_scaled_vec3(a, ab, v, ac, w)
+}
+
+#[cfg(test)]
+mod cxx_hash_tests {
+    //! Differential oracle for the [`CxxSet`]/[`CxxMap`] emulation: replays
+    //! the fixture's CXXHASH op log (bucket count, size, and full iteration
+    //! order asserted after every op) and validates [`cxx_next_prime`]
+    //! against the NEXTPRIME ranges. `cxx_hash_chains` pins the
+    //! front-of-chain rule directly (values from the libc++ probe).
+
+    use super::*;
+
+    const FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/quadextractor_diff.txt"
+    );
+
+    fn parse_usize(token: &str) -> usize {
+        token.parse::<usize>().unwrap()
+    }
+
+    /// Split an op line at `=>` into (op tokens, `bc`, `n`, raw order tail).
+    fn split_state(line: &str) -> (Vec<&str>, usize, usize, &str) {
+        let (op, state) = line.split_once("=>").unwrap();
+        let op: Vec<&str> = op.split_whitespace().collect();
+        let state: Vec<&str> = state.split_whitespace().collect();
+        assert_eq!(state.len(), 3, "bad state: {line}");
+        let bc = parse_usize(state[0].strip_prefix("bc=").unwrap());
+        let n = parse_usize(state[1].strip_prefix("n=").unwrap());
+        let order = state[2].strip_prefix("order=").unwrap();
+        (op, bc, n, order)
+    }
+
+    fn parse_order_set(tail: &str) -> Vec<usize> {
+        if tail.is_empty() {
+            Vec::new()
+        } else {
+            tail.split(',').map(parse_usize).collect()
+        }
+    }
+
+    fn parse_order_map(tail: &str) -> Vec<(usize, usize)> {
+        if tail.is_empty() {
+            Vec::new()
+        } else {
+            tail.split(',')
+                .map(|pair| {
+                    let (k, v) = pair.split_once(':').unwrap();
+                    (parse_usize(k), parse_usize(v))
+                })
+                .collect()
+        }
+    }
+
+    fn flag(token: &str, name: &str) -> bool {
+        token.strip_prefix(name).unwrap() == "1"
+    }
+
+    #[test]
+    fn cxx_hash_oracle() {
+        let text = std::fs::read_to_string(FIXTURE).unwrap();
+        let mut section = "";
+        let mut set = CxxSet::new();
+        let mut map = CxxMap::new();
+        let mut set_snaps: Vec<CxxSet> = Vec::new();
+        let mut map_snaps: Vec<CxxMap<usize>> = Vec::new();
+        let mut set_ops = 0;
+        let mut map_ops = 0;
+        for line in text.lines() {
+            match line {
+                "CXXHASH_BEGIN" => section = "hash",
+                "CXXHASH_END" => section = "",
+                "NEXTPRIME_BEGIN" => section = "prime",
+                "NEXTPRIME_END" => section = "",
+                _ => {}
+            }
+            if section != "hash" || (!line.starts_with("HS ") && !line.starts_with("HM ")) {
+                continue;
+            }
+            let (op, bc, n, tail) = split_state(line);
+            if op[0] == "HS" {
+                set_ops += 1;
+                match op[1] {
+                    "I" => {
+                        let key = parse_usize(op[2]);
+                        assert_eq!(set.insert(key), flag(op[3], "ins="), "line: {line}");
+                    }
+                    "E" => {
+                        let key = parse_usize(op[2]);
+                        assert_eq!(
+                            set.remove(&key),
+                            flag(op[3], "erased="),
+                            "line: {line}"
+                        );
+                    }
+                    "EI" => {
+                        let pos = parse_usize(op[2]);
+                        assert!(pos < set.order.len(), "line: {line}");
+                        let key = parse_usize(op[3].strip_prefix("key=").unwrap());
+                        assert_eq!(set.order[pos], key, "line: {line}");
+                        assert!(set.remove(&key), "line: {line}");
+                        let next = op[4].strip_prefix("next=").unwrap();
+                        if next == "END" {
+                            assert_eq!(set.order.len(), pos, "line: {line}");
+                        } else {
+                            assert_eq!(set.order[pos], parse_usize(next), "line: {line}");
+                        }
+                    }
+                    "C" => set.clear(),
+                    "HAS" => {
+                        let key = parse_usize(op[2]);
+                        assert_eq!(set.contains(&key), flag(op[3], "has="), "line: {line}");
+                    }
+                    "SNAP" => {
+                        let id = parse_usize(op[2]);
+                        assert_eq!(id, set_snaps.len(), "line: {line}");
+                        set_snaps.push(set.clone());
+                    }
+                    "CHECK" => {
+                        let id = parse_usize(op[2]);
+                        let snap = &set_snaps[id];
+                        assert_eq!(snap.buckets, bc, "line: {line}");
+                        assert_eq!(snap.len(), n, "line: {line}");
+                        assert_eq!(snap.order, parse_order_set(tail), "line: {line}");
+                        continue;
+                    }
+                    "RANGE" | "INIT" => {
+                        let count = parse_usize(op[2]);
+                        let elems: Vec<usize> =
+                            op[3..3 + count].iter().map(|t| parse_usize(t)).collect();
+                        let fresh: CxxSet = elems.into_iter().collect();
+                        assert_eq!(fresh.buckets, bc, "line: {line}");
+                        assert_eq!(fresh.len(), n, "line: {line}");
+                        assert_eq!(fresh.order, parse_order_set(tail), "line: {line}");
+                        continue;
+                    }
+                    _ => panic!("unknown set op: {line}"),
+                }
+                assert_eq!(set.buckets, bc, "line: {line}");
+                assert_eq!(set.len(), n, "line: {line}");
+                assert_eq!(set.order, parse_order_set(tail), "line: {line}");
+            } else {
+                map_ops += 1;
+                match op[1] {
+                    "I" => {
+                        let key = parse_usize(op[2]);
+                        let value = parse_usize(op[3]);
+                        assert_eq!(
+                            map.insert_new(key, value),
+                            flag(op[4], "ins="),
+                            "line: {line}"
+                        );
+                    }
+                    "BSET" => {
+                        map.set(parse_usize(op[2]), parse_usize(op[3]));
+                    }
+                    "BADD" => {
+                        let key = parse_usize(op[2]);
+                        let delta = parse_usize(op[3]);
+                        *map.get_or_default(key) += delta;
+                        let want = parse_usize(op[4].strip_prefix("val=").unwrap());
+                        assert_eq!(map.get(&key).copied(), Some(want), "line: {line}");
+                    }
+                    "BREAD" => {
+                        let key = parse_usize(op[2]);
+                        let want = parse_usize(op[3].strip_prefix("val=").unwrap());
+                        assert_eq!(*map.get_or_default(key), want, "line: {line}");
+                    }
+                    "E" => {
+                        let key = parse_usize(op[2]);
+                        assert_eq!(
+                            map.remove(&key).is_some(),
+                            flag(op[3], "erased="),
+                            "line: {line}"
+                        );
+                    }
+                    "EI" => {
+                        let pos = parse_usize(op[2]);
+                        assert!(pos < map.order.len(), "line: {line}");
+                        let key = parse_usize(op[3].strip_prefix("key=").unwrap());
+                        assert_eq!(map.order[pos].0, key, "line: {line}");
+                        assert!(map.remove(&key).is_some(), "line: {line}");
+                        let next = op[4].strip_prefix("next=").unwrap();
+                        if next == "END" {
+                            assert_eq!(map.order.len(), pos, "line: {line}");
+                        } else {
+                            assert_eq!(map.order[pos].0, parse_usize(next), "line: {line}");
+                        }
+                    }
+                    "C" => map.clear(),
+                    "FIND" => {
+                        let key = parse_usize(op[2]);
+                        if flag(op[3], "found=") {
+                            let want = parse_usize(op[4].strip_prefix("val=").unwrap());
+                            assert_eq!(map.get(&key).copied(), Some(want), "line: {line}");
+                        } else {
+                            assert_eq!(map.get(&key), None, "line: {line}");
+                        }
+                    }
+                    "SNAP" => {
+                        let id = parse_usize(op[2]);
+                        assert_eq!(id, map_snaps.len(), "line: {line}");
+                        map_snaps.push(map.clone());
+                    }
+                    "CHECK" => {
+                        let id = parse_usize(op[2]);
+                        let snap = &map_snaps[id];
+                        assert_eq!(snap.buckets, bc, "line: {line}");
+                        assert_eq!(snap.len(), n, "line: {line}");
+                        let pairs: Vec<(usize, usize)> =
+                            snap.order.iter().copied().collect();
+                        assert_eq!(pairs, parse_order_map(tail), "line: {line}");
+                        continue;
+                    }
+                    "RANGEINS" => {
+                        let count = parse_usize(op[2]);
+                        let mut fresh = CxxMap::new();
+                        for token in &op[3..3 + count] {
+                            let key = parse_usize(token);
+                            fresh.insert_new(key, (key % 100003) * 10 + 1);
+                        }
+                        assert_eq!(fresh.buckets, bc, "line: {line}");
+                        assert_eq!(fresh.len(), n, "line: {line}");
+                        let pairs: Vec<(usize, usize)> =
+                            fresh.order.iter().copied().collect();
+                        assert_eq!(pairs, parse_order_map(tail), "line: {line}");
+                        continue;
+                    }
+                    _ => panic!("unknown map op: {line}"),
+                }
+                assert_eq!(map.buckets, bc, "line: {line}");
+                assert_eq!(map.len(), n, "line: {line}");
+                let pairs: Vec<(usize, usize)> = map.order.iter().copied().collect();
+                assert_eq!(pairs, parse_order_map(tail), "line: {line}");
+            }
+        }
+        assert!(set_ops > 1000, "set ops replayed: {set_ops}");
+        assert!(map_ops > 1000, "map ops replayed: {map_ops}");
+        println!("cxx_hash_oracle: {set_ops} set ops + {map_ops} map ops replayed");
+    }
+
+    #[test]
+    fn cxx_next_prime_oracle() {
+        let text = std::fs::read_to_string(FIXTURE).unwrap();
+        let mut section = "";
+        let mut ranges = 0;
+        let mut tails = 0;
+        for line in text.lines() {
+            match line {
+                "NEXTPRIME_BEGIN" => section = "prime",
+                "NEXTPRIME_END" => section = "",
+                _ => {}
+            }
+            if section != "prime" {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("NP ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                let (lo, hi, p) = (
+                    parse_usize(parts[0]),
+                    parse_usize(parts[1]),
+                    parse_usize(parts[2]),
+                );
+                // `next_prime` is nondecreasing and every range ends at its
+                // prime, so the endpoints prove the whole range.
+                assert_eq!(cxx_next_prime(lo), p, "range {lo}..={hi}");
+                assert_eq!(cxx_next_prime(hi), p, "range {lo}..={hi}");
+                ranges += 1;
+            } else if let Some(rest) = line.strip_prefix("NP_TAIL ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                assert_eq!(
+                    cxx_next_prime(parse_usize(parts[0])),
+                    parse_usize(parts[1]),
+                    "tail {rest}"
+                );
+                tails += 1;
+            }
+        }
+        assert!(ranges > 20000, "ranges checked: {ranges}");
+        assert_eq!(tails, 7, "tails checked: {tails}");
+        assert_eq!(cxx_next_prime(0), 0);
+        println!("cxx_next_prime_oracle: {ranges} ranges + {tails} tails checked");
+    }
+
+    /// Front-of-chain placement, pinned without the fixture (values from the
+    /// libc++ probe: D map20/brackets/copy+ins, E coll12).
+    #[test]
+    fn cxx_hash_chains() {
+        let mut map = CxxMap::new();
+        for i in 0..20 {
+            map.insert_new(i * 3, i * 100);
+        }
+        assert_eq!(map.buckets, 23);
+        let keys: Vec<usize> = map.order.iter().map(|(k, _)| *k).collect();
+        assert_eq!(
+            keys,
+            vec![57, 54, 51, 48, 45, 42, 39, 36, 33, 30, 27, 24, 21, 18, 15, 12, 9, 6, 3, 0]
+        );
+        // 999 lands in 33's chain (both = 10 mod 23): ahead of 33.
+        map.set(999, 5);
+        let keys: Vec<usize> = map.order.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys[8], 999);
+        assert_eq!(keys[9], 33);
+        // 1000 opens a chain with the head (both = 11 mod 23): new head.
+        map.get_or_default(1000);
+        assert_eq!(map.order[0].0, 1000);
+        assert_eq!(map.order[1].0, 57);
+        // Copies preserve order and count; the copy then diverges alone.
+        let mut copy = map.clone();
+        assert_eq!(copy.buckets, map.buckets);
+        copy.set(7, 700);
+        let copy_keys: Vec<usize> = copy.order.iter().map(|(k, _)| *k).collect();
+        let pos33 = copy_keys.iter().position(|k| *k == 33).unwrap();
+        assert_eq!(copy_keys[pos33 + 1], 7);
+        assert_eq!(copy_keys[pos33 + 2], 30);
+        assert!(!map.contains_key(&7));
+        // Collision chain: all multiples of 23 share one chain, newest first.
+        let mut set = CxxSet::new();
+        for i in 0..12 {
+            set.insert(i * 23);
+        }
+        assert_eq!(set.buckets, 23);
+        assert_eq!(
+            set.order,
+            vec![253, 230, 207, 184, 161, 138, 115, 92, 69, 46, 23, 0]
+        );
+        // Erase unlinks; clear keeps the count; reuse continues there.
+        assert!(set.remove(&0));
+        assert!(!set.remove(&999999));
+        assert_eq!(set.buckets, 23);
+        set.clear();
+        assert_eq!(set.buckets, 23);
+        assert!(set.is_empty());
+        set.insert(42);
+        assert_eq!(set.order, vec![42]);
+    }
 }

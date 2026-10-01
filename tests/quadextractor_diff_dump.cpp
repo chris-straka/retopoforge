@@ -16,6 +16,8 @@ import retopo.core.vector3;
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using AutoRemesher::QuadExtractor;
@@ -1831,17 +1833,267 @@ static void timeLarge()
 
 static constexpr int kRandomCases = 200;
 
+// Differential oracle for the libc++ unordered-container emulation
+// (`CxxSet`/`CxxMap` in rust/core/src/quad_extractor.rs). Own splitmix64
+// stream (`h_state`), so case generation above is untouched: regenerating
+// the fixture only appends these sections. The Rust `cxx_hash_oracle` unit
+// test replays every op and asserts bucket count, size, and iteration
+// order after each one.
+static std::uint64_t h_state = 0x9E3779B97F4A7C15ull ^ 0xC0FFEE11ull;
+
+static std::uint64_t hNextU64()
+{
+    std::uint64_t z = (h_state += 0x9E3779B97F4A7C15ull);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+}
+
+static std::uint64_t hBelow(std::uint64_t n)
+{
+    return hNextU64() % n;
+}
+
+// Biased key generator: small keys (rehash traffic), chain-stressing
+// multiples, u64 extremes (identity-hash tail), recent repeats (dups).
+static size_t hKey()
+{
+    std::uint64_t kind = hBelow(100);
+    if (kind < 40)
+        return (size_t)hBelow(64);
+    if (kind < 65)
+        return (size_t)hBelow(2000);
+    if (kind < 80) {
+        size_t mult[] = { 23, 47, 97 };
+        return mult[hBelow(3)] * (size_t)(1 + hBelow(40));
+    }
+    if (kind < 90) {
+        size_t big[] = { (size_t)-1, (size_t)-2, (size_t)1 << 32,
+            ((size_t)1 << 32) + 7, (size_t)1 << 20, ((size_t)1 << 20) + 13,
+            (size_t)1000000, (size_t)1000003 };
+        return big[hBelow(8)];
+    }
+    return (size_t)(hNextU64() % 32);
+}
+
+static void hDumpSetState(const std::unordered_set<size_t>& s)
+{
+    std::printf(" bc=%zu n=%zu order=", s.bucket_count(), s.size());
+    bool first = true;
+    for (size_t k : s) {
+        std::printf("%s%zu", first ? "" : ",", k);
+        first = false;
+    }
+    std::printf("\n");
+}
+
+static void hDumpMapState(const std::unordered_map<size_t, size_t>& m)
+{
+    std::printf(" bc=%zu n=%zu order=", m.bucket_count(), m.size());
+    bool first = true;
+    for (const auto& [k, v] : m) {
+        std::printf("%s%zu:%zu", first ? "" : ",", k, v);
+        first = false;
+    }
+    std::printf("\n");
+}
+
+static void dumpCxxHash()
+{
+    std::printf("CXXHASH_BEGIN\n");
+    std::unordered_set<size_t> s;
+    std::unordered_map<size_t, size_t> m;
+    std::vector<std::unordered_set<size_t>> setSnaps;
+    std::vector<std::unordered_map<size_t, size_t>> mapSnaps;
+    // Fixed ctor cases first: range/init-list construction with dups,
+    // collisions, and extremes (sequential per-element inserts).
+    {
+        size_t elems[][8] = {
+            { 3, 1, 2, 1, 3, 0, 2, 5 },
+            { 23, 46, 69, 92, 0, 23, 115, 46 },
+            { (size_t)-1, 0, 1, (size_t)-1, 1 << 20, 0, 42, 42 },
+        };
+        for (auto& row : elems) {
+            std::vector<size_t> v(row, row + 8);
+            std::unordered_set<size_t> t(v.begin(), v.end());
+            std::printf("HS RANGE 8 %zu %zu %zu %zu %zu %zu %zu %zu =>",
+                v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+            hDumpSetState(t);
+            std::unordered_set<size_t> u = { v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7] };
+            std::printf("HS INIT 8 %zu %zu %zu %zu %zu %zu %zu %zu =>",
+                v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+            hDumpSetState(u);
+            std::unordered_map<size_t, size_t> tm;
+            for (size_t k : v)
+                tm.insert({ k, (k % 100003) * 10 + 1 });
+            std::printf("HM RANGEINS 8");
+            for (size_t k : v)
+                std::printf(" %zu", k);
+            std::printf(" =>");
+            hDumpMapState(tm);
+        }
+    }
+    for (int step = 0; step < 1200; ++step) {
+        // Cap sizes so full-order dumps stay small; past the cap, erases
+        // dominate (churn coverage, not growth).
+        std::uint64_t op = hBelow(s.size() > 250 ? 100 : 70);
+        if (op < 30) {
+            size_t k = hKey();
+            bool inserted = s.insert(k).second;
+            std::printf("HS I %zu ins=%d =>", k, inserted ? 1 : 0);
+            hDumpSetState(s);
+        } else if (op < 45) {
+            size_t k = hKey();
+            size_t erased = s.erase(k);
+            std::printf("HS E %zu erased=%zu =>", k, erased);
+            hDumpSetState(s);
+        } else if (op < 52 && !s.empty()) {
+            size_t pos = (size_t)(hNextU64() % s.size());
+            auto it = s.begin();
+            for (size_t i = 0; i < pos; ++i)
+                ++it;
+            size_t key = *it;
+            auto next = s.erase(it);
+            if (next == s.end())
+                std::printf("HS EI %zu key=%zu next=END =>", pos, key);
+            else
+                std::printf("HS EI %zu key=%zu next=%zu =>", pos, key, *next);
+            hDumpSetState(s);
+        } else if (op < 55) {
+            s.clear();
+            std::printf("HS C =>");
+            hDumpSetState(s);
+        } else if (op < 62) {
+            size_t k = hKey();
+            bool has = s.contains(k);
+            std::printf("HS HAS %zu has=%d =>", k, has ? 1 : 0);
+            hDumpSetState(s);
+        } else if (op < 66) {
+            setSnaps.push_back(s);
+            std::printf("HS SNAP %zu =>", setSnaps.size() - 1);
+            hDumpSetState(s);
+        } else if (op < 70 && !setSnaps.empty()) {
+            size_t id = (size_t)(hNextU64() % setSnaps.size());
+            std::printf("HS CHECK %zu =>", id);
+            hDumpSetState(setSnaps[id]);
+        } else {
+            // Churn zone (only reachable past the size cap): erase-heavy.
+            size_t k = hKey();
+            size_t erased = s.erase(k);
+            std::printf("HS E %zu erased=%zu =>", k, erased);
+            hDumpSetState(s);
+        }
+    }
+    for (int step = 0; step < 1200; ++step) {
+        std::uint64_t op = hBelow(m.size() > 250 ? 100 : 80);
+        if (op < 25) {
+            size_t k = hKey();
+            size_t v = (size_t)hBelow(100000);
+            bool inserted = m.insert({ k, v }).second;
+            std::printf("HM I %zu %zu ins=%d =>", k, v, inserted ? 1 : 0);
+            hDumpMapState(m);
+        } else if (op < 38) {
+            size_t k = hKey();
+            size_t v = (size_t)hBelow(100000);
+            m[k] = v;
+            std::printf("HM BSET %zu %zu =>", k, v);
+            hDumpMapState(m);
+        } else if (op < 48) {
+            size_t k = hKey();
+            size_t d = 1 + (size_t)hBelow(100);
+            m[k] += d;
+            std::printf("HM BADD %zu %zu val=%zu =>", k, d, m[k]);
+            hDumpMapState(m);
+        } else if (op < 56) {
+            size_t k = hKey();
+            size_t v = m[k];
+            std::printf("HM BREAD %zu val=%zu =>", k, v);
+            hDumpMapState(m);
+        } else if (op < 64) {
+            size_t k = hKey();
+            size_t erased = m.erase(k);
+            std::printf("HM E %zu erased=%zu =>", k, erased);
+            hDumpMapState(m);
+        } else if (op < 70 && !m.empty()) {
+            size_t pos = (size_t)(hNextU64() % m.size());
+            auto it = m.begin();
+            for (size_t i = 0; i < pos; ++i)
+                ++it;
+            size_t key = it->first;
+            auto next = m.erase(it);
+            if (next == m.end())
+                std::printf("HM EI %zu key=%zu next=END =>", pos, key);
+            else
+                std::printf("HM EI %zu key=%zu next=%zu =>", pos, key, next->first);
+            hDumpMapState(m);
+        } else if (op < 73) {
+            m.clear();
+            std::printf("HM C =>");
+            hDumpMapState(m);
+        } else if (op < 77) {
+            size_t k = hKey();
+            auto found = m.find(k);
+            if (found == m.end())
+                std::printf("HM FIND %zu found=0 =>", k);
+            else
+                std::printf("HM FIND %zu found=1 val=%zu =>", k, found->second);
+            hDumpMapState(m);
+        } else if (op < 80) {
+            mapSnaps.push_back(m);
+            std::printf("HM SNAP %zu =>", mapSnaps.size() - 1);
+            hDumpMapState(m);
+        } else if (op < 84 && !mapSnaps.empty()) {
+            size_t id = (size_t)(hNextU64() % mapSnaps.size());
+            std::printf("HM CHECK %zu =>", id);
+            hDumpMapState(mapSnaps[id]);
+        } else {
+            size_t k = hKey();
+            size_t erased = m.erase(k);
+            std::printf("HM E %zu erased=%zu =>", k, erased);
+            hDumpMapState(m);
+        }
+    }
+    std::printf("CXXHASH_END\n");
+}
+
+static void dumpNextPrime()
+{
+    std::printf("NEXTPRIME_BEGIN\n");
+    // Dense ranges: `NP lo hi p` means next_prime(n) == p for lo <= n <= hi.
+    size_t runStart = 0;
+    size_t prev = std::__next_prime(0);
+    for (size_t n = 1; n <= 300000; ++n) {
+        size_t v = std::__next_prime(n);
+        if (v != prev) {
+            std::printf("NP %zu %zu %zu\n", runStart, n - 1, prev);
+            runStart = n;
+            prev = v;
+        }
+    }
+    std::printf("NP %zu 300000 %zu\n", runStart, prev);
+    size_t tails[] = { (size_t)1000000, (size_t)1000003, ((size_t)1 << 32) - 5,
+        ((size_t)1 << 32) + 1, ((size_t)1 << 40), ((size_t)1 << 62),
+        ((size_t)1 << 63) - 100 };
+    for (size_t t : tails)
+        std::printf("NP_TAIL %zu %zu\n", t, std::__next_prime(t));
+    std::printf("NEXTPRIME_END\n");
+}
+
 int main()
 {
     // QX_SEED overrides the RNG seed for coverage experiments; the
     // committed fixture always uses the default seed above.
-    if (const char* seed = std::getenv("QX_SEED"))
+    if (const char* seed = std::getenv("QX_SEED")) {
         g_state = 0x9E3779B97F4A7C15ull ^ (std::uint64_t)std::strtoull(seed, nullptr, 0);
+        h_state = 0x9E3779B97F4A7C15ull ^ (std::uint64_t)std::strtoull(seed, nullptr, 0) ^ 0xC0FFEE11ull;
+    }
     std::printf("QUADEXT1\n");
     size_t index = 0;
     dumpEdgeCases(index);
     for (int i = 0; i < kRandomCases; ++i)
         dumpRandomCase(index++);
     timeLarge();
+    dumpCxxHash();
+    dumpNextPrime();
     return 0;
 }
