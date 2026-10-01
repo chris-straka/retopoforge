@@ -53,7 +53,7 @@ jobs:
         with:
           components: rustfmt
       - name: Check Rust formatting
-        run: cargo fmt --check --manifest-path rust/Cargo.toml
+        run: cargo fmt --all --check --manifest-path rust/Cargo.toml
       - name: Build Rust release binary (bench + e2e product)
         run: cargo build --locked --release --manifest-path rust/Cargo.toml -p retopo
       - name: Check benchmarks
