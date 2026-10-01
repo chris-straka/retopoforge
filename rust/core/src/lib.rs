@@ -16,3 +16,5 @@ pub mod position_key;
 pub mod surface_mesh;
 // Wave 2 lane: rs-density.
 pub mod density;
+// Wave 2 rs-symmetry lane:
+pub mod symmetry;

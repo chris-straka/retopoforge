@@ -190,6 +190,12 @@ target_link_libraries(positionkey_diff_dump PRIVATE retopo_core)
 add_executable(surfacemesh_diff_dump surfacemesh_diff_dump.cpp)
 set_target_properties(surfacemesh_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_link_libraries(surfacemesh_diff_dump PRIVATE retopo_core)
+# Differential oracle dump for the symmetry Rust port (rs-symmetry lane).
+# Build-only helper (not a ctest test): build Release and redirect stdout
+# to tests/fixtures/symmetry_diff.txt for rust/core/tests/symmetry_diff.rs.
+add_executable(symmetry_diff_dump symmetry_diff_dump.cpp)
+set_target_properties(symmetry_diff_dump PROPERTIES CXX_SCAN_FOR_MODULES ON)
+target_link_libraries(symmetry_diff_dump PRIVATE retopo_core)
 
 # Engine follow-ups: per-island output accounting (engine contract + CLI
 # island reporting over a two-box mesh).
