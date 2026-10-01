@@ -1821,13 +1821,7 @@ mod dipole_tests {
     // Sharp step at x = 4.5 (verts with i < 5 dense).
     fn step_density(mesh: &SurfaceMesh, ask: f64) -> Vec<f64> {
         (0..mesh.vertex_count())
-            .map(|v| {
-                if mesh.position(v).x() < 4.5 {
-                    ask
-                } else {
-                    1.0
-                }
-            })
+            .map(|v| if mesh.position(v).x() < 4.5 { ask } else { 1.0 })
             .collect()
     }
 
@@ -1932,7 +1926,10 @@ mod dipole_tests {
             auto,
             "every=1 places the full disjoint set"
         );
-        let thin = DipoleConfig { every: 1000, ..base };
+        let thin = DipoleConfig {
+            every: 1000,
+            ..base
+        };
         let mut r2 = vec![0; mesh.corner_count()];
         assert_eq!(
             insert_dipoles(&mesh, &mut r2, &density, thin),
@@ -1940,7 +1937,10 @@ mod dipole_tests {
             "huge stride places exactly one flip"
         );
         // Sharpness override: an absurd ratio gates everything off.
-        let strict = DipoleConfig { ratio: 100.0, ..base };
+        let strict = DipoleConfig {
+            ratio: 100.0,
+            ..base
+        };
         let mut r3 = vec![0; mesh.corner_count()];
         assert_eq!(insert_dipoles(&mesh, &mut r3, &density, strict), 0);
     }

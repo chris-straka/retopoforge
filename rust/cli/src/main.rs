@@ -766,7 +766,9 @@ fn parse_args(args: &[String], params: &mut Params) -> bool {
             match parse_int(&value, "--dipole-every") {
                 Some(v) if v >= 0 => params.dipoles.every = v as usize,
                 Some(_) => {
-                    eprintln!("Error: --dipole-every expects a non-negative integer, got '{value}'");
+                    eprintln!(
+                        "Error: --dipole-every expects a non-negative integer, got '{value}'"
+                    );
                     return false;
                 }
                 None => return false, // parse_int already reported
@@ -1890,9 +1892,18 @@ mod island_accounting_tests {
         // (empty resample, cover failure, or starved extraction).
         let islands = vec![vec![tri(0, 1, 2)], vec![tri(3, 4, 5)], vec![tri(6, 7, 8)]];
         let verts = vec![Vector3::new(0.0, 0.0, 0.0); 9];
-        assert_eq!(dropped_island_count(&[880, 112, 0], &islands, &verts, &verts), 1);
-        assert_eq!(dropped_island_count(&[5, 7, 9], &islands, &verts, &verts), 0);
-        assert_eq!(dropped_island_count(&[0, 0, 0], &islands, &verts, &verts), 3);
+        assert_eq!(
+            dropped_island_count(&[880, 112, 0], &islands, &verts, &verts),
+            1
+        );
+        assert_eq!(
+            dropped_island_count(&[5, 7, 9], &islands, &verts, &verts),
+            0
+        );
+        assert_eq!(
+            dropped_island_count(&[0, 0, 0], &islands, &verts, &verts),
+            3
+        );
     }
 
     #[test]
@@ -1914,10 +1925,7 @@ mod island_accounting_tests {
             1,
             "far island with no nearby output counts as dropped"
         );
-        let near_both = vec![
-            Vector3::new(0.5, 0.5, 0.0),
-            Vector3::new(50.5, 50.5, 50.0),
-        ];
+        let near_both = vec![Vector3::new(0.5, 0.5, 0.0), Vector3::new(50.5, 50.5, 50.0)];
         assert_eq!(dropped_island_count(&[1], &islands, &input, &near_both), 0);
     }
 }

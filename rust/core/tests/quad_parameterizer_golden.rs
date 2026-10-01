@@ -519,7 +519,7 @@ fn golden_invalid_inputs_return_none() {
             &[],
             DipoleConfig::off()
         )
-            .is_none()
+        .is_none()
     );
     assert!(
         QuadParameterizer::parameterize(
@@ -536,7 +536,7 @@ fn golden_invalid_inputs_return_none() {
             &[],
             DipoleConfig::off()
         )
-            .is_none()
+        .is_none()
     );
     // Non-positive scaling.
     assert!(

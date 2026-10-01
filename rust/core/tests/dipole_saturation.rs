@@ -282,13 +282,18 @@ fn saturation_curve(fix: Fixture) {
             .collect();
         let n = mask.iter().filter(|m| **m != 1.0).count();
         assert!(n > 0, "mask selects no input verts");
-        for (mode, dipoles) in [("off", DipoleConfig::off()), ("auto", DipoleConfig::automatic())]
-        {
+        for (mode, dipoles) in [
+            ("off", DipoleConfig::off()),
+            ("auto", DipoleConfig::automatic()),
+        ] {
             let m = measure(fix, &verts, &tris, Some(&mask), dipoles);
             print_row(&format!("{ask:.1}x/{mode}"), &m, Some(&plain));
             // Weak sanity bands only: harness measures, docs pin.
             assert!(m.inside.quads > 0, "ask {ask}/{mode}: empty inside region");
-            assert!(m.control.quads > 0, "ask {ask}/{mode}: empty control region");
+            assert!(
+                m.control.quads > 0,
+                "ask {ask}/{mode}: empty control region"
+            );
             assert!(
                 m.island_quads.iter().all(|&q| q > 0),
                 "ask {ask}/{mode}: lost island {:?}",
@@ -304,10 +309,7 @@ fn saturation_curve(fix: Fixture) {
             // Gating: off rows never place; auto places exactly on sharp
             // asks (the 1.5 gate fires at ~3x, skips <= 2x).
             if mode == "off" || ask < 2.5 {
-                assert_eq!(
-                    m.dipole_flips, 0,
-                    "ask {ask}/{mode}: must place no dipoles"
-                );
+                assert_eq!(m.dipole_flips, 0, "ask {ask}/{mode}: must place no dipoles");
             } else {
                 assert!(
                     m.dipole_flips > 0,
