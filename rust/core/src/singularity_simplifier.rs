@@ -32,7 +32,12 @@
 //! mirrored with explicit [`f64::mul_add`] below. Notably UNfused (plain
 //! operators, verified absent from the IR): the `u - dot*normal`
 //! projections (lines 53/55), every `(a - b - c) / (PI/2)` quarter-turn
-//! quotient, and the `cos*U + sin*V` field rebuild (line 399).
+//! quotient, and the `cos*U + sin*V` field rebuild arithmetic (line 399).
+//! The rebuild's adjacent `std::cos`/`std::sin` calls ARE fused by the
+//! backend into one `sincos` libm call (absent from IR, present in
+//! disasm: `___sincos_stret`), whose sine differs by 1 ulp from
+//! standalone `sin` on some inputs — mirrored with an explicit `sincos`
+//! binding, see the call site.
 //! `std::lround` lowers to `llvm.lround` (half away from zero, like
 //! [`f64::round`]); `std::max(maxChange, fabs)` lowers to
 //! `fcmp olt` + select (NaN keeps the accumulator, mirrored with an
@@ -54,6 +59,41 @@ use crate::surface_mesh::SurfaceMesh;
 use crate::vector3::Vector3;
 use std::collections::{BTreeSet, VecDeque};
 use std::f64::consts::PI;
+
+// The C++ backend fuses the rebuild's adjacent `std::cos`/`std::sin` calls
+// into one `sincos` libm call (see the call site); `f64::sin_cos` does not
+// lower to it on this toolchain (verified: separate `sin`/`cos` calls in
+// the binary), so the port binds the entry point directly. The out-param
+// symbol is `__sincos` on Apple (libSystem) and `sincos` on glibc (libm),
+// both in the default link; targets without it (e.g. MSVC, where the C++
+// likewise cannot fuse) fall back to separate calls in `joint_sin_cos`.
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+unsafe extern "C" {
+    #[cfg_attr(target_vendor = "apple", link_name = "__sincos")]
+    fn sincos(x: f64, sin_out: *mut f64, cos_out: *mut f64);
+}
+
+/// Joint sine/cosine through the single `sincos` libm call (mirrors the
+/// backend-fused C++ evaluation, whose sine differs by 1 ulp from
+/// standalone `sin` on some inputs).
+#[inline]
+fn joint_sin_cos(x: f64) -> (f64, f64) {
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    {
+        let mut s = 0.0;
+        let mut c = 0.0;
+        // SAFETY: `sincos` unconditionally writes both out-params; they
+        // point at live stack locals, and the call has no other effects.
+        unsafe {
+            sincos(x, &mut s, &mut c);
+        }
+        (s, c)
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    {
+        (x.sin(), x.cos())
+    }
+}
 
 /// Mirrors the anonymous-namespace `unit` (by value: `Vector3` is `Copy`,
 /// so this compiles to the same loads as the C++ const refs).
@@ -98,12 +138,7 @@ fn angle_in_frame(vector: &Vector3, frame: &Frame) -> f64 {
     Vector3::dot_product(vector, &frame.v).atan2(Vector3::dot_product(vector, &frame.u))
 }
 
-fn quarter_turn(
-    mesh: &SurfaceMesh,
-    corner: usize,
-    frames: &[Frame],
-    field_angles: &[f64],
-) -> i32 {
+fn quarter_turn(mesh: &SurfaceMesh, corner: usize, frames: &[Frame], field_angles: &[f64]) -> i32 {
     let opposite = mesh.opposite_corner(corner);
     if opposite == SurfaceMesh::NPOS {
         return 0;
@@ -346,9 +381,8 @@ impl<'a> SingularitySimplifier<'a> {
                     continue;
                 }
                 let g = self.mesh.corner_face(other);
-                let turns =
-                    ((self.angles[g] - (self.angles[f] + self.connection[c])) / (PI / 2.0)).round()
-                        as i32;
+                let turns = ((self.angles[g] - (self.angles[f] + self.connection[c])) / (PI / 2.0))
+                    .round() as i32;
                 self.mismatch[c] = ((turns % 4) + 4) % 4;
                 self.mismatch[other] = (4 - self.mismatch[c]) % 4;
             }
@@ -552,7 +586,8 @@ impl<'a> SingularitySimplifier<'a> {
                 if other == SurfaceMesh::NPOS {
                     continue;
                 }
-                jump[c] = ((self.angles[self.mesh.corner_face(other)] - self.angles[f]
+                jump[c] = ((self.angles[self.mesh.corner_face(other)]
+                    - self.angles[f]
                     - self.connection[c])
                     / (PI / 2.0))
                     .round() as i32;
@@ -625,11 +660,16 @@ impl<'a> SingularitySimplifier<'a> {
             self.update_mismatches(&region);
             return false;
         }
-        // FMA audit: the C++ keeps this rebuild unfused (no fmuladd at its
-        // line in IR), so the plain operators below are exact.
+        // FP audit: the C++ keeps this rebuild's arithmetic unfused (plain
+        // fmul/fadd in IR and machine code, verified in disasm) — but the
+        // backend fuses the adjacent `std::cos`/`std::sin` calls into a
+        // single `sincos` libm call (`___sincos_stret` in the binary), whose
+        // sine differs by 1 ulp from standalone `sin` on some inputs (case
+        // 11 face 15: `0x...6158` vs `0x...6159`). [`joint_sin_cos`] binds
+        // that same entry point, matching the C++ values bitwise.
         for &f in &free_faces {
-            self.field[f] =
-                self.angles[f].cos() * self.frame_u[f] + self.angles[f].sin() * self.frame_v[f];
+            let (s, c) = joint_sin_cos(self.angles[f]);
+            self.field[f] = c * self.frame_u[f] + s * self.frame_v[f];
         }
         true
     }
@@ -721,7 +761,9 @@ impl<'a> SingularitySimplifier<'a> {
             let mut used = vec![false; singular.len()];
             let mut cancelled = 0usize;
             for c in &candidates {
-                if !used[c.a] && !used[c.b] && self.cancel_pair(singular[c.a], singular[c.b], c.hops)
+                if !used[c.a]
+                    && !used[c.b]
+                    && self.cancel_pair(singular[c.a], singular[c.b], c.hops)
                 {
                     used[c.a] = true;
                     used[c.b] = true;

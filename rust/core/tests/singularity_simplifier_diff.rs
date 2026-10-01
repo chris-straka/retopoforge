@@ -88,10 +88,7 @@ fn differential_replay() {
                 let max_pair = c.uint();
                 let sharp_deg: f64 = c.num();
                 let class = c.word();
-                assert!(
-                    class == "E" || class == "S",
-                    "case {id}: bad class {class}"
-                );
+                assert!(class == "E" || class == "S", "case {id}: bad class {class}");
                 let mut positions = Vec::with_capacity(nv);
                 for _ in 0..nv {
                     c.expect("v");
@@ -242,9 +239,6 @@ fn differential_replay() {
     assert_eq!(t_lines, 3, "expected 3 timing lines");
     eprintln!(
         "singsimp differential replay: {} exact + {} structural, {} output doubles bitwise, {} cancelled pairs, 0 mismatches",
-        exact,
-        structural,
-        compared,
-        cancelled_total
+        exact, structural, compared, cancelled_total
     );
 }
