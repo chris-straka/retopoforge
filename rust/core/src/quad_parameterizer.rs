@@ -9,10 +9,11 @@
 //! - the TBB data-parallel loops run sequentially (every one is a disjoint
 //!   per-element write, so the C++ is already deterministic and the op order
 //!   per element is unchanged);
-//! - `SurfaceMesh` and `Guides::tangentNear` are private minimal mirrors
-//!   (only the API this module uses): the sibling `surface_mesh` port owns
-//!   the shared copy and no lane owns guides, so this file stays
-//!   self-contained until the coordinator dedups them;
+//! - `Guides::tangentNear` is a private minimal mirror (only the query
+//!   this module uses): no lane owns guides yet, so this file stays
+//!   self-contained until the guides port lands and the coordinator
+//!   dedups it (the `SurfaceMesh` mirror was already deduped against
+//!   the joined sibling `surface_mesh` port);
 //! - progress remap closures pass `&dyn Fn` instead of rebundling the
 //!   `'static` [`ProgressHandler`] box, which cannot capture the caller's
 //!   handler reference;
@@ -33,6 +34,7 @@
 //! mirrored anyway.
 
 use crate::progress::ProgressHandler;
+use crate::surface_mesh::SurfaceMesh;
 use crate::vector2::Vector2;
 use crate::vector3::Vector3;
 use retopo_solvers::constrained::ConstrainedLeastSquares;
@@ -40,223 +42,9 @@ use retopo_solvers::mixed_integer::MixedIntegerLeastSquares;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
 
-/// Private minimal mirror of `core/surfacemesh.*`: only the API the
-/// parameterizer uses (`corner_local`/`is_boundary_corner` omitted).
-/// Pending coordinator dedup against the sibling `surface_mesh` port.
-struct SurfaceMesh {
-    positions: Vec<Vector3>,
-    triangles: Vec<[usize; 3]>,
-    opposite_corners: Vec<usize>,
-    corners_around_vertex: Vec<Vec<usize>>,
-}
-
-impl SurfaceMesh {
-    const NPOS: usize = usize::MAX;
-
-    fn new(positions: &[Vector3], triangles: &[Vec<usize>]) -> Self {
-        let mut kept = Vec::with_capacity(triangles.len());
-        for triangle in triangles {
-            if triangle.len() != 3 {
-                continue;
-            }
-            kept.push([triangle[0], triangle[1], triangle[2]]);
-        }
-        let mut mesh = Self {
-            positions: positions.to_vec(),
-            triangles: kept,
-            opposite_corners: Vec::new(),
-            corners_around_vertex: vec![Vec::new(); positions.len()],
-        };
-        mesh.opposite_corners = vec![Self::NPOS; mesh.corner_count()];
-        let mut next_around_vertex = vec![Self::NPOS; mesh.corner_count()];
-        let mut vertex_corner = vec![Self::NPOS; mesh.vertex_count()];
-        for f in 0..mesh.face_count() {
-            for local in 0..3 {
-                let c = 3 * f + local;
-                let vertex = mesh.corner_vertex(c);
-                if vertex >= mesh.vertex_count() {
-                    continue;
-                }
-                mesh.corners_around_vertex[vertex].push(c);
-                next_around_vertex[c] = vertex_corner[vertex];
-                vertex_corner[vertex] = c;
-            }
-        }
-        for f1 in 0..mesh.face_count() {
-            for local in 0..3 {
-                let c1 = 3 * f1 + local;
-                if mesh.opposite_corners[c1] != Self::NPOS {
-                    continue;
-                }
-                let v2 = mesh.corner_vertex(mesh.next_corner(c1));
-                let mut c2 = next_around_vertex[c1];
-                while c2 != Self::NPOS {
-                    if c2 != c1 {
-                        let c3 = mesh.previous_corner(c2);
-                        if mesh.corner_vertex(c3) == v2 && mesh.opposite_corners[c3] == Self::NPOS {
-                            mesh.opposite_corners[c1] = c3;
-                            mesh.opposite_corners[c3] = c1;
-                            break;
-                        }
-                    }
-                    c2 = next_around_vertex[c2];
-                }
-            }
-        }
-        for c in 0..mesh.corner_count() {
-            let f2 = mesh.adjacent_face(c);
-            if f2 == Self::NPOS {
-                continue;
-            }
-            let f1 = mesh.corner_face(c);
-            let mut c2 = Self::NPOS;
-            for local in 0..3 {
-                let candidate = 3 * f2 + local;
-                if mesh.adjacent_face(candidate) == f1 {
-                    c2 = candidate;
-                    break;
-                }
-            }
-            if c2 == Self::NPOS {
-                Self::detach(&mut mesh.opposite_corners, c);
-                continue;
-            }
-            if mesh.corner_vertex(c) != mesh.corner_vertex(mesh.next_corner(c2)) {
-                Self::detach(&mut mesh.opposite_corners, c);
-                Self::detach(&mut mesh.opposite_corners, c2);
-            }
-        }
-        mesh
-    }
-
-    /// Mirrors the `detach` lambda (associated fn so the corner loop can
-    /// hold `&mesh` reads while detaching).
-    fn detach(opposite_corners: &mut [usize], c: usize) {
-        if c == Self::NPOS || c >= opposite_corners.len() {
-            return;
-        }
-        let mate = opposite_corners[c];
-        opposite_corners[c] = Self::NPOS;
-        if mate != Self::NPOS && mate < opposite_corners.len() && opposite_corners[mate] == c {
-            opposite_corners[mate] = Self::NPOS;
-        }
-    }
-
-    #[inline]
-    fn vertex_count(&self) -> usize {
-        self.positions.len()
-    }
-
-    #[inline]
-    fn face_count(&self) -> usize {
-        self.triangles.len()
-    }
-
-    #[inline]
-    fn corner_count(&self) -> usize {
-        3 * self.triangles.len()
-    }
-
-    #[inline]
-    fn corner_face(&self, corner: usize) -> usize {
-        corner / 3
-    }
-
-    #[inline]
-    fn corner_vertex(&self, corner: usize) -> usize {
-        self.triangles[corner / 3][corner % 3]
-    }
-
-    #[inline]
-    fn next_corner(&self, corner: usize) -> usize {
-        3 * (corner / 3) + (corner + 1) % 3
-    }
-
-    #[inline]
-    fn previous_corner(&self, corner: usize) -> usize {
-        3 * (corner / 3) + (corner + 2) % 3
-    }
-
-    #[inline]
-    fn opposite_corner(&self, corner: usize) -> usize {
-        self.opposite_corners[corner]
-    }
-
-    #[inline]
-    fn adjacent_face(&self, corner: usize) -> usize {
-        let opposite = self.opposite_corner(corner);
-        if opposite == Self::NPOS {
-            Self::NPOS
-        } else {
-            self.corner_face(opposite)
-        }
-    }
-
-    #[inline]
-    fn position(&self, vertex: usize) -> &Vector3 {
-        &self.positions[vertex]
-    }
-
-    #[inline]
-    fn corners_around_vertex(&self, vertex: usize) -> &[usize] {
-        &self.corners_around_vertex[vertex]
-    }
-
-    #[inline]
-    fn edge_vector(&self, corner: usize) -> Vector3 {
-        self.positions[self.corner_vertex(self.next_corner(corner))]
-            - self.positions[self.corner_vertex(corner)]
-    }
-
-    #[inline]
-    fn face_normal(&self, face: usize) -> Vector3 {
-        let face_vertices = &self.triangles[face];
-        Vector3::normal(
-            &self.positions[face_vertices[0]],
-            &self.positions[face_vertices[1]],
-            &self.positions[face_vertices[2]],
-        )
-    }
-
-    fn normal_angle(&self, corner: usize) -> f64 {
-        let neighbour = self.adjacent_face(corner);
-        if neighbour == Self::NPOS {
-            return PI;
-        }
-        let first = self.face_normal(self.corner_face(corner));
-        let second = self.face_normal(neighbour);
-        let cosine = Vector3::dot_product(&first, &second).min(1.0).max(-1.0);
-        let cross = Vector3::cross_product(&first, &second);
-        let edge = self.edge_vector(corner);
-        let sign = if Vector3::dot_product(&cross, &edge) > 0.0 {
-            -1.0
-        } else {
-            1.0
-        };
-        sign * cosine.acos()
-    }
-
-    fn average_edge_length(&self) -> f64 {
-        let mut total = 0.0;
-        let mut count = 0usize;
-        for c in 0..self.corner_count() {
-            let opposite = self.opposite_corner(c);
-            if opposite != Self::NPOS && opposite < c {
-                continue;
-            }
-            total += self.edge_vector(c).length();
-            count += 1;
-        }
-        if count == 0 {
-            0.0
-        } else {
-            total / count as f64
-        }
-    }
-}
-
 /// Private mirror of `Guides::tangentNear` (the only guide query the
-/// parameterizer uses). Pending coordinator dedup: no lane owns guides.
+/// parameterizer uses). Pending coordinator dedup once the guides port
+/// lands (wave 3 owns guides).
 fn tangent_near(
     guides: &[Vec<Vector3>],
     point: &Vector3,
