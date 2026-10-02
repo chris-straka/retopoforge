@@ -109,6 +109,15 @@ cage instead of extrusion — it must match LOW's face count
 (duplicate LOW and inflate it slightly). The scene's render engine,
 sample count, and cage settings are restored afterwards.
 
+**LOW UVs** picks how the bake target gets its UVs: **Smart UV**
+(the default, as before) or **Unwrap + Pack** — a real unwrap
+(angle-based or conformal), uniform texel density across islands,
+packed with the panel margin. The report always notes the measured
+density (px/unit at the bake size); set **Texel Density** to enforce
+a target, applied as a uniform post-pack scale when it still fits
+the 0-1 tile (bakes clip outside it), otherwise the pack fit stands
+and the report says what the tile fits.
+
 **Remesh + Bake All** chains the whole pipeline in one action: make
 the HIGH-poly source the active object and hit it — the add-on
 remeshes (keeping the original regardless of the panel toggle),

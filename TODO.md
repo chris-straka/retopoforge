@@ -291,9 +291,16 @@ when comparing back ends.
       Smart-UV + full PBR bake to the `_retopo` result (HIGH unhidden
       for the bake raycast, active restored). Headless section green
       (6 PNGs, diffuse saw HIGH, report has both legs).
-- [ ] Better low-poly UVs: proper unwrap + pack with texel-density
+- [x] Better low-poly UVs: proper unwrap + pack with texel-density
       control (replacing Smart UV), or the engine-side global atlas
-      (see Engine backlog)
+      (see Engine backlog). LANDED (Blender side; engine atlas was
+      already done): LOW UVs mode Smart (default) vs Unwrap + Pack
+      (angle-based/conformal + average-islands-scale + pack margin),
+      measured px/unit always reported, nonzero target enforced by
+      post-pack uniform scale when it fits the tile, honest unmet
+      note otherwise (pack normalizes scale — probed). Headless
+      phase D green (tile fit, 8px/unit enforced exactly, absurd
+      target refused).
 - [ ] Direct UV projection: nearest-point UV copy where the remesh hugs
       the source (keeps original seams, skips re-bake)
 - [ ] Vertex-color / attribute transfer for non-textured AI outputs

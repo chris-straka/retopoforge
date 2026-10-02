@@ -671,6 +671,14 @@ def main():
         check("FINISHED" in result, f"bake-low remesh finished (got {result})")
         low = bpy.data.objects[low_src.name]
         print(f"bake low: {len(low.data.polygons)} polys")
+        # Drop stale bake PNGs from a previously crashed run: factory
+        # startup reuses object names, so litter would poison the
+        # phase-A skip asserts (which check map files do NOT exist).
+        for stale in ("diffuse", "normal", "roughness", "metallic", "ao",
+                      "emission"):
+            stale_path = os.path.join("/tmp", f"{low.name}_{stale}.png")
+            if os.path.isfile(stale_path):
+                os.remove(stale_path)
 
         low.select_set(True)
         high.select_set(True)
@@ -777,6 +785,52 @@ def main():
         check(not bpy.context.scene.render.bake.use_cage,
               "use_cage restored after bake")
         params.bake_cage = None
+        for name in ("diffuse", "normal", "roughness", "metallic", "ao",
+                     "emission"):
+            p = os.path.join("/tmp", f"{low.name}_{name}.png")
+            if os.path.isfile(p):
+                os.remove(p)
+
+        # Phase D: Unwrap + Pack LOW UVs with texel-density control.
+        params.bake_uv_mode = "UNWRAP"
+        params.bake_texel_density = 0.0
+        bpy.ops.object.select_all(action="DESELECT")
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.bake_textures()
+        check("FINISHED" in result, f"unwrap bake finished (got {result})")
+        check(f"{low.name}: uv: unwrap+pack @" in
+              bpy.context.scene.retopoforge_last_report,
+              "report notes the unwrap+pack density")
+        check(all(-1e-6 <= c <= 1.0 + 1e-6
+                  for item in low.data.uv_layers.active.uv
+                  for c in item.vector),
+              "unwrapped UVs fit the 0-1 tile")
+        check(os.path.isfile(diff_path), "unwrap bake saved diffuse png")
+        # A feasible density target is enforced exactly; an absurd one
+        # keeps the pack fit and says so.
+        params.bake_texel_density = 8.0
+        result = bpy.ops.retopoforge.bake_textures()
+        check("FINISHED" in result, "density-target bake finished")
+        check("target met" in bpy.context.scene.retopoforge_last_report,
+              "report notes the met density target")
+        uv_area, world_area = retopoforge._uv_world_areas(low)
+        measured = params.bake_size * (uv_area / world_area) ** 0.5
+        check(abs(measured - 8.0) < 0.5,
+              f"enforced density ~8px/unit (got {measured:.2f})")
+        params.bake_texel_density = 100000.0
+        result = bpy.ops.retopoforge.bake_textures()
+        check("FINISHED" in result, "absurd-target bake finished")
+        check("exceeds the tile fit" in
+              bpy.context.scene.retopoforge_last_report,
+              "report notes the unmet density target")
+        check(all(-1e-6 <= c <= 1.0 + 1e-6
+                  for item in low.data.uv_layers.active.uv
+                  for c in item.vector),
+              "unmet-target UVs still fit the tile")
+        params.bake_uv_mode = "SMART"
+        params.bake_texel_density = 0.0
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
             p = os.path.join("/tmp", f"{low.name}_{name}.png")

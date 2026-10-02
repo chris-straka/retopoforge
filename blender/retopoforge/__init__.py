@@ -314,6 +314,45 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Bake emission when the HIGH source emits light",
         default=True,
     )
+    bake_uv_mode: EnumProperty(
+        name="LOW UVs",
+        description="How the LOW bake target gets UVs",
+        items=[
+            ("SMART", "Smart UV", "Fast automatic projection (current)"),
+            ("UNWRAP", "Unwrap + Pack",
+             "Angle-based/conformal unwrap, uniform texel density, packed"),
+        ],
+        default="SMART",
+    )
+    bake_unwrap_method: EnumProperty(
+        name="Unwrap Method",
+        description="Unwrap algorithm for Unwrap + Pack mode",
+        items=[
+            ("ANGLE_BASED", "Angle Based", "Best for organic shapes"),
+            ("CONFORMAL", "Conformal", "Best for hard-surface shapes"),
+        ],
+        default="ANGLE_BASED",
+    )
+    bake_pack_margin: FloatProperty(
+        name="Pack Margin",
+        description="Island margin for Unwrap + Pack mode (UV units)",
+        default=0.005,
+        min=0.0,
+        max=0.1,
+    )
+    bake_average_scale: BoolProperty(
+        name="Uniform Texel Density",
+        description="Average island scale in Unwrap + Pack mode so every "
+                    "island shares one texel density",
+        default=True,
+    )
+    bake_texel_density: FloatProperty(
+        name="Texel Density (px/unit)",
+        description="Target texel density for Unwrap + Pack mode "
+                    "(0: pack fit only, density is reported)",
+        default=0.0,
+        min=0.0,
+    )
     bake_cage: PointerProperty(
         name="Bake Cage",
         description="Cage mesh for selected-to-active bakes (empty: ray extrusion)",
@@ -1191,9 +1230,83 @@ def _smart_uv_low(context, low):
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def _uv_world_areas(obj):
+    """(total UV area, total world area) over obj's active UV layer."""
+    mesh = obj.data
+    uv_layer = mesh.uv_layers.active
+    if uv_layer is None:
+        return 0.0, 0.0
+    world = obj.matrix_world.to_3x3()
+    uv_area = 0.0
+    world_area = 0.0
+    for poly in mesh.polygons:
+        loop_uvs = [uv_layer.uv[li].vector for li in poly.loop_indices]
+        for a, b, c in zip(loop_uvs, loop_uvs[1:], loop_uvs[2:]):
+            uv_area += abs((b.x - a.x) * (c.y - a.y)
+                           - (c.x - a.x) * (b.y - a.y)) / 2.0
+        verts = [world @ mesh.vertices[vi].co for vi in poly.vertices]
+        origin = verts[0]
+        for b, c in zip(verts[1:], verts[2:]):
+            world_area += ((b - origin).cross(c - origin)).length / 2.0
+    return uv_area, world_area
+
+
+def _scale_uvs_about_center(obj, scale):
+    mesh = obj.data
+    uv_layer = mesh.uv_layers.active
+    for item in uv_layer.uv:
+        x, y = item.vector
+        item.vector = (0.5 + (x - 0.5) * scale, 0.5 + (y - 0.5) * scale)
+
+
+def _uvs_fit_tile(obj):
+    return all(-1e-6 <= c <= 1.0 + 1e-6
+               for item in obj.data.uv_layers.active.uv
+               for c in item.vector)
+
+
+def _unwrap_pack_low(context, low, params):
+    """Unwrap + uniform-density + pack pipeline for the LOW bake target.
+    Returns a one-line report note with the measured texel density
+    (px/unit at the bake size). A nonzero density target is enforced by
+    a uniform post-pack scale about the tile center when it still fits
+    the 0-1 tile (bakes clip outside it); otherwise the pack fit stands
+    and the note says what the tile fits."""
+    _ensure_object_mode()
+    context.view_layer.update()
+    for o in context.selected_objects:
+        o.select_set(False)
+    low.select_set(True)
+    context.view_layer.objects.active = low
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.unwrap(method=params.bake_unwrap_method, fill_holes=True,
+                      correct_aspect=True,
+                      margin=float(params.bake_pack_margin))
+    if params.bake_average_scale:
+        bpy.ops.uv.average_islands_scale()
+    bpy.ops.uv.pack_islands(margin=float(params.bake_pack_margin))
+    bpy.ops.object.mode_set(mode="OBJECT")
+    size = int(params.bake_size)
+    uv_area, world_area = _uv_world_areas(low)
+    if uv_area <= 0.0 or world_area <= 0.0:
+        return "uv: unwrap+pack (degenerate UVs, density unmeasured)"
+    measured = size * (uv_area / world_area) ** 0.5
+    target = float(params.bake_texel_density)
+    if target > 0.0:
+        _scale_uvs_about_center(low, target / measured)
+        if _uvs_fit_tile(low):
+            return (f"uv: unwrap+pack @ {target:.0f}px/unit "
+                    f"(target met, pack fit {measured:.0f})")
+        _scale_uvs_about_center(low, measured / target)
+        return (f"uv: unwrap+pack @ {measured:.0f}px/unit "
+                f"(target {target:.0f} exceeds the tile fit)")
+    return f"uv: unwrap+pack @ {measured:.0f}px/unit"
+
+
 class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
     """Bake PBR maps from the HIGH-poly active object to the selected
-    LOW-poly target (Smart-UV, Cycles CPU, selected-to-active)"""
+    LOW-poly target (UV prep per panel, Cycles CPU, selected-to-active)"""
 
     bl_idname = "retopoforge.bake_textures"
     bl_label = "Bake High to Low"
@@ -1217,7 +1330,11 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             self.report({"INFO"},
                         f"Multiple LOW candidates; baking to '{low.name}'")
 
-        _smart_uv_low(context, low)
+        uv_note = None
+        if params.bake_uv_mode == "UNWRAP":
+            uv_note = _unwrap_pack_low(context, low, params)
+        else:
+            _smart_uv_low(context, low)
         _ensure_high_material(high)
 
         cage = params.bake_cage
@@ -1332,6 +1449,8 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             if saved_samples is not None:
                 scene.cycles.samples = saved_samples
 
+        if uv_note is not None:
+            lines.insert(0, f"{low.name}: {uv_note}")
         line = "\n".join(lines)
         scene.retopoforge_last_report += line + "\n"
         self.report({"INFO"}, line.replace("\n", " | "))
@@ -1706,6 +1825,12 @@ class RETOPOFORGE_PT_bake(bpy.types.Panel):
         bcol.prop(params, "bake_metallic")
         bcol.prop(params, "bake_ao")
         bcol.prop(params, "bake_emission")
+        bcol.separator()
+        bcol.prop(params, "bake_uv_mode")
+        bcol.prop(params, "bake_unwrap_method")
+        bcol.prop(params, "bake_pack_margin")
+        bcol.prop(params, "bake_average_scale")
+        bcol.prop(params, "bake_texel_density")
         layout.operator("retopoforge.bake_textures", text="Bake High to Low",
                         icon="RENDER_RESULT")
         layout.operator("retopoforge.remesh_and_bake", text="Remesh + Bake All",
