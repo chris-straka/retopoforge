@@ -83,8 +83,13 @@ when comparing back ends.
       case 285 (tiny) 0->33 quads re-pinned, +15 stale ECX CONN lines
       (report-only drift since item 1); regen hook extended to all 11
       output sections with per-section count triggers.
-- [ ] Rounding: `solve_iteration` fixes every integer in one shot
-      (threshold is always 1.0); try true greedy rounding, gate on scores
+- [x] Rounding: TRIED true greedy rounding (closest-quarter/half per
+      round, MIQ-style), REJECTED on the gate. Matched-count beast:
+      quarters improve irr 5.84->5.10 but regress dist_max 2.09->2.32
+      (8/8 seeds worse) at +33% time; halves worse still (dist_mean
+      +10%, dist_max +35%). Greediness trades accuracy for regularity
+      monotonically — wrong direction (worst-case is our weak metric vs
+      QuadWild). One-shot stays. Experiment reverted (lives in history).
 - [ ] Drop the libc++ order emulation (`CxxMap`/`CxxSet` in
       `quad_extractor.rs`): the C++ oracle is gone, so native
       deterministic containers simplify and speed it up (re-baseline)
