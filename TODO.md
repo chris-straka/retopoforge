@@ -74,8 +74,15 @@ when comparing back ends.
       oracles re-pinned via UPDATE_QUADEXT/UPDATE_ARDIFF (30 + 52 cases,
       every rewrite reduces non-quads). Loop-locked loners remain (no
       straight route to a sink; need defect migration, not more routes).
-- [ ] Normalize input scale by a power of two on load (quality collapses
-      below ~0.01-unit models; `PositionKey` truncates at 1e-5 absolute)
+- [x] Normalize input scale by a power of two on load: engine entry
+      scales sub-unit inputs by exact 2^k (IEEE-exponent math, libm-free)
+      into diag [1,2), unscales all position outputs (exact round trip).
+      diag >= 1 bitwise-identical (bench corpus 1.3-658 untouched). Tiny
+      beast x1e-6: 210 quads (yield 0.04) -> 5268 healthy, x1e-7 empty ->
+      5191; tiny noise.py distributions match full-scale. Oracle: only
+      case 285 (tiny) 0->33 quads re-pinned, +15 stale ECX CONN lines
+      (report-only drift since item 1); regen hook extended to all 11
+      output sections with per-section count triggers.
 - [ ] Rounding: `solve_iteration` fixes every integer in one shot
       (threshold is always 1.0); try true greedy rounding, gate on scores
 - [ ] Drop the libc++ order emulation (`CxxMap`/`CxxSet` in

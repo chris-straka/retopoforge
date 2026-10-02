@@ -204,15 +204,20 @@ fn differential_replay() {
     let mut saw_sym_active = false;
     let mut saw_multi_island = false;
     // Intended-behavior regen (UPDATE_ARDIFF=1): the C++ reference is
-    // deleted, so when the engine IMPROVES (fewer non-quads, never
-    // more), the frozen RV/RQ/RUV/ISL lines of changed CASE/ECX cases
-    // are re-pinned to the new output (EPX stays report-only and is
-    // never rewritten). Only count changes are re-pinned; value-only
-    // drift keeps failing as usual. Review the per-case census and the
-    // fixture diff, then re-run the suite green.
+    // deleted, so when the engine IMPROVES, the frozen output-section
+    // lines of changed CASE/ECX cases are re-pinned to the new output
+    // (EPX stays report-only and is never rewritten). Only count/flag
+    // changes are re-pinned, section by section; value-only drift keeps
+    // failing as usual. A rewrite that empties a nonempty output or
+    // adds non-quads to one is refused. Review the per-case census and
+    // the fixture diff, then re-run the suite green.
     let regen = std::env::var_os("UPDATE_ARDIFF").is_some();
     let mut regen_lines: Vec<String> = Vec::new();
-    let mut regen_map: HashMap<(String, i64), [usize; 4]> = HashMap::new();
+    // Line numbers of the 11 re-pinnable single-line sections, in
+    // fixture order: RV RQ RUV ISL DEC ISO IUV IOUV SING CONN SYM.
+    // (PROG/PHASE/RES stay pinned: a change there needs separate
+    // scrutiny, never a silent re-pin.)
+    let mut regen_map: HashMap<(String, i64), [usize; 11]> = HashMap::new();
     if regen {
         let disk = std::fs::read_to_string(FIXTURE_PATH).unwrap();
         regen_lines = disk.lines().map(str::to_string).collect();
@@ -224,14 +229,19 @@ fn differential_replay() {
                 let toks: Vec<&str> = line.split(' ').collect();
                 key = Some((toks[0].to_string(), toks[1].parse().unwrap()));
             } else if *line == "RES 1" {
-                assert!(
-                    regen_lines[i + 1].starts_with("RV ")
-                        && regen_lines[i + 2].starts_with("RQ ")
-                        && regen_lines[i + 3].starts_with("RUV ")
-                        && regen_lines[i + 4].starts_with("ISL "),
-                    "regen: expected RV/RQ/RUV/ISL after RES 1"
-                );
-                regen_map.insert(key.clone().unwrap(), [i + 1, i + 2, i + 3, i + 4]);
+                let tags = [
+                    "RV ", "RQ ", "RUV ", "ISL ", "DEC ", "ISO ", "IUV ", "IOUV ", "SING ",
+                    "CONN ", "SYM ",
+                ];
+                let mut idx = [0usize; 11];
+                for (k, tag) in tags.iter().enumerate() {
+                    assert!(
+                        regen_lines[i + 1 + k].starts_with(tag),
+                        "regen: expected {tag} section after RES 1"
+                    );
+                    idx[k] = i + 1 + k;
+                }
+                regen_map.insert(key.clone().unwrap(), idx);
             }
             i += 1;
         }
@@ -719,36 +729,6 @@ fn differential_replay() {
             mismatches.push(format!("{case}: RUV nonempty with uvs off"));
         }
         let got_isl = remesher.island_output_quad_counts();
-        if regen && strict {
-            let key = (tag.clone(), id);
-            let idx = regen_map[&key];
-            let counts_changed = got_rv.len() != exp_rv.len()
-                || got_rq.len() != exp_rq.len()
-                || got_ruv.len() != exp_ruv.len()
-                || got_isl != exp_isl.as_slice();
-            if counts_changed {
-                let old_nq = exp_rq.iter().filter(|r| r.len() != 4).count();
-                let new_nq = got_rq.iter().filter(|r| r.len() != 4).count();
-                eprintln!(
-                    "{case}: verts {}->{} faces {}->{} ruv {}->{} isl {exp_isl:?}->{got_isl:?} nonquads {old_nq}->{new_nq}",
-                    exp_rv.len(),
-                    got_rv.len(),
-                    exp_rq.len(),
-                    got_rq.len(),
-                    exp_ruv.len(),
-                    got_ruv.len(),
-                );
-                assert!(
-                    new_nq <= old_nq,
-                    "{case}: regen would ADD non-quads ({old_nq}->{new_nq}), refusing"
-                );
-                regen_edits.push((idx[0], fmt_rv(got_rv)));
-                regen_edits.push((idx[1], fmt_rq(got_rq)));
-                regen_edits.push((idx[2], fmt_ruv(got_ruv)));
-                regen_edits.push((idx[3], fmt_isl(got_isl)));
-                regen_cases += 1;
-            }
-        }
         if got_isl.len() != exp_isl.len() {
             mismatches.push(format!(
                 "{case}: ISL length skew (rust={} cpp={})",
@@ -930,6 +910,96 @@ fn differential_replay() {
             exp_mid.sort();
             if got_mid != exp_mid {
                 mismatches.push(format!("{case}: phase stage-set skew"));
+            }
+        }
+
+        if regen && strict {
+            let idx = regen_map[&(tag.clone(), id)];
+            // Per-section count/flag triggers (value-only drift is never
+            // re-pinned). SYM rides along only on an axis change; bare
+            // off/score drift keeps failing as usual.
+            let mut edits: Vec<(usize, String)> = Vec::new();
+            if got_rv.len() != exp_rv.len() {
+                edits.push((idx[0], fmt_rv(got_rv)));
+            }
+            if got_rq.len() != exp_rq.len() {
+                edits.push((idx[1], fmt_rq(got_rq)));
+            }
+            if got_ruv.len() != exp_ruv.len() {
+                edits.push((idx[2], fmt_ruv(got_ruv)));
+            }
+            if got_isl != exp_isl.as_slice() {
+                edits.push((idx[3], fmt_isl(got_isl)));
+            }
+            if remesher.decimated() != exp_dec
+                || got_dv.len() != exp_dv.len()
+                || got_dt.len() != exp_dt.len()
+            {
+                edits.push((idx[4], fmt_dec(remesher.decimated(), got_dv, got_dt)));
+            }
+            if got_iv.len() != exp_iv.len() || got_it.len() != exp_it.len() {
+                edits.push((idx[5], fmt_iso(got_iv, got_it)));
+            }
+            if got_iuv.len() != exp_iuv.len() {
+                edits.push((idx[6], fmt_iuv("IUV", got_iuv)));
+            }
+            if got_iouv.len() != exp_iouv.len() {
+                edits.push((idx[7], fmt_iuv("IOUV", got_iouv)));
+            }
+            if got_sing.len() != exp_sing.len() {
+                edits.push((idx[8], fmt_sing(got_sing)));
+            }
+            if got_conn.len() != exp_conn.len() || got_moved.len() != exp_moved.len() {
+                edits.push((idx[9], fmt_conn(got_conn, got_moved)));
+            }
+            if remesher.symmetry_plane_axis() as i64 != exp_symaxis {
+                edits.push((
+                    idx[10],
+                    fmt_sym(
+                        remesher.symmetry_plane_axis(),
+                        remesher.symmetry_plane_offset(),
+                        remesher.symmetry_plane_score(),
+                    ),
+                ));
+            }
+            if !edits.is_empty() {
+                let old_nq = exp_rq.iter().filter(|r| r.len() != 4).count();
+                let new_nq = got_rq.iter().filter(|r| r.len() != 4).count();
+                eprintln!(
+                    "{case}: rv {}/{} rq {}/{} ruv {}/{} isl {exp_isl:?}->{got_isl:?} \
+                     dec {}/{},{} iso {}/{},{} iuv {}/{} iouv {}/{} sing {}/{} conn {}/{} \
+                     nonquads {old_nq}->{new_nq}",
+                    exp_rv.len(),
+                    got_rv.len(),
+                    exp_rq.len(),
+                    got_rq.len(),
+                    exp_ruv.len(),
+                    got_ruv.len(),
+                    exp_dv.len(),
+                    got_dv.len(),
+                    got_dt.len(),
+                    exp_iv.len(),
+                    got_iv.len(),
+                    got_it.len(),
+                    exp_iuv.len(),
+                    got_iuv.len(),
+                    exp_iouv.len(),
+                    got_iouv.len(),
+                    exp_sing.len(),
+                    got_sing.len(),
+                    exp_conn.len(),
+                    got_conn.len(),
+                );
+                assert!(
+                    !(got_rq.is_empty() && !exp_rq.is_empty()),
+                    "{case}: regen would EMPTY a nonempty output, refusing"
+                );
+                assert!(
+                    exp_rq.is_empty() || new_nq <= old_nq,
+                    "{case}: regen would ADD non-quads ({old_nq}->{new_nq}), refusing"
+                );
+                regen_edits.extend(edits);
+                regen_cases += 1;
             }
         }
 
@@ -1132,6 +1202,78 @@ fn fmt_isl(isl: &[usize]) -> String {
         s.push_str(&format!(" {n}"));
     }
     s
+}
+
+fn fmt_tris(tris: &[Vec<usize>], s: &mut String) {
+    for row in tris {
+        s.push_str(&format!(
+            " T{} {}",
+            row.len(),
+            row.iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+    }
+}
+
+fn fmt_dec(decimated: bool, dv: &[Vector3], dt: &[Vec<usize>]) -> String {
+    let mut s = format!("DEC {} {} {}", i32::from(decimated), dv.len(), dt.len());
+    for v in dv {
+        s.push_str(&format!(" {} {} {}", v.x(), v.y(), v.z()));
+    }
+    fmt_tris(dt, &mut s);
+    s
+}
+
+fn fmt_iso(iv: &[Vector3], it: &[Vec<usize>]) -> String {
+    let mut s = format!("ISO {} {}", iv.len(), it.len());
+    for v in iv {
+        s.push_str(&format!(" {} {} {}", v.x(), v.y(), v.z()));
+    }
+    fmt_tris(it, &mut s);
+    s
+}
+
+fn fmt_iuv(tag: &str, rows: &[Vec<Vector2>]) -> String {
+    let mut s = format!("{tag} {}", rows.len());
+    for row in rows {
+        for u in row {
+            s.push_str(&format!(" {} {}", u.x(), u.y()));
+        }
+    }
+    s
+}
+
+fn fmt_sing(sing: &[Vector3]) -> String {
+    let mut s = format!("SING {}", sing.len());
+    for v in sing {
+        s.push_str(&format!(" {} {} {}", v.x(), v.y(), v.z()));
+    }
+    s
+}
+
+fn fmt_conn(conns: &[(Vector3, Vector3)], moved: &[u8]) -> String {
+    let mut s = format!("CONN {} {}", conns.len(), moved.len());
+    for (a, b) in conns {
+        s.push_str(&format!(
+            " {} {} {} {} {} {}",
+            a.x(),
+            a.y(),
+            a.z(),
+            b.x(),
+            b.y(),
+            b.z()
+        ));
+    }
+    for m in moved {
+        s.push_str(&format!(" {m}"));
+    }
+    s
+}
+
+fn fmt_sym(axis: i32, off: f64, score: f64) -> String {
+    format!("SYM {axis} {off} {score}")
 }
 
 /// Skips one case's output sections (ok-skew path: keeps the tokenizer in

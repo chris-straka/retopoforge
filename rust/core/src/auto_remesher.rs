@@ -1649,6 +1649,27 @@ impl AutoRemesher {
             return false;
         }
 
+        // Power-of-two input normalization: absolute thresholds in the
+        // pipeline (notably PositionKey's 1e-5 truncation) collapse
+        // quality on tiny inputs (measured: diag 4e-4 yields 4% of the
+        // target quads, diag 4e-5 yields nothing). Inputs with bbox
+        // diagonal below 1 are scaled by 2^k into [1, 2) and every
+        // position output is scaled back at the end; powers of two are
+        // exact in binary floating point, so the round trip is lossless.
+        // Inputs at diag >= 1 take the identical unscaled path (the
+        // proven range: the bench corpus sits at 1.3-658).
+        let normalize_scale = Self::normalization_scale(&self.vertices);
+        if normalize_scale != 1.0 {
+            Self::scale_positions(&mut self.vertices, normalize_scale);
+            for line in self
+                .guide_polylines
+                .iter_mut()
+                .chain(self.sharp_polylines.iter_mut())
+            {
+                Self::scale_positions(line, normalize_scale);
+            }
+        }
+
         // Resolve the symmetry plane once for the whole run. Islands share
         // the input's global coordinates, so the plane applies to every
         // island as-is. From here on, m_symmetryPlane.valid() alone gates
@@ -1687,6 +1708,7 @@ impl AutoRemesher {
         if triangles_islands.is_empty() {
             // (C++ `Input mesh is empty` stderr omitted per the
             // stderr-gap memo; the handler call below carries it.)
+            self.restore_normalized_inputs(normalize_scale);
             self.progress.report_direct(1.0, "Input mesh is empty");
             return false;
         }
@@ -2219,8 +2241,158 @@ impl AutoRemesher {
         // print. (The dump itself falls under the stderr-gap memo: omitted
         // on both paths; the main lane owns the stderr audit.)
 
+        if normalize_scale != 1.0 {
+            // Exact for powers of two (and 2^-1022 at worst — the scale
+            // computation refuses denormal diagonals, so this never
+            // underflows to zero).
+            let inv = 1.0 / normalize_scale;
+            Self::scale_positions(&mut self.remeshed_vertices, inv);
+            Self::scale_positions(&mut self.decimated_vertices, inv);
+            Self::scale_positions(&mut self.isotropic_vertices, inv);
+            Self::scale_positions(&mut self.isotropic_singular_vertices, inv);
+            for (a, b) in self.isotropic_extracted_connections.iter_mut() {
+                *a *= inv;
+                *b *= inv;
+            }
+            self.restore_normalized_inputs(normalize_scale);
+        }
+
         self.progress.report_direct(1.0, "Done");
 
         true
+    }
+
+    /// Power-of-two scale mapping the input bbox diagonal into [1, 2),
+    /// or 1.0 when no normalization applies: healthy scales (diag >= 1)
+    /// take the identical unscaled path, and degenerate (zero),
+    /// denormal, or non-finite diagonals are left for downstream to
+    /// handle as today. Scaling up also refuses inputs whose largest
+    /// coordinate would overflow to infinity.
+    fn normalization_scale(vertices: &[Vector3]) -> f64 {
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        let mut max_abs = 0.0f64;
+        for v in vertices {
+            for axis in 0..3 {
+                let c = v[axis];
+                lo[axis] = lo[axis].min(c);
+                hi[axis] = hi[axis].max(c);
+                max_abs = max_abs.max(c.abs());
+            }
+        }
+        // `hypot` (no intermediate square, so no underflow below 1e-154
+        // or overflow off huge offsets): the band below is exact for
+        // every normal diagonal.
+        let diag = (hi[0] - lo[0]).hypot(hi[1] - lo[1]).hypot(hi[2] - lo[2]);
+        if !(diag >= f64::MIN_POSITIVE) || diag >= 1.0 {
+            return 1.0;
+        }
+        // Exact 2^k from the IEEE exponent (libm-free): diag in
+        // [2^e, 2^(e+1)) scales by 2^-e into [1, 2).
+        let exp = ((diag.to_bits() >> 52) & 0x7ff) as i32;
+        debug_assert!((1..1023).contains(&exp));
+        if !(1..1023).contains(&exp) {
+            return 1.0;
+        }
+        let scale = f64::from_bits(((2046 - exp) as u64) << 52);
+        if max_abs > 0.0 && scale >= f64::MAX / max_abs {
+            return 1.0;
+        }
+        scale
+    }
+
+    fn scale_positions(positions: &mut [Vector3], scale: f64) {
+        for p in positions.iter_mut() {
+            *p *= scale;
+        }
+    }
+
+    /// Exact round-trip restore of the scaled inputs (plus the symmetry
+    /// offset, which detection wrote in scaled space), so a failed run
+    /// — or a second `remesh()` call — sees pristine inputs.
+    fn restore_normalized_inputs(&mut self, normalize_scale: f64) {
+        if normalize_scale == 1.0 {
+            return;
+        }
+        let inv = 1.0 / normalize_scale;
+        Self::scale_positions(&mut self.vertices, inv);
+        for line in self
+            .guide_polylines
+            .iter_mut()
+            .chain(self.sharp_polylines.iter_mut())
+        {
+            Self::scale_positions(line, inv);
+        }
+        self.symmetry_plane.offset *= inv;
+    }
+}
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::*;
+
+    fn two_points(d: f64) -> Vec<Vector3> {
+        vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(d, 0.0, 0.0)]
+    }
+
+    #[test]
+    fn healthy_scales_pass_through() {
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(1.0)), 1.0);
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(228.8)), 1.0);
+        // Degenerate / empty / non-finite: downstream handles as today.
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(0.0)), 1.0);
+        assert_eq!(AutoRemesher::normalization_scale(&[]), 1.0);
+        assert_eq!(
+            AutoRemesher::normalization_scale(&vec![
+                Vector3::new(f64::NAN, 0.0, 0.0),
+                Vector3::new(0.0, 0.0, 0.0)
+            ]),
+            1.0
+        );
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(5e-324)), 1.0);
+    }
+
+    #[test]
+    fn tiny_scales_map_into_unit_band() {
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(0.5)), 2.0);
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(0.3)), 4.0);
+        assert_eq!(AutoRemesher::normalization_scale(&two_points(0.999)), 2.0);
+        // Sweep: every sub-unit normal diagonal lands in [1, 2) under an
+        // exact power of two.
+        let mut d = f64::MIN_POSITIVE;
+        while d < 1.0 {
+            let s = AutoRemesher::normalization_scale(&two_points(d));
+            assert!(s > 1.0 && (s.log2().fract() == 0.0), "d={d:e} s={s}");
+            let diag = d.hypot(0.0).hypot(0.0);
+            let scaled = diag * s;
+            assert!(
+                (1.0..2.0).contains(&scaled),
+                "d={d:e} s={s} scaled={scaled}"
+            );
+            d *= 1.37;
+        }
+    }
+
+    #[test]
+    fn overflow_risk_refuses() {
+        // Huge offset, tiny extent: scaling up would overflow coords.
+        let verts = vec![
+            Vector3::new(8e307, 0.0, 0.0),
+            Vector3::new(8e307, 1e-300, 0.0),
+        ];
+        assert_eq!(AutoRemesher::normalization_scale(&verts), 1.0);
+    }
+
+    #[test]
+    fn round_trip_is_exact() {
+        // (x * s) * (1/s) == x for the scales we emit, denormals included.
+        for s in [2.0, 4.0, 2f64.powi(30), 2f64.powi(1022)] {
+            for x in [0.3, -17.25, 5e-324, 2.47e-308, 1.5e-10, 123.456] {
+                if !(x * s).is_finite() {
+                    continue; // overflow pairs: refused by the caller guard
+                }
+                assert_eq!((x * s) * (1.0 / s), x, "s={s} x={x:e}");
+            }
+        }
     }
 }
