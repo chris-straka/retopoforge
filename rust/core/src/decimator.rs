@@ -7,11 +7,10 @@
 //! with no attributes, unbounded `target_error`, and `options =
 //! meshopt_SimplifyRegularize`.
 //!
-//! Status: opt-in behind `RETOPO_DECIMATOR=native` (see
-//! `auto_remesher::decimate_if_too_dense`); the default remains the FFI
-//! meshopt path until the downstream proves robust to this port's
-//! re-tiling (beast@1000 lands on a bad downstream knife-edge under the
-//! native decimation, recorded for item 7).
+//! Status: the default (and only) decimator since the item-6 flip —
+//! the coverage retry (item 6b) robustified the downstream against this
+//! port's re-tiling (beast@1000 recovers 8/8), so the meshoptimizer FFI,
+//! its `build.rs` cc step, and `thirdparty/` were deleted.
 //!
 //! Unused upstream features are omitted, not stubbed: attribute quadrics,
 //! sparse remap, component pruning, permissive (complex/fringe) collapse,

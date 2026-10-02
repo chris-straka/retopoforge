@@ -114,16 +114,25 @@ when comparing back ends.
       regenerated (Linux baseline NEEDS a Linux regen — counts shifted).
       Kept RETOPO_DUMP_DECIMATED probe for the meshoptimizer item.
 - [x] Migrate meshoptimizer to Rust (`retopo_core::decimator`, f64
-      internals), kept behind `RETOPO_DECIMATOR=native` (default stays
-      FFI meshopt): f32 transcription proven bit-faithful (matches
-      no-contract C++ seed-for-seed); FMA contraction found to be old's
-      stability source (fewer rounding flips); f64 kills rounding flips
-      -> decimated overlap 87-99% to 99.7-100%, armadillo@1000 final
-      exactly fixed. FLIP BLOCKED on downstream knife-edge: f64's
-      statically-equal decimation lands beast@1000 badly (dist 7->30,
-      7/8 seeds; forensics rule out decimator fault) — flip only after
-      item 7 robustifies the downstream. Native weld bit-identical
-      (unit-pinned), default path byte-identical to pre-migration.
+      internals) and FLIP the default (FFI, `build.rs` cc step, and
+      `thirdparty/` deleted; pure-Rust tree): f32 transcription proven
+      bit-faithful seed-for-seed; f64 kills rounding flips ->
+      decimated overlap 99.7-100%. The flip blocker (beast@1000 lands
+      badly, dist 7->30) was resolved by the coverage retry (item 6b,
+      not item 7): re-ran gate is 8-seed native-vs-meshopt noise on all
+      5 models x 1000/5000 + deform spreads — beast all-green, 3 cases
+      bit-identical, stability wins (armadillo@5000 3 tilings vs 8,
+      beast deform spread collapses). Known cost, all sub-coverage-bar
+      extremity starvation also present on meshopt (different sites):
+      armadillo@1000 dist_max +50%/deform vol ~2x/flips +30,
+      armadillo@5000 flips +30, dragon stretch +5-8%, nefertiti angdev
+      +12% @1000. Re-pinned: ardiff fixture (7 decimating cases,
+      nonquads 4->10 on micro-fixtures, 1 PHASE token by hand),
+      bench/baseline.json + bench/deform_baseline.json (macOS);
+      bench/baseline-linux.json NEEDS a Linux regen; deform linux
+      baseline likewise. Coverage gap noted: input-side extremity
+      drops upstream of the working mesh are invisible to the
+      working->output check (armadillo fingertip-class misses).
 - [x] Coverage check + deterministic retry (before item 7): every
       island fails coverage when >= 25 working verts sit beyond 3x the
       nominal quad width (resolution-relative; absolute bars misfire on

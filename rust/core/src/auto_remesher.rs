@@ -9,20 +9,15 @@
 //! All numeric stages delegate to the joined `retopo_core` siblings
 //! (`MeshSeparator`, `Density`, `IsotropicRemesher`, `Parameterizer`,
 //! `QuadExtractor`, `Symmetry`) exactly where the C++ imports dictate —
-//! zero vendoring. The only third-party call the C++ engine makes that is
-//! not a joined module is meshoptimizer (`decimate_if_too_dense`), which
-//! stays C++ via FFI: `rust/core/build.rs` compiles the vendored
-//! `thirdparty/meshoptimizer/src/{simplifier,indexgenerator}.cpp` with the
-//! same Release optimization the CMake build uses, and the calls below
-//! transcribe the C++ call sites argument by argument. A native port of
-//! the 3k-line simplifier could not hold the oracle's structural facts
-//! (decimation picks topology); FFI keeps them identical by construction.
-//!
-//! A native Rust port exists ([`crate::decimator`], f64 internals for
-//! noise stability) behind `RETOPO_DECIMATOR=native`. It stays opt-in
-//! until the downstream proves robust to its re-tiling: on beast@1000 its
-//! equally-good decimation lands on a bad downstream knife-edge (dist 4x,
-//! recorded for item 7), so the default remains meshopt.
+//! zero vendoring, zero third-party calls: pre-decimation
+//! (`decimate_if_too_dense`) runs the native Rust port
+//! ([`crate::decimator`], f64 internals for noise stability). The port
+//! was proven bit-faithful against the C++ transcription seed-for-seed,
+//! then flipped to the default once the coverage retry (item 6b)
+//! robustified the downstream against its re-tiling (the beast@1000
+//! knife-edge that blocked the flip now recovers 8/8); the vendored
+//! meshoptimizer, its FFI, and the `build.rs` cc step were deleted with
+//! the flip.
 //!
 //! Threading (mandated): `std::thread` scoped threads mirroring the C++
 //! TBB structure — one worker per island chunk for the island build, the
@@ -122,70 +117,6 @@ pub enum ModelType {
     HardSurface,
 }
 
-// --- meshoptimizer FFI (decimate_if_too_dense only) ---
-//
-// Signatures transcribe `thirdparty/meshoptimizer/src/meshoptimizer.h`
-// (`size_t` -> `usize`, `unsigned int` -> `u32`). The C++ engine links the
-// same two translation units through `retopo_core`; the Rust side compiles
-// them in `rust/core/build.rs` at the same optimization level, so both
-// sides run identical decimation code.
-
-/// Mirrors `meshopt_SimplifyRegularize` (`meshoptimizer.h`: `1 << 4`).
-const MESHOPT_SIMPLIFY_REGULARIZE: u32 = 1 << 4;
-/// Mirrors `meshopt_SimplifyVertex_Priority` (`meshoptimizer.h`: `1 << 2`).
-const MESHOPT_SIMPLIFY_VERTEX_PRIORITY: u8 = 1 << 2;
-
-/// Env selector for the native Rust decimator ([`crate::decimator`]):
-/// `RETOPO_DECIMATOR=native` welds + simplifies natively, anything else
-/// (including unset) runs the FFI meshopt path below. Read per decimation
-/// (island granularity); both paths share the snap, lock, and output
-/// rebuild around the branch.
-fn use_native_decimator() -> bool {
-    std::env::var_os("RETOPO_DECIMATOR").is_some_and(|v| v == "native")
-}
-
-unsafe extern "C" {
-    fn meshopt_generateVertexRemap(
-        destination: *mut u32,
-        indices: *const u32,
-        index_count: usize,
-        vertices: *const c_void,
-        vertex_count: usize,
-        vertex_size: usize,
-    ) -> usize;
-    fn meshopt_remapIndexBuffer(
-        destination: *mut u32,
-        indices: *const u32,
-        index_count: usize,
-        remap: *const u32,
-    );
-    fn meshopt_remapVertexBuffer(
-        destination: *mut c_void,
-        vertices: *const c_void,
-        vertex_count: usize,
-        vertex_size: usize,
-        remap: *const u32,
-    );
-    #[allow(clippy::too_many_arguments)]
-    fn meshopt_simplifyWithAttributes(
-        destination: *mut u32,
-        indices: *const u32,
-        index_count: usize,
-        vertex_positions: *const f32,
-        vertex_count: usize,
-        vertex_positions_stride: usize,
-        vertex_attributes: *const f32,
-        vertex_attributes_stride: usize,
-        attribute_weights: *const f32,
-        attribute_count: usize,
-        vertex_lock: *const u8,
-        target_index_count: usize,
-        target_error: f32,
-        options: u32,
-        result_error: *mut f32,
-    ) -> usize;
-}
-
 const PARALLEL_PHASE_BEGIN: f32 = 0.03;
 const PARALLEL_PHASE_END: f32 = 0.95;
 
@@ -266,8 +197,8 @@ fn mark_sharp_edge_vertices(
         {
             continue;
         }
-        vertex_lock[(edges[i].0 >> 32) as usize] |= MESHOPT_SIMPLIFY_VERTEX_PRIORITY;
-        vertex_lock[(edges[i].0 & 0xffff_ffff) as usize] |= MESHOPT_SIMPLIFY_VERTEX_PRIORITY;
+        vertex_lock[(edges[i].0 >> 32) as usize] |= crate::decimator::VERTEX_PRIORITY;
+        vertex_lock[(edges[i].0 & 0xffff_ffff) as usize] |= crate::decimator::VERTEX_PRIORITY;
     }
 }
 
@@ -1246,57 +1177,13 @@ impl AutoRemesher {
         }
         Self::snap_decimator_input(&mut positions, &lower_bound, &upper_bound);
 
-        // Decimator selection: native Rust port behind
-        // RETOPO_DECIMATOR=native, FFI meshopt by default. Both paths weld
-        // the snapped f32 positions identically (the native weld is proven
-        // bit-identical to generateVertexRemap); only the simplifier
-        // arithmetic differs (f64 vs f32+FMA).
-        let native = use_native_decimator();
-        let (remap, welded_vertex_count, welded_positions) = if native {
-            let (remap, welded_vertex_count) =
-                crate::decimator::generate_vertex_remap(&indices, &positions);
-            crate::decimator::remap_index_buffer_in_place(&mut indices, &remap);
-            let welded_positions =
-                crate::decimator::remap_vertex_buffer(&positions, &remap, welded_vertex_count);
-            (remap, welded_vertex_count, welded_positions)
-        } else {
-            let mut remap = vec![0u32; vertices.len()];
-            // SAFETY: FFI transcription of the C++ calls. All pointers come
-            // from live same-length-or-longer buffers (`remap` has one entry
-            // per vertex; `indices`/`positions` are non-empty here), sizes are
-            // in the units each function documents (12-byte vertices), and
-            // meshoptimizer touches only the ranges it is given. The calls are
-            // pure functions of their inputs (no shared mutable state), so
-            // concurrent calls from island workers are safe — the C++ already
-            // calls them from TBB workers.
-            let welded_vertex_count = unsafe {
-                meshopt_generateVertexRemap(
-                    remap.as_mut_ptr(),
-                    indices.as_ptr(),
-                    indices.len(),
-                    positions.as_ptr() as *const c_void,
-                    vertices.len(),
-                    std::mem::size_of::<f32>() * 3,
-                )
-            };
-            let mut welded_positions = vec![0.0f32; welded_vertex_count * 3];
-            unsafe {
-                meshopt_remapIndexBuffer(
-                    indices.as_mut_ptr(),
-                    indices.as_ptr(),
-                    indices.len(),
-                    remap.as_ptr(),
-                );
-                meshopt_remapVertexBuffer(
-                    welded_positions.as_mut_ptr() as *mut c_void,
-                    positions.as_ptr() as *const c_void,
-                    vertices.len(),
-                    std::mem::size_of::<f32>() * 3,
-                    remap.as_ptr(),
-                );
-            }
-            (remap, welded_vertex_count, welded_positions)
-        };
+        // Native Rust decimator (the only path since the item-6 flip;
+        // the meshoptimizer FFI is deleted).
+        let (remap, welded_vertex_count) =
+            crate::decimator::generate_vertex_remap(&indices, &positions);
+        crate::decimator::remap_index_buffer_in_place(&mut indices, &remap);
+        let welded_positions =
+            crate::decimator::remap_vertex_buffer(&positions, &remap, welded_vertex_count);
         let mut welded_vertices = vec![Vector3::default(); welded_vertex_count];
         for (i, &r) in remap.iter().enumerate() {
             if r != u32::MAX {
@@ -1315,49 +1202,18 @@ impl AutoRemesher {
             );
         }
 
-        let decimated: Vec<u32> = if native {
-            let lock_opt = if vertex_lock.is_empty() {
-                None
-            } else {
-                Some(vertex_lock.as_slice())
-            };
-            crate::decimator::simplify(
-                &welded_positions,
-                &indices,
-                lock_opt,
-                decimate_triangle_count * 3,
-            )
-            .0
+        let lock_opt = if vertex_lock.is_empty() {
+            None
         } else {
-            let mut decimated = vec![0u32; indices.len()];
-            let mut result_error = 0.0f32;
-            let decimated_len = unsafe {
-                meshopt_simplifyWithAttributes(
-                    decimated.as_mut_ptr(),
-                    indices.as_ptr(),
-                    indices.len(),
-                    welded_positions.as_ptr(),
-                    welded_vertex_count,
-                    std::mem::size_of::<f32>() * 3,
-                    std::ptr::null(),
-                    0,
-                    std::ptr::null(),
-                    0,
-                    if vertex_lock.is_empty() {
-                        std::ptr::null()
-                    } else {
-                        vertex_lock.as_ptr()
-                    },
-                    decimate_triangle_count * 3,
-                    f32::MAX,
-                    MESHOPT_SIMPLIFY_REGULARIZE,
-                    &mut result_error,
-                )
-            };
-            decimated.truncate(decimated_len);
-            let _ = result_error;
-            decimated
+            Some(vertex_lock.as_slice())
         };
+        let decimated: Vec<u32> = crate::decimator::simplify(
+            &welded_positions,
+            &indices,
+            lock_opt,
+            decimate_triangle_count * 3,
+        )
+        .0;
 
         if decimated.len() < 3 || decimated.len() >= indices.len() {
             return false;

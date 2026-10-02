@@ -6,9 +6,3 @@ edition.workspace = true
 [dependencies]
 faer.workspace = true
 retopo_solvers = { path = "../solvers" }
-
-# rs-autoremesher lane: compiles the vendored meshoptimizer sources for the
-# decimate_if_too_dense FFI in build.rs (resolves from the offline cargo
-# cache; verified with --offline during development).
-[build-dependencies]
-cc = "1"

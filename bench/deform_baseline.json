@@ -4,86 +4,86 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 40,
-            "min": 14,
-            "seed0": 33
+            "max": 51,
+            "min": 30,
+            "seed0": 51
           },
           "region_tris": {
-            "max": 110,
-            "min": 62,
-            "seed0": 89
+            "max": 101,
+            "min": 80,
+            "seed0": 100
           },
           "region_verts": {
-            "max": 83,
-            "min": 54,
-            "seed0": 69
+            "max": 72,
+            "min": 60,
+            "seed0": 72
           },
           "selfint_posed": {
-            "max": 2,
+            "max": 1,
             "min": 0,
             "seed0": 0
           },
           "selfint_rest": {
-            "max": 0,
+            "max": 1,
             "min": 0,
             "seed0": 0
           },
           "stretch_over2_pct": {
-            "max": 1.612903,
+            "max": 1.123596,
             "min": 0.0,
             "seed0": 0.0
           },
           "stretch_p95": {
-            "max": 1.394326,
-            "min": 1.255678,
-            "seed0": 1.31688
+            "max": 1.515675,
+            "min": 1.258499,
+            "seed0": 1.444342
           },
           "volume_loss_pct": {
-            "max": 124.657447,
-            "min": 63.046876,
-            "seed0": 70.67518
+            "max": 131.945515,
+            "min": 104.864542,
+            "seed0": 128.592875
           }
         },
         "elbow90": {
           "flips": {
-            "max": 20,
-            "min": 0,
-            "seed0": 4
+            "max": 41,
+            "min": 20,
+            "seed0": 34
           },
           "region_tris": {
-            "max": 110,
-            "min": 62,
-            "seed0": 89
+            "max": 101,
+            "min": 80,
+            "seed0": 100
           },
           "region_verts": {
-            "max": 83,
-            "min": 54,
-            "seed0": 69
+            "max": 72,
+            "min": 60,
+            "seed0": 72
           },
           "selfint_posed": {
-            "max": 19,
+            "max": 1,
             "min": 0,
-            "seed0": 8
+            "seed0": 0
           },
           "selfint_rest": {
-            "max": 0,
+            "max": 1,
             "min": 0,
             "seed0": 0
           },
           "stretch_over2_pct": {
-            "max": 1.612903,
+            "max": 0.0,
             "min": 0.0,
             "seed0": 0.0
           },
           "stretch_p95": {
-            "max": 1.251052,
-            "min": 1.075387,
-            "seed0": 1.216079
+            "max": 1.106801,
+            "min": 1.080436,
+            "seed0": 1.094511
           },
           "volume_loss_pct": {
-            "max": 79.979428,
-            "min": 39.722736,
-            "seed0": 44.130242
+            "max": 85.569137,
+            "min": 67.200931,
+            "seed0": 83.253554
           }
         }
       }
@@ -92,24 +92,24 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 235,
-            "min": 173,
-            "seed0": 213
+            "max": 241,
+            "min": 222,
+            "seed0": 222
           },
           "region_tris": {
-            "max": 774,
-            "min": 656,
-            "seed0": 656
+            "max": 730,
+            "min": 708,
+            "seed0": 708
           },
           "region_verts": {
-            "max": 450,
-            "min": 390,
-            "seed0": 390
+            "max": 428,
+            "min": 418,
+            "seed0": 418
           },
           "selfint_posed": {
-            "max": 29,
-            "min": 19,
-            "seed0": 19
+            "max": 27,
+            "min": 23,
+            "seed0": 23
           },
           "selfint_rest": {
             "max": 0,
@@ -122,36 +122,36 @@
             "seed0": 0.0
           },
           "stretch_p95": {
-            "max": 1.349744,
-            "min": 1.296856,
-            "seed0": 1.309611
+            "max": 1.315519,
+            "min": 1.311648,
+            "seed0": 1.315519
           },
           "volume_loss_pct": {
-            "max": 73.665118,
-            "min": 72.706686,
-            "seed0": 73.572366
+            "max": 73.285318,
+            "min": 72.703612,
+            "seed0": 73.145905
           }
         },
         "elbow90": {
           "flips": {
-            "max": 92,
-            "min": 65,
-            "seed0": 79
+            "max": 91,
+            "min": 89,
+            "seed0": 89
           },
           "region_tris": {
-            "max": 774,
-            "min": 656,
-            "seed0": 656
+            "max": 730,
+            "min": 708,
+            "seed0": 708
           },
           "region_verts": {
-            "max": 450,
-            "min": 390,
-            "seed0": 390
+            "max": 428,
+            "min": 418,
+            "seed0": 418
           },
           "selfint_posed": {
-            "max": 69,
-            "min": 50,
-            "seed0": 69
+            "max": 70,
+            "min": 59,
+            "seed0": 62
           },
           "selfint_rest": {
             "max": 0,
@@ -164,14 +164,14 @@
             "seed0": 0.0
           },
           "stretch_p95": {
-            "max": 1.217681,
-            "min": 1.187403,
-            "seed0": 1.199984
+            "max": 1.200144,
+            "min": 1.196544,
+            "seed0": 1.196979
           },
           "volume_loss_pct": {
-            "max": 47.727396,
-            "min": 47.088387,
-            "seed0": 47.647667
+            "max": 47.491798,
+            "min": 47.081267,
+            "seed0": 47.351501
           }
         }
       }
@@ -180,86 +180,86 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 107,
-            "min": 10,
-            "seed0": 78
+            "max": 111,
+            "min": 63,
+            "seed0": 75
           },
           "region_tris": {
-            "max": 566,
-            "min": 172,
-            "seed0": 536
+            "max": 554,
+            "min": 413,
+            "seed0": 554
           },
           "region_verts": {
-            "max": 319,
-            "min": 109,
-            "seed0": 307
+            "max": 317,
+            "min": 245,
+            "seed0": 314
           },
           "selfint_posed": {
-            "max": 110,
-            "min": 0,
-            "seed0": 93
+            "max": 105,
+            "min": 35,
+            "seed0": 84
           },
           "selfint_rest": {
-            "max": 78,
+            "max": 66,
             "min": 0,
-            "seed0": 55
+            "seed0": 42
           },
           "stretch_over2_pct": {
-            "max": 35.465116,
-            "min": 10.183299,
-            "seed0": 23.880597
+            "max": 20.216606,
+            "min": 1.173709,
+            "seed0": 20.216606
           },
           "stretch_p95": {
-            "max": 2.755334,
-            "min": 2.179297,
-            "seed0": 2.396261
+            "max": 2.32918,
+            "min": 1.533195,
+            "seed0": 2.274021
           },
           "volume_loss_pct": {
-            "max": 74.560767,
-            "min": -103.692935,
-            "seed0": 58.941628
+            "max": 73.830129,
+            "min": 63.586285,
+            "seed0": 66.044066
           }
         },
         "elbow90": {
           "flips": {
-            "max": 47,
-            "min": 0,
-            "seed0": 25
+            "max": 44,
+            "min": 24,
+            "seed0": 30
           },
           "region_tris": {
-            "max": 566,
-            "min": 172,
-            "seed0": 536
+            "max": 554,
+            "min": 413,
+            "seed0": 554
           },
           "region_verts": {
-            "max": 319,
-            "min": 109,
-            "seed0": 307
+            "max": 317,
+            "min": 245,
+            "seed0": 314
           },
           "selfint_posed": {
-            "max": 129,
-            "min": 0,
-            "seed0": 127
+            "max": 120,
+            "min": 57,
+            "seed0": 112
           },
           "selfint_rest": {
-            "max": 78,
+            "max": 66,
             "min": 0,
-            "seed0": 55
+            "seed0": 42
           },
           "stretch_over2_pct": {
-            "max": 10.465116,
+            "max": 0.0,
             "min": 0.0,
             "seed0": 0.0
           },
           "stretch_p95": {
-            "max": 2.136207,
-            "min": 1.732946,
-            "seed0": 1.866089
+            "max": 1.823664,
+            "min": 1.342451,
+            "seed0": 1.789588
           },
           "volume_loss_pct": {
-            "max": 47.860908,
-            "min": -69.371513,
-            "seed0": 37.793997
+            "max": 47.336542,
+            "min": 40.668899,
+            "seed0": 42.285975
           }
         }
       }
@@ -532,24 +532,24 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 45,
-            "min": 34,
-            "seed0": 45
+            "max": 32,
+            "min": 30,
+            "seed0": 30
           },
           "region_tris": {
-            "max": 406,
-            "min": 325,
-            "seed0": 352
+            "max": 340,
+            "min": 308,
+            "seed0": 340
           },
           "region_verts": {
-            "max": 244,
-            "min": 199,
-            "seed0": 216
+            "max": 211,
+            "min": 195,
+            "seed0": 211
           },
           "selfint_posed": {
-            "max": 18,
-            "min": 5,
-            "seed0": 11
+            "max": 15,
+            "min": 13,
+            "seed0": 13
           },
           "selfint_rest": {
             "max": 0,
@@ -557,19 +557,19 @@
             "seed0": 0
           },
           "stretch_over2_pct": {
-            "max": 17.846154,
-            "min": 9.375,
-            "seed0": 9.375
+            "max": 21.470588,
+            "min": 18.831169,
+            "seed0": 21.470588
           },
           "stretch_p95": {
-            "max": 2.28104,
-            "min": 2.115675,
-            "seed0": 2.115675
+            "max": 2.312649,
+            "min": 2.245594,
+            "seed0": 2.312649
           },
           "volume_loss_pct": {
-            "max": 9.320087,
-            "min": 5.444571,
-            "seed0": 9.320085
+            "max": 7.147712,
+            "min": 3.930136,
+            "seed0": 3.930136
           }
         },
         "elbow90": {
@@ -579,14 +579,14 @@
             "seed0": 0
           },
           "region_tris": {
-            "max": 406,
-            "min": 325,
-            "seed0": 352
+            "max": 340,
+            "min": 308,
+            "seed0": 340
           },
           "region_verts": {
-            "max": 244,
-            "min": 199,
-            "seed0": 216
+            "max": 211,
+            "min": 195,
+            "seed0": 211
           },
           "selfint_posed": {
             "max": 0,
@@ -599,19 +599,19 @@
             "seed0": 0
           },
           "stretch_over2_pct": {
-            "max": 0.0,
+            "max": 0.294118,
             "min": 0.0,
-            "seed0": 0.0
+            "seed0": 0.294118
           },
           "stretch_p95": {
-            "max": 1.806841,
-            "min": 1.710146,
-            "seed0": 1.710146
+            "max": 1.832402,
+            "min": 1.795152,
+            "seed0": 1.832402
           },
           "volume_loss_pct": {
-            "max": 5.081616,
-            "min": 2.721006,
-            "seed0": 5.081615
+            "max": 3.716632,
+            "min": 1.748887,
+            "seed0": 1.748887
           }
         }
       }
@@ -620,86 +620,86 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 253,
-            "min": 201,
-            "seed0": 205
+            "max": 259,
+            "min": 210,
+            "seed0": 235
           },
           "region_tris": {
-            "max": 2008,
-            "min": 1908,
-            "seed0": 1914
+            "max": 2498,
+            "min": 2328,
+            "seed0": 2418
           },
           "region_verts": {
-            "max": 1085,
-            "min": 1030,
-            "seed0": 1033
+            "max": 1327,
+            "min": 1242,
+            "seed0": 1289
           },
           "selfint_posed": {
-            "max": 107,
-            "min": 35,
-            "seed0": 42
+            "max": 66,
+            "min": 53,
+            "seed0": 63
           },
           "selfint_rest": {
-            "max": 64,
-            "min": 4,
-            "seed0": 11
+            "max": 5,
+            "min": 0,
+            "seed0": 1
           },
           "stretch_over2_pct": {
-            "max": 21.081901,
-            "min": 17.679283,
-            "seed0": 19.85371
+            "max": 28.246485,
+            "min": 25.386598,
+            "seed0": 28.246485
           },
           "stretch_p95": {
-            "max": 2.339868,
-            "min": 2.328781,
-            "seed0": 2.328781
+            "max": 2.415053,
+            "min": 2.394628,
+            "seed0": 2.403091
           },
           "volume_loss_pct": {
-            "max": 2.78556,
-            "min": 1.52118,
-            "seed0": 1.986123
+            "max": 2.779901,
+            "min": 2.084399,
+            "seed0": 2.084399
           }
         },
         "elbow90": {
           "flips": {
-            "max": 5,
+            "max": 8,
             "min": 1,
-            "seed0": 2
+            "seed0": 1
           },
           "region_tris": {
-            "max": 2008,
-            "min": 1908,
-            "seed0": 1914
+            "max": 2498,
+            "min": 2328,
+            "seed0": 2418
           },
           "region_verts": {
-            "max": 1085,
-            "min": 1030,
-            "seed0": 1033
+            "max": 1327,
+            "min": 1242,
+            "seed0": 1289
           },
           "selfint_posed": {
-            "max": 98,
-            "min": 6,
-            "seed0": 44
+            "max": 33,
+            "min": 0,
+            "seed0": 8
           },
           "selfint_rest": {
-            "max": 64,
-            "min": 4,
-            "seed0": 11
+            "max": 5,
+            "min": 0,
+            "seed0": 1
           },
           "stretch_over2_pct": {
-            "max": 0.154083,
+            "max": 0.202758,
             "min": 0.0,
-            "seed0": 0.0
+            "seed0": 0.124069
           },
           "stretch_p95": {
-            "max": 1.842323,
-            "min": 1.831988,
-            "seed0": 1.835847
+            "max": 1.884596,
+            "min": 1.873681,
+            "seed0": 1.88027
           },
           "volume_loss_pct": {
-            "max": 1.658483,
-            "min": 0.790821,
-            "seed0": 1.1095
+            "max": 1.676157,
+            "min": 1.179254,
+            "seed0": 1.179254
           }
         }
       }
@@ -884,44 +884,44 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 1,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
           "region_tris": {
-            "max": 161,
-            "min": 76,
-            "seed0": 120
+            "max": 166,
+            "min": 129,
+            "seed0": 166
           },
           "region_verts": {
-            "max": 106,
-            "min": 60,
-            "seed0": 84
+            "max": 109,
+            "min": 86,
+            "seed0": 109
           },
           "selfint_posed": {
-            "max": 18,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
           "selfint_rest": {
-            "max": 11,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
           "stretch_over2_pct": {
-            "max": 12.790698,
-            "min": 0.0,
-            "seed0": 5.833333
+            "max": 7.228916,
+            "min": 1.550388,
+            "seed0": 7.228916
           },
           "stretch_p95": {
-            "max": 2.313592,
-            "min": 1.768249,
-            "seed0": 2.001161
+            "max": 2.241959,
+            "min": 1.946401,
+            "seed0": 2.241959
           },
           "volume_loss_pct": {
-            "max": -4.801108,
-            "min": -35.0846,
-            "seed0": -23.725479
+            "max": -9.004309,
+            "min": -17.821937,
+            "seed0": -17.819144
           }
         },
         "elbow90": {
@@ -931,22 +931,22 @@
             "seed0": 0
           },
           "region_tris": {
-            "max": 161,
-            "min": 76,
-            "seed0": 120
+            "max": 166,
+            "min": 129,
+            "seed0": 166
           },
           "region_verts": {
-            "max": 106,
-            "min": 60,
-            "seed0": 84
+            "max": 109,
+            "min": 86,
+            "seed0": 109
           },
           "selfint_posed": {
-            "max": 18,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
           "selfint_rest": {
-            "max": 11,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
@@ -956,14 +956,14 @@
             "seed0": 0.0
           },
           "stretch_p95": {
-            "max": 1.892011,
-            "min": 1.505608,
-            "seed0": 1.63014
+            "max": 1.878684,
+            "min": 1.585502,
+            "seed0": 1.878606
           },
           "volume_loss_pct": {
-            "max": -5.305796,
-            "min": -25.326929,
-            "seed0": -17.117328
+            "max": -7.146968,
+            "min": -12.872396,
+            "seed0": -12.870669
           }
         }
       }
@@ -972,86 +972,86 @@
       "poses": {
         "elbow135": {
           "flips": {
-            "max": 1,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
           "region_tris": {
-            "max": 1368,
-            "min": 1198,
-            "seed0": 1321
+            "max": 1321,
+            "min": 1120,
+            "seed0": 1120
           },
           "region_verts": {
-            "max": 773,
-            "min": 674,
-            "seed0": 750
+            "max": 743,
+            "min": 631,
+            "seed0": 631
           },
           "selfint_posed": {
-            "max": 12,
+            "max": 3,
             "min": 0,
-            "seed0": 1
+            "seed0": 3
           },
           "selfint_rest": {
-            "max": 12,
+            "max": 3,
             "min": 0,
-            "seed0": 1
+            "seed0": 3
           },
           "stretch_over2_pct": {
-            "max": 26.707132,
-            "min": 15.7277,
-            "seed0": 19.83346
+            "max": 22.374429,
+            "min": 16.160714,
+            "seed0": 16.160714
           },
           "stretch_p95": {
-            "max": 2.739189,
-            "min": 2.281403,
-            "seed0": 2.504588
+            "max": 2.545619,
+            "min": 2.469474,
+            "seed0": 2.545619
           },
           "volume_loss_pct": {
-            "max": -33.478136,
-            "min": -41.972719,
-            "seed0": -33.760424
+            "max": -31.991323,
+            "min": -40.593619,
+            "seed0": -31.991327
           }
         },
         "elbow90": {
           "flips": {
-            "max": 1,
+            "max": 0,
             "min": 0,
             "seed0": 0
           },
           "region_tris": {
-            "max": 1368,
-            "min": 1198,
-            "seed0": 1321
+            "max": 1321,
+            "min": 1120,
+            "seed0": 1120
           },
           "region_verts": {
-            "max": 773,
-            "min": 674,
-            "seed0": 750
+            "max": 743,
+            "min": 631,
+            "seed0": 631
           },
           "selfint_posed": {
-            "max": 12,
+            "max": 3,
             "min": 0,
-            "seed0": 1
+            "seed0": 3
           },
           "selfint_rest": {
-            "max": 12,
+            "max": 3,
             "min": 0,
-            "seed0": 1
+            "seed0": 3
           },
           "stretch_over2_pct": {
-            "max": 11.07739,
-            "min": 1.752922,
-            "seed0": 4.844815
+            "max": 5.714286,
+            "min": 5.071915,
+            "seed0": 5.714286
           },
           "stretch_p95": {
-            "max": 2.133036,
-            "min": 1.884872,
-            "seed0": 1.999177
+            "max": 2.025788,
+            "min": 2.001696,
+            "seed0": 2.025788
           },
           "volume_loss_pct": {
-            "max": -22.303344,
-            "min": -27.82963,
-            "seed0": -22.523407
+            "max": -21.457005,
+            "min": -26.929963,
+            "seed0": -21.457008
           }
         }
       }

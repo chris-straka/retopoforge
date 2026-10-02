@@ -32,8 +32,8 @@ cargo build --locked --release -p retopo
 ```
 
 Run it from `rust/` (the cargo workspace). This builds the `retopo` CLI
-(`rust/target/release/retopo`); meshoptimizer (vendored C++ in
-`thirdparty/meshoptimizer`) is compiled in by `rust/core/build.rs`.
+(`rust/target/release/retopo`); pure Rust, no C++ (the vendored
+meshoptimizer was replaced by the native `retopo_core::decimator`).
 
 ## CLI usage
 
@@ -194,8 +194,6 @@ files. See [docs/architecture.md](docs/architecture.md) and
   strategy notes.
 - `tests/fixtures/` — golden data for the Rust tests (reference dumps,
   procedural OBJ/GLB fixtures, CLI contract goldens).
-- `thirdparty/meshoptimizer/` — vendored mesh decimator, compiled into
-  the Rust engine via FFI.
 
 See [docs/architecture.md](docs/architecture.md) for the module graph
 and the engine/CLI/addon split.

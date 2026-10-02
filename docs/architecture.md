@@ -1,8 +1,8 @@
 # retopoforge architecture
 
-Date: 2026-10-01 (Rust-only tree). Sources: `rust/Cargo.toml`,
-`rust/core/src/lib.rs`, `rust/core/build.rs`, `rust/cli/src/main.rs`,
-`blender/retopoforge/__init__.py`, `bench/run.py`.
+Date: 2026-10-01 (Rust-only tree; item-6 flip deleted `build.rs` +
+`thirdparty/`). Sources: `rust/Cargo.toml`, `rust/core/src/lib.rs`,
+`rust/cli/src/main.rs`, `blender/retopoforge/__init__.py`, `bench/run.py`.
 
 ## The three pieces
 
@@ -18,9 +18,10 @@ is the UI. The original C++ engine was the differential oracle for the
 
 Dependency rules:
 
-- The engine depends on `faer` (linear algebra) and vendored
-  `thirdparty/meshoptimizer` (C++ decimator compiled in by
-  `rust/core/build.rs` through a small FFI). Nothing else in the repo.
+- The engine depends on `faer` (linear algebra) only. Pre-decimation
+  is the native Rust port (`retopo_core::decimator`); the vendored
+  meshoptimizer, its FFI, and the `build.rs` cc step were deleted with
+  the item-6 flip.
 - The CLI depends on `retopo_core`; OBJ and GLB IO are std-only.
 - The Blender extension links against nothing: it drives the `retopo`
   binary as a subprocess over OBJ files. That subprocess boundary is
@@ -42,8 +43,8 @@ bench/models/*.obj --retopo--> results JSON --check--> baseline verdict
 `auto_remesher` orchestrates, per input mesh:
 
 1. Load + weld (`obj_reader` / `glb`, CLI side), split into islands
-   (`mesh_separator`), optional meshoptimizer decimation when an island
-   exceeds 8x the target triangle count.
+   (`mesh_separator`), optional native decimation (`decimator`) when an
+   island exceeds 8x the target triangle count.
 2. Isotropic remesh (`isotropic_remesher`, `iso_remesh_kernel`) to a
    sizing-adaptive working mesh.
 3. Parameterize (`parameterizer`): cross field (`frame_field`, with

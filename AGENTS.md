@@ -29,8 +29,8 @@ through `~/SWE/wrapforge`).
 ## Build
 
 - `cd rust && cargo build --locked --release -p retopo` produces
-  `rust/target/release/retopo`. Rust only; `thirdparty/meshoptimizer` (C++)
-  is compiled in via `rust/core/build.rs` (`cc` crate).
+  `rust/target/release/retopo`. Pure Rust, no C++ (native decimator;
+  `thirdparty/` + `build.rs` deleted with the item-6 flip).
 
 ## Checks
 
@@ -55,4 +55,4 @@ through `~/SWE/wrapforge`).
 - `bench/` = harness (`run.py` regression gate, `score.py` scorecard,
   `noise.py` noise floor, `compare.py` free baselines, `profile.py`).
 - `tests/fixtures/` = golden data for the Rust tests.
-- `thirdparty/meshoptimizer/` = the only vendored dependency.
+- No vendored dependencies (zero third-party code in the tree).

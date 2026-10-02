@@ -1,12 +1,10 @@
-// Permanent regression: beast@1000-native dropped the whole left
-// appendage (x < -62, 416 working tris -> 0 quads) when a region-scale
-// uv fold traced the island onto the body (docs/beast-knife-edge-
-// bisection.md). The coverage retry must fire and recover it.
+// Permanent regression: beast@1000 dropped the whole left appendage
+// (x < -62, 416 working tris -> 0 quads) when a region-scale uv fold
+// traced the island onto the body (docs/beast-knife-edge-bisection.md).
+// The coverage retry must fire and recover it.
 //
 // Needs the owner's gitignored corpus (`bench/fetch_models.sh`); skips
-// loudly when beast.obj is absent. Single test per binary: setting
-// `RETOPO_DECIMATOR` here cannot race sibling tests (separate process
-// per integration binary).
+// loudly when beast.obj is absent.
 use retopo_core::auto_remesher::{AutoRemesher, ModelType};
 use retopo_core::obj_reader;
 use retopo_core::quad_parameterizer::DipoleConfig;
@@ -64,12 +62,8 @@ fn beast_native_1000_recovers_appendage() {
         println!("SKIP: {BEAST} absent (bench/fetch_models.sh); regression needs the corpus");
         return;
     }
-    // SAFETY: this binary holds a single test, so no sibling thread
-    // can observe the environment mid-mutation (and the engine reads
-    // this variable only during `remesh` below).
-    unsafe {
-        std::env::set_var("RETOPO_DECIMATOR", "native");
-    }
+    // Native is the only decimator since the item-6 flip, so this
+    // exercises the default path with no env switch.
     let (vertices, triangles) = load_cli_like(Path::new(BEAST)).expect("beast.obj loads");
     let mut remesher = remesh_like_cli(&vertices, &triangles);
     assert!(remesher.remesh(), "remesh succeeds");
