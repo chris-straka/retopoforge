@@ -133,8 +133,10 @@ when comparing back ends.
       +12% @1000. Re-pinned: ardiff fixture (7 decimating cases,
       nonquads 4->10 on micro-fixtures, 1 PHASE token by hand),
       bench/baseline.json + bench/deform_baseline.json (macOS);
-      bench/baseline-linux.json NEEDS a Linux regen; deform linux
-      baseline likewise. Coverage gap noted: input-side extremity
+      bench/baseline-linux.json regenerated from Linux CI (release run
+      37056241932, 2026-10-02 — post-flip, 9/10 cases match macOS
+      exactly, only dragon/tiny differs); deform linux baseline in
+      flight via a scratch CI run. Coverage gap noted: input-side extremity
       drops upstream of the working mesh are invisible to the
       working->output check (armadillo fingertip-class misses).
 - [x] Coverage check + deterministic retry (before item 7): every
@@ -570,7 +572,8 @@ and QtAwesome deleted as dead code before the removal.
       symmetric vertex-to-surface means 0.24% vs 0.27% of bbox diag,
       in->out identical to 4 digits, areas within 0.6% — equal
       quality, different tilings. Baselines stay Rust numbers.
-      Follow-up (open): Linux-Rust gives 772 (vs 680 mac-Rust) — same
-      deterministic sort, so the candidate/singularity SET likely
-      differs via libm-noise integer flip or meshopt codegen; needs a
-      Linux-side bisection. Both modes valid + baselined; not blocking.
+      Follow-up (RESOLVED by the item-6 flip, no bisection needed):
+      Linux now gives 684 = macOS on beast/tiny (release run
+      37056241932) — the 772 mode was meshopt-codegen divergence, gone
+      with the FFI. 9/10 bench cases now match macOS exactly; only
+      dragon/tiny still differs (686 vs 689), inside the gates.

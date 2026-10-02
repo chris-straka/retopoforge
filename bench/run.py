@@ -17,7 +17,9 @@ Usage:
                                      # deform_<check-basename> next to --check)
 
 Baselines are per-platform: sparse solves differ between Accelerate
-(macOS) and libstdc++ (Linux), so counts disagree beyond the gates.
+(macOS) and libstdc++ (Linux), so counts can disagree beyond the gates
+(the item-6 native-decimator flip unified 9/10 cases; dragon/tiny still
+differs, 686 vs 689).
 macOS CI checks baseline.json, Linux CI checks baseline-linux.json;
 regenerate each on its own platform, never mix. The deform baseline
 follows the same rule (bench/deform_baseline.json next to

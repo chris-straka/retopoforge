@@ -1,6 +1,6 @@
 {
   "platform": "linux-x86_64",
-  "note": "Rust product numbers on linux-x86_64 (run 36846299121, 2026-10-01). Same gates as baseline.json; regenerate per platform, never mix. beast/tiny forensics (mac 680 vs linux 772 vs C++ 779/790) tracked in TODO.md.",
+  "note": "Rust product numbers on linux-x86_64 (release run 37056241932, 2026-10-02; transcribed from the CI log table, all cases OK). The item-6 native-decimator flip unified the platforms: 9/10 cases now match macOS exactly, only dragon/tiny differs (686 vs 689). Same gates as baseline.json; regenerate per platform, never mix.",
   "results": [
     {
       "model": "armadillo.obj",
@@ -10,12 +10,12 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.9,
+      "wall_seconds": 1.2,
       "input_verts": 49990,
       "input_faces": 99976,
-      "verts": 601,
-      "quads": 584,
-      "non_quads": 10,
+      "verts": 564,
+      "quads": 556,
+      "non_quads": 4,
       "errors": [],
       "error_count": 0
     },
@@ -27,11 +27,11 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 14.1,
+      "wall_seconds": 2.9,
       "input_verts": 49990,
       "input_faces": 99976,
-      "verts": 4627,
-      "quads": 4606,
+      "verts": 4607,
+      "quads": 4589,
       "non_quads": 14,
       "errors": [],
       "error_count": 0
@@ -44,12 +44,12 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 1.0,
+      "wall_seconds": 1.4,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 807,
-      "quads": 772,
-      "non_quads": 26,
+      "verts": 699,
+      "quads": 684,
+      "non_quads": 12,
       "errors": [],
       "error_count": 0
     },
@@ -61,17 +61,85 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 16.1,
+      "wall_seconds": 4.0,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 5492,
-      "quads": 5423,
-      "non_quads": 49,
+      "verts": 5405,
+      "quads": 5386,
+      "non_quads": 16,
       "errors": [],
       "error_count": 0
     },
     {
       "model": "nefertiti.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.8,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 1148,
+      "quads": 1143,
+      "non_quads": 2,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 3.3,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 5310,
+      "quads": 5302,
+      "non_quads": 6,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.8,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 1518,
+      "quads": 1514,
+      "non_quads": 2,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 2.4,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 5533,
+      "quads": 5531,
+      "non_quads": 0,
+      "errors": [],
+      "error_count": 0
+    },
+    {
+      "model": "xyzrgb_dragon.obj",
       "preset": "tiny",
       "args": [
         "--target-quads",
@@ -79,79 +147,11 @@
       ],
       "exit_code": 0,
       "wall_seconds": 1.5,
-      "input_verts": 49971,
-      "input_faces": 99938,
-      "verts": 1140,
-      "quads": 1130,
-      "non_quads": 6,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "nefertiti.obj",
-      "preset": "small",
-      "args": [
-        "--target-quads",
-        "5000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 19.6,
-      "input_verts": 49971,
-      "input_faces": 99938,
-      "verts": 5302,
-      "quads": 5278,
-      "non_quads": 16,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "fandisk.obj",
-      "preset": "tiny",
-      "args": [
-        "--target-quads",
-        "1000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 2.2,
-      "input_verts": 6475,
-      "input_faces": 12946,
-      "verts": 1529,
-      "quads": 1513,
-      "non_quads": 10,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "fandisk.obj",
-      "preset": "small",
-      "args": [
-        "--target-quads",
-        "5000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 19.7,
-      "input_verts": 6475,
-      "input_faces": 12946,
-      "verts": 5543,
-      "quads": 5532,
-      "non_quads": 6,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "xyzrgb_dragon.obj",
-      "preset": "tiny",
-      "args": [
-        "--target-quads",
-        "1000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 1.7,
       "input_verts": 125066,
       "input_faces": 249882,
-      "verts": 711,
-      "quads": 679,
-      "non_quads": 24,
+      "verts": 697,
+      "quads": 686,
+      "non_quads": 8,
       "errors": [],
       "error_count": 0
     },
@@ -163,12 +163,12 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 15.4,
+      "wall_seconds": 4.4,
       "input_verts": 125066,
       "input_faces": 249882,
-      "verts": 4060,
-      "quads": 3988,
-      "non_quads": 52,
+      "verts": 3788,
+      "quads": 3765,
+      "non_quads": 15,
       "errors": [],
       "error_count": 0
     }
