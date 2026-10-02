@@ -67,6 +67,7 @@ pub(crate) struct Config {
     pub(crate) dipoles: DipoleConfig,
     pub(crate) emit_uvs: bool,
     pub(crate) quiet: bool,
+    pub(crate) verbose: bool,
     /// Clamp warnings (`retopo: warning: …`, help order), emitted by
     /// `main` before the pipeline runs.
     pub(crate) warnings: Vec<String>,
@@ -93,6 +94,7 @@ impl Default for Config {
             dipoles: DipoleConfig::automatic(),
             emit_uvs: false,
             quiet: false,
+            verbose: false,
             warnings: Vec::new(),
         }
     }
@@ -100,7 +102,10 @@ impl Default for Config {
 
 /// What `main` should do after parsing.
 pub(crate) enum Action {
-    Help,
+    Help {
+        /// `--help --all`: append expert flag detail.
+        all: bool,
+    },
     Version,
     Run(Config),
 }
@@ -314,6 +319,7 @@ const LONG_FLAGS: &[&str] = &[
     "symmetry",
     "target-quads",
     "uvs",
+    "verbose",
     "version",
 ];
 
@@ -390,7 +396,7 @@ fn clamp_ranges(config: &mut Config) {
 /// `--input` and `--output` are required.
 pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
     let mut config = Config::default();
-    let mut rest = argv.iter().skip(1);
+    let mut rest = argv.iter().skip(1).peekable();
     while let Some(arg) = rest.next() {
         let (name, inline) = split_flag(arg);
         match name {
@@ -401,7 +407,13 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
                     ))
                     .into());
                 }
-                return Ok(Action::Help);
+                // `--help --all` appends expert detail; anything else
+                // after `--help` is ignored (help wins immediately).
+                let all = rest.peek().is_some_and(|next| next.as_str() == "--all");
+                if all {
+                    rest.next();
+                }
+                return Ok(Action::Help { all });
             }
             "--version" | "-v" => {
                 if let Some(value) = inline {
@@ -450,10 +462,15 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
                 config.anisotropy = parse_double(&text, "--anisotropy")?;
             }
             "--uvs" => {
-                let text = take_value(inline, &mut rest, "--uvs")?;
-                config.emit_uvs = parse_on_off(&text, "--uvs")?;
+                // Bare `--uvs` means on (an explicit value still wins).
+                if inline.is_none() && rest.peek().is_none_or(|next| next.starts_with('-')) {
+                    config.emit_uvs = true;
+                } else {
+                    let text = take_value(inline, &mut rest, "--uvs")?;
+                    config.emit_uvs = parse_on_off(&text, "--uvs")?;
+                }
             }
-            "--quiet" => {
+            "--quiet" | "-q" => {
                 if let Some(value) = inline {
                     return Err(CliError::usage(format!(
                         "retopo: error: --quiet takes no value (got '={value}')."
@@ -461,6 +478,15 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
                     .into());
                 }
                 config.quiet = true;
+            }
+            "--verbose" => {
+                if let Some(value) = inline {
+                    return Err(CliError::usage(format!(
+                        "retopo: error: --verbose takes no value (got '={value}')."
+                    ))
+                    .into());
+                }
+                config.verbose = true;
             }
             "--symmetry" => {
                 let text = take_value(inline, &mut rest, "--symmetry")?;
@@ -533,6 +559,12 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
             }
         }
     }
+    if config.quiet && config.verbose {
+        return Err(CliError::usage(
+            "retopo: error: --quiet and --verbose are mutually exclusive.",
+        )
+        .into());
+    }
     let missing_input = config.input.as_os_str().is_empty();
     let missing_output = config.output.as_os_str().is_empty();
     if missing_input || missing_output {
@@ -589,88 +621,98 @@ mod arg_tests {
     }
 }
 
-pub(crate) fn print_usage(argv0: &str) {
-    print!(
-        concat!(
-            "Usage: {argv0} --input <file.obj|file.glb|dir> --output <output.obj|output.glb|dir> [options]\n",
-            "\n",
-            "Options:\n",
-            "  -i, --input <file|dir>      Input .obj or .glb file to remesh (required).\n",
-            "                              A directory remeshes every .obj and .glb\n",
-            "                              in it (non-recursive); --output is then a\n",
-            "                              directory (created if missing) and each\n",
-            "                              input foo.ext is written as <dir>/foo.ext.\n",
-            "  -o, --output <path>         Output file path (required): .obj writes\n",
-            "                              OBJ, .glb writes GLB (quads triangulated).\n",
-            "                              A directory in batch mode (see --input).\n",
-            "  --report <report.txt>       Write a stats report file (optional)\n",
-            "  --target-quads <count>      Target quad count (default: 50000,\n",
-            "                              ignored when --lods is given)\n",
-            "  --lods <q0,q1,...>          Emit a full LOD chain in one run, e.g.\n",
-            "                              --lods 10000,5000,2000 writes\n",
-            "                              <stem>_lod0.<ext>, <stem>_lod1.<ext>, ...\n",
-            "                              next to --output, keeping its extension\n",
-            "                              (overrides --target-quads)\n",
-            "  --edge-scaling <factor>     Edge scaling factor (default: 1.0, range: 1.0-4.0)\n",
-            "  --sharp-edge <degrees>      Sharp edge dihedral angle threshold\n",
-            "                              (default: 90.0, range: 30.0-180.0)\n",
-            "  --smooth-normal <degrees>   Smooth normal angle threshold\n",
-            "                              (default: 0.0, range: 0.0-180.0)\n",
-            "  --adaptivity <value>        Curvature-adaptive quad density\n",
-            "                              (default: 1.0, range: 0.0-1.0)\n",
-            "  --anisotropy <value>        Curvature-adaptive quad elongation\n",
-            "                              (default: 1.0, range: 0.0-1.0)\n",
-            "  --model-type <organic|hardsurface>\n",
-            "                              Model type hint (default: organic)\n",
-            "  --symmetry <off|auto|x|y|z>  Mirror-symmetry constraints\n",
-            "                              (default: off). auto detects the dominant\n",
-            "                              plane; x/y/z pin it. Falls back to\n",
-            "                              unconstrained output when the input scores\n",
-            "                              below threshold on the chosen plane\n",
-            "  --guides <file>             Guide-curve constraints: quad edge flow\n",
-            "                              follows the polylines (eye/mouth loops).\n",
-            "                              File format: one 'x y z' point per line,\n",
-            "                              blank lines separate polylines, '#' starts\n",
-            "                              a comment. Points live in input-mesh\n",
-            "                              coordinates. Single-file and --lods runs\n",
-            "                              only (rejected in batch mode)\n",
-            "  --features <file>           Sharp/feature constraints: crisp edges\n",
-            "                              along the polylines (hard-surface props).\n",
-            "                              Same file format as --guides: one\n",
-            "                              'x y z' point per line, blank lines\n",
-            "                              separate polylines, '#' starts a comment.\n",
-            "                              Points live in input-mesh coordinates.\n",
-            "                              Single-file and --lods runs only\n",
-            "                              (rejected in batch mode)\n",
-            "  --density <file>            Local density control: one multiplier\n",
-            "                              per input vertex (OBJ v-line order),\n",
-            "                              1.0 = unchanged, range 0.25-4.0 (values\n",
-            "                              outside clamp). '#' starts a comment.\n",
-            "                              Strong localized refinement saturates\n",
-            "                              (~2.3x realized for 4x asks); mild masks\n",
-            "                              realize nearly fully. Single-file and\n",
-            "                              --lods runs only (rejected in batch mode)\n",
-            "  --dipoles <off|auto>         Density-boundary dipole insertion:\n",
-            "                              singularity rings along sharp --density\n",
-            "                              steps unlock localized refinement\n",
-            "                              (default: auto; fires on asks\n",
-            "                              above ~2.5x, mild masks unaffected)\n",
-            "  --dipole-every <count>       Dipole dose stride override: place\n",
-            "                              every k-th ring candidate (default: 0\n",
-            "                              = auto line-ending estimate)\n",
-            "  --dipole-ratio <value>       Dipole step-sharpness override:\n",
-            "                              minimum face-key ratio (default: 0 =\n",
-            "                              auto 1.5)\n",
-            "  --uvs <on|off>              Emit remeshed UVs from the internal\n",
-            "                              parameterization (default: off). OBJ\n",
-            "                              gains vt lines + v/vt corners, GLB gains\n",
-            "                              TEXCOORD_0. Off keeps every output byte\n",
-            "                              identical to before\n",
-            "  --quiet                     Silence progress and info output; only\n",
-            "                              warnings, errors and the report print\n",
-            "  -h, --help                  Show this help\n",
-            "  -v, --version               Show version\n",
-        ),
-        argv0 = argv0
-    );
+/// Print help: grouped one-liners by default, expert flag detail
+/// appended for `--help --all`. Pinned byte-for-byte by the CLI
+/// contract goldens.
+pub(crate) fn print_usage(all: bool) {
+    print!(concat!(
+        "Usage: retopo --input <file|dir> --output <file|dir> [options]\n",
+        "\n",
+        "Required:\n",
+        "  -i, --input <file|dir>   Input mesh (.obj or .glb) or a directory\n",
+        "                           of meshes (batch mode, non-recursive)\n",
+        "  -o, --output <path>      Output: mesh file for one input, directory\n",
+        "                           for batch or --lods (created if missing)\n",
+        "\n",
+        "Sizing:\n",
+        "  --target-quads <count>   Target quad count (default: 50000)\n",
+        "  --lods <q0,q1,...>       Emit a full LOD chain in one run, e.g.\n",
+        "                           --lods 10000,5000,2000 writes\n",
+        "                           <stem>_lod0.<ext>, <stem>_lod1.<ext>, ...\n",
+        "                           next to --output (overrides --target-quads)\n",
+        "\n",
+        "Quality:\n",
+        "  --edge-scaling <factor>  Average edge length vs target size\n",
+        "                           (default: 1.0, range 1.0-4.0)\n",
+        "  --sharp-edge <degrees>   Creases at/above this dihedral angle stay\n",
+        "                           sharp (default: 90.0, range 30-180)\n",
+        "  --smooth-normal <degrees>  Blend shading normals across edges below\n",
+        "                           this angle (default: 0.0 = off, range 0-180)\n",
+        "  --adaptivity <value>     0 = uniform quads, 1 = follow curvature\n",
+        "                           (default: 1.0, range 0-1)\n",
+        "  --anisotropy <value>     0 = square quads, 1 = stretch along\n",
+        "                           curvature (default: 1.0, range 0-1)\n",
+        "  --model-type <organic|hardsurface>\n",
+        "                           Shape hint (default: organic)\n",
+        "  --symmetry <off|auto|x|y|z>  Mirror the output across a plane\n",
+        "                           (default: off; auto detects it)\n",
+        "\n",
+        "Output:\n",
+        "  -q, --quiet              Only warnings, errors, and the report\n",
+        "  --verbose                Full phase timings + engine diagnostics\n",
+        "                           on stderr (default shows progress only)\n",
+        "  --uvs [on|off]           Also write remeshed UVs (default: off;\n",
+        "                           bare --uvs means on)\n",
+        "  --report <report.txt>    Write a stats report file as well\n",
+        "\n",
+        "Constraints (single-file and --lods runs only):\n",
+        "  --guides <file>          Steer quad flow along polylines\n",
+        "                           (eye/mouth loops). File: one 'x y z'\n",
+        "                           point per line, blank lines separate\n",
+        "                           polylines, '#' starts a comment\n",
+        "  --features <file>        Keep crisp edges along polylines. Same\n",
+        "                           file format as --guides\n",
+        "  --density <file>         Local density multipliers, one per input\n",
+        "                           vertex in OBJ v-line order (1.0 =\n",
+        "                           unchanged). '#' starts a comment\n",
+        "  --dipoles <off|auto>     Extraordinary verts on sharp --density\n",
+        "                           steps (default: auto)\n",
+        "\n",
+        "Expert:\n",
+        "  --dipole-every <count>   Override: place every k-th dipole ring\n",
+        "                           (default: 0 = automatic)\n",
+        "  --dipole-ratio <value>   Override: minimum density-step sharpness\n",
+        "                           for dipole insertion (default: 0 =\n",
+        "                           automatic 1.5)\n",
+        "  -h, --help               Show this help (--help --all adds\n",
+        "                           expert flag detail)\n",
+        "  -v, --version            Show version\n",
+        "\n",
+        "Examples:\n",
+        "  retopo -i dragon.obj -o dragon_remeshed.obj\n",
+        "  retopo -i dragon.obj -o dragon_5k.obj --target-quads 5000\n",
+        "  retopo -i scans/ -o remeshed/ --lods 10000,5000,2000\n",
+        "  retopo -i cad.obj -o cad.obj --model-type hardsurface \\\n",
+        "      --sharp-edge 30 --report cad_stats.txt\n",
+        "\n",
+        "Getting more:\n",
+        "  Full guide: README.md. Every flag also accepts --flag=value.\n",
+        "  stdout carries only results (report block, LOD/FILE rung\n",
+        "  lines); progress, warnings, and errors go to stderr.\n",
+    ));
+    if !all {
+        return;
+    }
+    print!(concat!(
+        "\n",
+        "Expert flag detail:\n",
+        "  --dipole-every <count>   Dipole dose stride override: place\n",
+        "                           every k-th ring candidate. Higher k =\n",
+        "                           fewer rings along density steps.\n",
+        "                           (default: 0 = auto line-ending estimate)\n",
+        "  --dipole-ratio <value>   Dipole step-sharpness override: minimum\n",
+        "                           density-step sharpness for dipole\n",
+        "                           insertion. Higher ratio = fewer, sharper\n",
+        "                           steps qualify. (default: 0 = auto 1.5)\n",
+    ));
 }

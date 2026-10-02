@@ -1,24 +1,26 @@
-//! Engine progress reporting: `N% done. <status>` lines on stdout.
+//! Engine progress reporting: `N% done. <status>` lines on stderr.
 //!
 //! The engine calls back with a progress fraction and a status string;
-//! repeats of the same (percent, status) pair are suppressed. The state
-//! sits behind a `Mutex` because the callback fires from worker threads.
+//! at most one line prints per percent-point per status (a set, so
+//! non-adjacent repeats like the old `3% … / 3% …` stutter stay dead
+//! too). The state sits behind a `Mutex` because the callback fires
+//! from worker threads. One line per update, no `\r` tricks — logs
+//! stay greppable.
 
 use retopo_core::auto_remesher::AutoRemesher;
+use std::collections::HashSet;
 use std::ffi::c_void;
 use std::io::Write;
 use std::sync::Mutex;
 
 pub(crate) struct ProgressState {
-    last_percent: i32,
-    last_status: String,
+    seen: HashSet<(i32, String)>,
 }
 
 impl Default for ProgressState {
     fn default() -> Self {
         Self {
-            last_percent: -1,
-            last_status: String::new(),
+            seen: HashSet::new(),
         }
     }
 }
@@ -27,18 +29,16 @@ fn report_progress(tag: *mut c_void, progress: f32, status: &str) {
     let state = unsafe { &*(tag as *const Mutex<ProgressState>) };
     let mut state = state.lock().unwrap();
     let percent = (progress * 100.0) as i32;
-    if percent == state.last_percent && status == state.last_status {
+    if !state.seen.insert((percent, status.to_string())) {
         return;
     }
-    state.last_percent = percent;
-    state.last_status = status.to_string();
-    let mut out = std::io::stdout().lock();
+    let mut err = std::io::stderr().lock();
     if status.is_empty() {
-        let _ = writeln!(out, "{percent}% done.");
+        let _ = writeln!(err, "{percent}% done.");
     } else {
-        let _ = writeln!(out, "{percent}% done. {status}");
+        let _ = writeln!(err, "{percent}% done. {status}");
     }
-    let _ = out.flush();
+    let _ = err.flush();
 }
 
 /// Attach progress reporting to a remesher. The caller must hold `state`

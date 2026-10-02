@@ -2,6 +2,6 @@ exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-retopo: error: --uvs requires a value.
+retopo: error: missing required options --input and --output.
 Run 'retopo --help' for usage.
 

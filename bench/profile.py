@@ -67,8 +67,8 @@ def count_output(path):
 def parse_phase_report(stderr_text):
     """Parse phase lines ("  Name: 123.4 ms") out of CLI stderr.
 
-    The engine prints the report once unconditionally and the CLI reprints
-    it indented unless --quiet; dedupe by name, last occurrence wins.
+    The CLI prints the phase table on stderr under --verbose only;
+    dedupe by name, last occurrence wins.
     Returns (phases, cores_busy, islands_line, simplifier_line).
     """
     phases = {}
@@ -100,7 +100,7 @@ def run_once(binary, model, target_quads):
     with tempfile.TemporaryDirectory(prefix="retopo-profile-") as tmp:
         output_path = os.path.join(tmp, "out.obj")
         cmd = [binary, "--input", input_path, "--output", output_path,
-               "--target-quads", str(target_quads), "--quiet"]
+               "--target-quads", str(target_quads), "--verbose"]
         start = time.monotonic()
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               timeout=TIMEOUT_SECONDS)

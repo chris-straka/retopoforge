@@ -74,5 +74,15 @@ Getting more:
   stdout carries only results (report block, LOD/FILE rung
   lines); progress, warnings, and errors go to stderr.
 
+Expert flag detail:
+  --dipole-every <count>   Dipole dose stride override: place
+                           every k-th ring candidate. Higher k =
+                           fewer rings along density steps.
+                           (default: 0 = auto line-ending estimate)
+  --dipole-ratio <value>   Dipole step-sharpness override: minimum
+                           density-step sharpness for dipole
+                           insertion. Higher ratio = fewer, sharper
+                           steps qualify. (default: 0 = auto 1.5)
+
 --- stderr ---
 

@@ -75,6 +75,12 @@ fn island_verb(count: usize) -> &'static str {
     if count == 1 { "was" } else { "were" }
 }
 
+/// Print the one-line close (`done: …`, stderr): per-output counts
+/// plus wall time. Prints in default and verbose runs, never quiet.
+fn print_close_line(quads: usize, non_quads: usize, verts: usize, elapsed: f64) {
+    eprintln!("done: {quads} quads, {non_quads} non-quads, {verts} vertices in {elapsed:.2} s");
+}
+
 fn count_islands_without_output(
     islands: &[Vec<Vec<usize>>],
     input_vertices: &[Vector3],
@@ -203,6 +209,7 @@ fn configure_remesher(
     remesher.set_smooth_normal_degrees(config.smooth_normal_degrees);
     remesher.set_compute_remeshed_uvs(config.emit_uvs);
     remesher.set_quiet(config.quiet);
+    remesher.set_verbose(config.verbose);
 }
 
 /// Remesh one loaded mesh at one target count and save it: the unit of
@@ -242,7 +249,7 @@ fn remesh_loaded_mesh(
         return result;
     }
 
-    if !config.quiet {
+    if config.verbose {
         for line in remesher.phase_report() {
             eprintln!("  {line}");
         }
@@ -333,9 +340,10 @@ fn write_multi_header(report: &mut Report, config: &Config) {
 }
 
 /// Collect the batch inputs: regular files with a supported extension,
-/// following symlinks, sorted by name. Also counts skipped non-mesh
-/// files (reported as one `note:` by the caller, never silently).
-fn collect_batch_inputs(config: &Config) -> Result<(Vec<String>, usize), CliError> {
+/// following symlinks, sorted by name. Also collects skipped non-mesh
+/// files, sorted (reported as one `note:` by the caller, never
+/// silently; names only under `--verbose`).
+fn collect_batch_inputs(config: &Config) -> Result<(Vec<String>, Vec<String>), CliError> {
     let entries = match std::fs::read_dir(&config.input) {
         Ok(entries) => entries,
         Err(err) => {
@@ -347,7 +355,7 @@ fn collect_batch_inputs(config: &Config) -> Result<(Vec<String>, usize), CliErro
         }
     };
     let mut inputs: Vec<String> = Vec::new();
-    let mut skipped = 0usize;
+    let mut skipped: Vec<String> = Vec::new();
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -369,10 +377,11 @@ fn collect_batch_inputs(config: &Config) -> Result<(Vec<String>, usize), CliErro
         if glb_io::is_supported_input_extension(&name) {
             inputs.push(name);
         } else {
-            skipped += 1;
+            skipped.push(name);
         }
     }
     inputs.sort();
+    skipped.sort();
     if inputs.is_empty() {
         return Err(CliError::usage(format!(
             "retopo: error: no .obj/.glb files in {}.",
@@ -487,12 +496,18 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
                 return 2;
             }
         };
-        if skipped > 0 {
-            let noun = if skipped == 1 { "file" } else { "files" };
+        if !skipped.is_empty() {
+            let noun = if skipped.len() == 1 { "file" } else { "files" };
             eprintln!(
-                "note: skipped {skipped} non-mesh {noun} in {}",
+                "note: skipped {} non-mesh {noun} in {}",
+                skipped.len(),
                 config.input.display()
             );
+            if config.verbose {
+                for name in &skipped {
+                    eprintln!("note: skipped: {}", file_name_of(Path::new(name)));
+                }
+            }
         }
         return run_multi_inputs(config, true, &inputs, &constraints);
     }
@@ -676,6 +691,14 @@ fn run_multi_inputs(
                 let name = batch.then(|| file_name_of(Path::new(input_path)));
                 print_coverage_warnings(&result.coverage_reports, name.as_deref());
             }
+            if !config.quiet {
+                print_close_line(
+                    result.quad_count,
+                    result.non_quad_count,
+                    result.vertex_count,
+                    result.elapsed_seconds,
+                );
+            }
             print_rung_line(
                 &label,
                 &output_path,
@@ -825,7 +848,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
         return 1;
     }
 
-    if !config.quiet {
+    if config.verbose {
         for line in remesher.phase_report() {
             eprintln!("  {line}");
         }
@@ -891,6 +914,14 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     }
 
     let elapsed_seconds = start_time.elapsed().as_secs_f64();
+    if !config.quiet {
+        print_close_line(
+            quad_count,
+            non_quad_count,
+            remeshed_vertices.len(),
+            elapsed_seconds,
+        );
+    }
 
     println!("=== retopoforge Report ===");
     println!("Input: {}", config.input.display());

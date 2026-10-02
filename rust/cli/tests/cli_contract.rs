@@ -177,6 +177,13 @@ fn normalize_line(line: &str, case_tag: &str) -> String {
             out.replace_range(num_start..num_start + paren, "R");
         }
     }
+    // One-line close "done: … in 0.73 s": erase the wall time (counts
+    // stay pinned).
+    if out.starts_with("done:") && out.ends_with(" s") {
+        if let Some(pos) = out.rfind(" in ") {
+            out.replace_range(pos + 4..out.len() - 2, "T");
+        }
+    }
     out
 }
 
@@ -217,10 +224,14 @@ fn normalize_bytes(bytes: &[u8], case_dir: &str) -> Vec<String> {
 }
 
 fn normalize_argv0(line: &str) -> String {
-    // "Usage: <argv0> --input ..." -> argv0-independent.
+    // "Usage: <argv0> --input ..." -> argv0-independent, but only when
+    // argv0 is a real path: the CLI prints a literal `retopo` now.
     if let Some(rest) = line.strip_prefix("Usage: ") {
         if let Some(pos) = rest.find(" --input ") {
-            return format!("Usage: BIN{}", &rest[pos..]);
+            let argv0 = &rest[..pos];
+            if argv0.contains('/') {
+                return format!("Usage: BIN{}", &rest[pos..]);
+            }
         }
     }
     line.to_string()
@@ -568,7 +579,11 @@ fn is_count_line(line: &str) -> bool {
 
 fn is_diagnostic_line(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
-    l.contains("error") || l.contains("warning") || l.contains("failed") || l.contains("note:")
+    l.contains("error")
+        || l.contains("warning")
+        || l.contains("failed")
+        || l.contains("note:")
+        || l.contains("done:")
 }
 
 struct Side {
@@ -610,7 +625,10 @@ fn remesh_case(
                 .into_iter()
                 .filter(|l| !is_progress_line(l))
                 .collect(),
-            stderr: normalize_output(&out.stderr, &case_tag),
+            stderr: normalize_output(&out.stderr, &case_tag)
+                .into_iter()
+                .filter(|l| !is_progress_line(l))
+                .collect(),
             artifacts: outputs(&side)
                 .iter()
                 .map(|p| std::fs::read(p).ok())
@@ -713,6 +731,13 @@ fn arg_matrix() {
     );
     arg_case(&bins, "version-long", &["--version"], &mut failures);
     arg_case(&bins, "version-short", &["-v"], &mut failures);
+    arg_case(&bins, "help-all", &["--help", "--all"], &mut failures);
+    arg_case(
+        &bins,
+        "quiet-verbose-excluded",
+        &["-q", "--verbose", "-i", "a", "-o", "b"],
+        &mut failures,
+    );
     // Unknown / missing / required.
     arg_case(&bins, "unknown", &["--bogus"], &mut failures);
     arg_case(
@@ -765,6 +790,12 @@ fn arg_matrix() {
         &mut failures,
     );
     arg_case(&bins, "uvs-missing", &["--uvs"], &mut failures);
+    arg_case(
+        &bins,
+        "uvs-bare",
+        &["--uvs", "-i", "nofile", "-o", "out"],
+        &mut failures,
+    );
     arg_case(
         &bins,
         "symmetry-bad",
@@ -1556,6 +1587,24 @@ fn remesh_contract() {
     ));
     rows.push(remesh_case(
         &bins,
+        "sphere-verbose",
+        &|side| {
+            vec![
+                "-i".into(),
+                sphere.clone(),
+                "-o".into(),
+                s(&side.join("out.obj")),
+                "--target-quads".into(),
+                "200".into(),
+                "--verbose".into(),
+            ]
+        },
+        &|side| vec![side.join("out.obj")],
+        &|_| None,
+        &mut failures,
+    ));
+    rows.push(remesh_case(
+        &bins,
         "sphere-loud",
         &|side| {
             vec![
@@ -1930,7 +1979,7 @@ fn remesh_contract() {
         &mut failures,
     ));
     // Batch runs (mixed obj/glb + ignored txt + ignored subdir).
-    let batch_setup = |side: &Path, lods: bool, quiet: bool, with_bad: bool| {
+    let batch_setup = |side: &Path, lods: bool, quiet: bool, with_bad: bool, verbose: bool| {
         let shared = shared_dir(side);
         let indir = shared.join("indir");
         std::fs::create_dir_all(indir.join("subdir")).unwrap();
@@ -1957,6 +2006,9 @@ fn remesh_contract() {
         if quiet {
             argv.push("--quiet".into());
         }
+        if verbose {
+            argv.push("--verbose".into());
+        }
         argv.push("--report".into());
         argv.push(s(&side.join("report.txt")));
         argv
@@ -1964,7 +2016,7 @@ fn remesh_contract() {
     rows.push(remesh_case(
         &bins,
         "batch-quiet",
-        &|side| batch_setup(side, false, true, false),
+        &|side| batch_setup(side, false, true, false, false),
         &|side| {
             vec![
                 side.join("out/a.obj"),
@@ -1978,7 +2030,7 @@ fn remesh_contract() {
     rows.push(remesh_case(
         &bins,
         "batch-loud",
-        &|side| batch_setup(side, false, false, false),
+        &|side| batch_setup(side, false, false, false, false),
         &|side| {
             vec![
                 side.join("out/a.obj"),
@@ -1992,7 +2044,7 @@ fn remesh_contract() {
     rows.push(remesh_case(
         &bins,
         "batch-lods",
-        &|side| batch_setup(side, true, true, false),
+        &|side| batch_setup(side, true, true, false, false),
         &|side| {
             vec![
                 side.join("out/a_lod0.obj"),
@@ -2009,7 +2061,21 @@ fn remesh_contract() {
     rows.push(remesh_case(
         &bins,
         "batch-with-failure",
-        &|side| batch_setup(side, false, true, true),
+        &|side| batch_setup(side, false, true, true, false),
+        &|side| {
+            vec![
+                side.join("out/a.obj"),
+                side.join("out/b.obj"),
+                side.join("out/c.glb"),
+            ]
+        },
+        &|side| Some(side.join("report.txt")),
+        &mut failures,
+    ));
+    rows.push(remesh_case(
+        &bins,
+        "batch-verbose",
+        &|side| batch_setup(side, false, false, false, true),
         &|side| {
             vec![
                 side.join("out/a.obj"),
@@ -2028,4 +2094,106 @@ fn remesh_contract() {
     if !failures.is_empty() {
         panic!("remesh contract failures:\n{}", failures.join("\n====\n"));
     }
+}
+
+// Verbosity gating (goldens pin streams/counts but not the chatter
+// itself): the phase table + engine dump appear only under --verbose,
+// the `done:` close + progress appear in default and verbose runs but
+// never quiet, and batch skip names appear only under --verbose.
+#[test]
+fn verbose_gating() {
+    let bins = bins();
+    let fx = fixtures_dir();
+    let dir = case_dir("verbose-gating");
+    let input = s(&fx.join("sphere-pole.obj"));
+
+    let stderr_of = |args: &[String]| -> String {
+        let out = run(&bins.rs, args, RUN_TIMEOUT);
+        assert_eq!(out.code, Some(0), "args {args:?} exited {:?}", out.code);
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let single = |extra: &[&str], stem: &str| -> Vec<String> {
+        let mut args = vec![
+            "-i".into(),
+            input.clone(),
+            "-o".into(),
+            s(&dir.join(format!("{stem}.obj"))),
+            "--target-quads".into(),
+            "200".into(),
+        ];
+        args.extend(extra.iter().map(|e| e.to_string()));
+        args
+    };
+
+    let loud = stderr_of(&single(&["--verbose"], "v"));
+    assert!(
+        loud.contains("  Total: "),
+        "verbose run must print the phase table"
+    );
+    assert!(
+        loud.contains("Extract connections"),
+        "verbose run must print the engine dump"
+    );
+    assert!(loud.contains("done: "), "verbose run must print done:");
+    assert!(loud.contains("% done."), "verbose run keeps progress");
+
+    let normal = stderr_of(&single(&[], "d"));
+    assert!(normal.contains("done: "), "default run must print done:");
+    assert!(normal.contains("% done."), "default run keeps progress");
+    assert!(
+        !normal.contains("  Total: "),
+        "default run must not print the phase table"
+    );
+    assert!(
+        !normal.contains("Extract connections"),
+        "default run must not print the engine dump"
+    );
+
+    let quiet = stderr_of(&single(&["--quiet"], "q"));
+    assert!(!quiet.contains("done: "), "quiet run must not print done:");
+    assert!(
+        !quiet.contains("% done."),
+        "quiet run must not print progress"
+    );
+    assert!(
+        !quiet.contains("  Total: "),
+        "quiet run must not print the phase table"
+    );
+
+    // Batch skip names: the count note always prints, per-file names
+    // only under --verbose.
+    let indir = dir.join("indir");
+    std::fs::create_dir_all(&indir).unwrap();
+    std::fs::copy(fx.join("sphere-pole.obj"), indir.join("a.obj")).unwrap();
+    std::fs::write(indir.join("notes.txt"), "not a mesh\n").unwrap();
+    let batch = |extra: &[&str], stem: &str| -> Vec<String> {
+        let mut args = vec![
+            "-i".into(),
+            s(&indir),
+            "-o".into(),
+            s(&dir.join(stem)),
+            "--target-quads".into(),
+            "200".into(),
+        ];
+        args.extend(extra.iter().map(|e| e.to_string()));
+        args
+    };
+    let batch_loud = stderr_of(&batch(&["--verbose"], "out-v"));
+    assert!(
+        batch_loud.contains("note: skipped 1 non-mesh file"),
+        "verbose batch must print the skip count"
+    );
+    assert!(
+        batch_loud.contains("note: skipped: notes.txt"),
+        "verbose batch must name skipped files"
+    );
+    let batch_normal = stderr_of(&batch(&[], "out-d"));
+    assert!(
+        batch_normal.contains("note: skipped 1 non-mesh file"),
+        "default batch must print the skip count"
+    );
+    assert!(
+        !batch_normal.contains("note: skipped: notes.txt"),
+        "default batch must not name skipped files"
+    );
 }

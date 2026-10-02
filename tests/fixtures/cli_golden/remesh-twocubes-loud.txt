@@ -10,3 +10,4 @@ Quads: 191
 Non-quads: 0
 Vertices: 195
 diagnostics:
+done: 191 quads, 0 non-quads, 195 vertices in T s

@@ -328,6 +328,7 @@ pub struct QuadExtractor<'a> {
     original_triangle_uvs: Option<&'a [Vec<Vector2>]>,
     singular_vertices: Option<&'a [usize]>,
     progress_handler: Option<ProgressHandler>,
+    verbose_dump: bool,
     connection_infos: BTreeMap<(usize, usize), ConnectionInfo>,
     added_connections: BTreeSet<(usize, usize)>,
     half_edges: BTreeSet<(usize, usize)>,
@@ -357,6 +358,7 @@ impl<'a> QuadExtractor<'a> {
             original_triangle_uvs: None,
             singular_vertices: None,
             progress_handler: None,
+            verbose_dump: false,
             connection_infos: BTreeMap::new(),
             added_connections: BTreeSet::new(),
             half_edges: BTreeSet::new(),
@@ -406,6 +408,13 @@ impl<'a> QuadExtractor<'a> {
         self.progress_handler = Some(progress_handler);
     }
 
+    /// Enables the stderr progress chatter (`diagnose` + merge lines).
+    /// Off by default: the CLI turns it on for `--verbose` only, so
+    /// default runs keep progress percentages without the dump.
+    pub fn set_verbose_dump(&mut self, verbose: bool) {
+        self.verbose_dump = verbose;
+    }
+
     /// Per connection of [`Self::extracted_connections`]: 0 untouched, 1 on
     /// a triangle whose uv was repaired, 2 added by `hold_singular_lines`.
     #[must_use]
@@ -420,11 +429,13 @@ impl<'a> QuadExtractor<'a> {
     }
 
     fn diagnose(&self, build: impl FnOnce() -> String) {
-        // Every std::cerr diagnostic in extract() and its helpers is gated
-        // on m_progressHandler: with no progress subscriber (a quiet run)
-        // the extractor stays silent. Failures propagate via return values.
-        // The closure keeps it zero-cost when unset, like the C++ `if`.
-        if self.progress_handler.is_some() {
+        // Every std::cerr diagnostic in extract() and its helpers prints
+        // only with a progress subscriber (never on quiet runs) AND the
+        // verbose flag (never on default runs): the CLI keeps progress
+        // percentages in default mode but gates the dump behind
+        // `--verbose`. Failures propagate via return values. The closure
+        // keeps it zero-cost when unset, like the C++ `if`.
+        if self.verbose_dump && self.progress_handler.is_some() {
             eprint!("{}", build());
         }
     }
@@ -5715,7 +5726,9 @@ impl<'a> QuadExtractor<'a> {
         // `progress` is `Some` exactly when the outer handler exists
         // (the C++ `m_progressHandler` gate), with
         // `self.progress_handler` kept as the direct-call fallback.
-        if progress.is_some() || self.progress_handler.is_some() {
+        // Either way the line also needs the verbose flag (CLI
+        // `--verbose` only).
+        if self.verbose_dump && (progress.is_some() || self.progress_handler.is_some()) {
             eprint!("Merge shared five edge faces:{merge_count}\n");
         }
         self.rebuild_half_edges();

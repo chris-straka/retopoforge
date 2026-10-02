@@ -44,8 +44,8 @@ fn run_bin(argv: &[String]) -> i32 {
         }
     };
     match action {
-        Action::Help => {
-            print_usage(&argv[0]);
+        Action::Help { all } => {
+            print_usage(all);
             0
         }
         Action::Version => {

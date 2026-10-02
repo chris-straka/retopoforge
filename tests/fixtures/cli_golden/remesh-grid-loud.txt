@@ -10,7 +10,5 @@ Quads: 249
 Non-quads: 2
 Vertices: 252
 diagnostics:
-fixHoleWithQuads failed, highest score(dot):-0.0759491644730565
-fixHoleWithQuads failed, highest score(dot):-0.08026550706730383
-fixHoleWithQuads failed, highest score(dot):-0.2294375991893549
+done: 249 quads, 2 non-quads, 252 vertices in T s
 retopo: warning: island 0 failed the coverage check (11 working verts uncovered) and recovered on retry 2 (4 verts uncovered).

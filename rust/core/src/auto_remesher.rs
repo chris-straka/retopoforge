@@ -1044,6 +1044,7 @@ pub struct AutoRemesher {
     sharp_polylines: Vec<Vec<Vector3>>,
     density_multipliers: Vec<f64>,
     quiet: bool,
+    verbose: bool,
 }
 
 // NOTE: `AutoRemesher` is shared across scoped worker threads (`&self`
@@ -1101,6 +1102,7 @@ impl AutoRemesher {
             sharp_polylines: Vec::new(),
             density_multipliers: Vec::new(),
             quiet: false,
+            verbose: false,
         }
     }
 
@@ -1138,6 +1140,19 @@ impl AutoRemesher {
     #[must_use]
     pub fn quiet(&self) -> bool {
         self.quiet
+    }
+
+    /// Enables engine-owned stderr chatter (extractor progress dump).
+    /// The CLI turns it on for `--verbose` only; default runs keep
+    /// progress percentages without the dump.
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.verbose = verbose;
+    }
+
+    /// Mirrors `verbose`.
+    #[must_use]
+    pub fn verbose(&self) -> bool {
+        self.verbose
     }
 
     /// Mirrors `setModelType` (write-only on both sides).
@@ -2830,6 +2845,7 @@ impl AutoRemesher {
                             remesher.set_original_triangle_uvs(&thread.captured_original_uvs);
                             remesher
                                 .set_singular_vertices(&thread.captured_singular_vertex_indices);
+                            remesher.set_verbose_dump(this.verbose());
                             // No handler in quiet mode: the extractor's stderr
                             // progress echoes key off handler presence.
                             if !this.quiet() {

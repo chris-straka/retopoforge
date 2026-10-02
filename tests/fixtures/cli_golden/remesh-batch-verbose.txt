@@ -34,3 +34,4 @@ done: 30 quads, 2 non-quads, 35 vertices in T s
 done: 66 quads, 0 non-quads, 70 vertices in T s
 done: 69 quads, 0 non-quads, 71 vertices in T s
 note: skipped 1 non-mesh file in CASE/shared/indir
+note: skipped: skip.txt

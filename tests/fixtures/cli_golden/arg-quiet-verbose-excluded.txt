@@ -1,0 +1,6 @@
+exit: Some(2)
+--- stdout ---
+
+--- stderr ---
+retopo: error: --quiet and --verbose are mutually exclusive.
+

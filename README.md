@@ -49,11 +49,17 @@ Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
 `--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,
-`--density <file>`, `--features <file>`, `--uvs on|off` (default `off`),
+`--density <file>`, `--features <file>`, `--uvs [on|off]` (default `off`,
+bare `--uvs` means on),
 `--lods <q0,q1,...>`,
-`--quiet`, `--help`/`-h`, `--version`/`-v`. Non-indexed triangle soup is
+`--quiet`/`-q`, `--verbose`, `--help`/`-h`, `--version`/`-v`.
+Non-indexed triangle soup is
 welded on load; `--quiet` silences progress output (warnings, errors, and
-the report still print). `--symmetry auto` detects the dominant mirror
+the report still print), `--verbose` adds the phase-timing table and
+engine diagnostics on stderr (mutually exclusive with `--quiet`).
+Progress, warnings, errors, and the closing `done:` line go to stderr;
+stdout carries only results (the report block, `FILE`/`LOD` rung lines).
+`--symmetry auto` detects the dominant mirror
 plane (x/y/z pin it) and falls back to unconstrained output when the
 input scores below threshold. `--guides` takes a polyline file (one
 `x y z` point per line, blank lines separate polylines, `#` comments)
@@ -82,6 +88,13 @@ directory:
 ./rust/target/release/retopo --input bench/models/armadillo.obj --output /tmp/hero.obj --lods 10000,5000,2000
 ./rust/target/release/retopo --input assets/ --output assets-retopo/
 ```
+
+Exit codes: 0 success, 2 usage error (bad flags, missing options,
+unreadable inputs — nothing runs), 1 runtime failure (an input failed
+to load or remesh). Inputs are validated before any work starts, so a
+bad flag or missing file fails fast without touching outputs.
+Out-of-range numerics clamp to their documented range with a
+`retopo: warning:` rather than failing.
 
 ## Tests
 

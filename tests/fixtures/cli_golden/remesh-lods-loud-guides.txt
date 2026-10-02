@@ -9,5 +9,5 @@ out_lod1.obj quads=167 nonquads=4 verts=171
 LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=285 non-quads=2 vertices=288 time=T seconds
 LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=167 non-quads=4 vertices=171 time=T seconds
 diagnostics:
-fixHoleWithQuads failed, highest score(dot):-0.24689950322782817
-fixHoleWithQuads failed, highest score(dot):-0.31537357730943333
+done: 167 quads, 4 non-quads, 171 vertices in T s
+done: 285 quads, 2 non-quads, 288 vertices in T s
