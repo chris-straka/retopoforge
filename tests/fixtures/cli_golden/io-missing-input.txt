@@ -2,7 +2,5 @@ exit: Some(1)
 --- stdout ---
 
 --- stderr ---
-Cannot open file [CASE/shared/does-not-exist.obj]
-
-Error: failed to load CASE/shared/does-not-exist.obj
+retopo: error: cannot open input 'CASE/shared/does-not-exist.obj': no such file or directory.
 

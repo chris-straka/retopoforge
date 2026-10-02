@@ -1,8 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Cannot open file [nofile]
-
-Error: failed to load nofile
+retopo: error: --target-quads expects a non-negative integer, got ''.
 

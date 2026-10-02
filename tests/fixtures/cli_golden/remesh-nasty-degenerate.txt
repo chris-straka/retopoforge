@@ -10,3 +10,4 @@ Quads: 108
 Non-quads: 2
 Vertices: 111
 diagnostics:
+retopo: warning: 1 of 2 islands produced no output and was dropped from the mesh.

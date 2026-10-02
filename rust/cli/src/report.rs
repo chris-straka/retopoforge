@@ -15,8 +15,8 @@ pub(crate) struct Report {
 }
 
 impl Report {
-    pub(crate) fn create(path: &Path) -> Option<Self> {
-        File::create(path).map(|file| Self { file, ok: true }).ok()
+    pub(crate) fn create(path: &Path) -> Result<Self, std::io::Error> {
+        File::create(path).map(|file| Self { file, ok: true })
     }
 
     pub(crate) fn line(&mut self, text: &str) {

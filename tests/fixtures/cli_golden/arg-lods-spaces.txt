@@ -3,7 +3,5 @@ exit: Some(1)
 FAILED to load nofile
 
 --- stderr ---
-Cannot open file [nofile]
-
-Error: failed to load nofile
+retopo: error: cannot open input 'nofile': no such file or directory.
 

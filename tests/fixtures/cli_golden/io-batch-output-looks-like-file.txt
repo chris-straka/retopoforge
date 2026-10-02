@@ -1,0 +1,6 @@
+exit: Some(2)
+--- stdout ---
+
+--- stderr ---
+retopo: error: --input is a directory, so --output must be a directory: 'CASE/shared/out.obj' looks like a file (hint: drop the extension or point --output at an existing directory).
+

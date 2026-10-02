@@ -1,6 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Error: --model-type expects 'organic' or 'hardsurface', got 'nurbs'
+retopo: error: --model-type expects 'organic' or 'hardsurface', got 'nurbs'.
 

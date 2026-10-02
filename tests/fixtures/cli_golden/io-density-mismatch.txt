@@ -2,5 +2,5 @@ exit: Some(1)
 --- stdout ---
 
 --- stderr ---
-Error: --density file holds 2 multipliers, input has 4 vertices
+retopo: error: --density file holds 2 multipliers but the input has 4 vertices (need exactly one per input vertex).
 

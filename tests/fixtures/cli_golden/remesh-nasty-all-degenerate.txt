@@ -4,4 +4,4 @@ out.obj missing
 report: absent
 counts:
 diagnostics:
-Error: remeshing produced no result
+retopo: error: remeshing produced no result.

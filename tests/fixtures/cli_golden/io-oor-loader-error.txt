@@ -2,7 +2,5 @@ exit: Some(1)
 --- stdout ---
 
 --- stderr ---
-Failed parse `f' line(e.g. zero value for face index. line 11.)
-
-Error: failed to load FIXTURES/nasty-oor.obj
+retopo: error: cannot parse input 'FIXTURES/nasty-oor.obj': Failed parse `f' line(e.g. zero value for face index. line 11.).
 

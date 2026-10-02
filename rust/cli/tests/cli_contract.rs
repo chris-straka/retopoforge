@@ -568,7 +568,7 @@ fn is_count_line(line: &str) -> bool {
 
 fn is_diagnostic_line(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
-    l.contains("error") || l.contains("warning") || l.contains("failed")
+    l.contains("error") || l.contains("warning") || l.contains("failed") || l.contains("note:")
 }
 
 struct Side {
@@ -675,11 +675,14 @@ fn remesh_case(
         }
     }
     text.push_str("diagnostics:\n");
+    // Stdout count lines live in `counts:` (tolerance-matched), so only
+    // non-count stdout lines pin here; stderr diagnostics pin whatever
+    // they say (island-drop warnings carry counts and must pin too).
     let diagnostics: Vec<String> = a
         .stdout
         .iter()
-        .chain(&a.stderr)
         .filter(|l| is_diagnostic_line(l) && !is_count_line(l))
+        .chain(a.stderr.iter().filter(|l| is_diagnostic_line(l)))
         .cloned()
         .collect();
     for line in sorted(&diagnostics) {
@@ -737,6 +740,21 @@ fn arg_matrix() {
         &bins,
         "input-prefix-noeq",
         &["--inputx", "a"],
+        &mut failures,
+    );
+    arg_case(
+        &bins,
+        "clamp-warn",
+        &[
+            "-i",
+            "nofile",
+            "-o",
+            "out",
+            "--adaptivity",
+            "7",
+            "--edge-scaling",
+            "99",
+        ],
         &mut failures,
     );
     // Enum flags.
@@ -1307,6 +1325,26 @@ fn io_failure_paths() {
     );
     io_case(
         &bins,
+        "batch-output-looks-like-file",
+        &|shared| {
+            let fx = fixtures_dir();
+            std::fs::create_dir_all(shared.join("indir")).unwrap();
+            std::fs::copy(
+                fx.join("nasty-single-tetra.obj"),
+                shared.join("indir/a.obj"),
+            )
+            .unwrap();
+            vec![
+                "-i".into(),
+                "SHARED/indir".into(),
+                "-o".into(),
+                "SHARED/out.obj".into(),
+            ]
+        },
+        &mut failures,
+    );
+    io_case(
+        &bins,
         "batch-guides-rejected",
         &|shared| {
             let fx = fixtures_dir();
@@ -1475,6 +1513,26 @@ fn remesh_contract() {
             &mut failures,
         ));
     }
+
+    // Collapsed remesh (ok + empty output): the tetra attribution.
+    rows.push(remesh_case(
+        &bins,
+        "tetra-collapse",
+        &|side| {
+            vec![
+                "-i".into(),
+                s(&fx.join("nasty-single-tetra.obj")),
+                "-o".into(),
+                s(&side.join("out.obj")),
+                "--target-quads".into(),
+                "1".into(),
+                "--quiet".into(),
+            ]
+        },
+        &|side| vec![side.join("out.obj")],
+        &|_| None,
+        &mut failures,
+    ));
 
     rows.push(remesh_case(
         &bins,

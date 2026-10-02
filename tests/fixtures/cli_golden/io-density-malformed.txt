@@ -1,7 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Loaded 4 vertices, 4 triangles
-Error: --density file 'CASE/shared/bad-density.txt' line 2 expects a number, got 'abc'
+retopo: error: --density file 'CASE/shared/bad-density.txt' line 2 expects a number, got 'abc'
 

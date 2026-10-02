@@ -5,6 +5,7 @@
 //! writes OBJ directly or GLB through the core writer, with optional UVs.
 
 use crate::RETOPO_VERSION;
+use crate::error::os_reason;
 use crate::format::g_format;
 use retopo_core::glb as glb_io;
 use retopo_core::obj_reader::{self, WeldStats};
@@ -30,7 +31,44 @@ type CoreLoader = fn(
     Option<&mut String>,
 ) -> bool;
 
-fn load_with(filename: &Path, loader: CoreLoader) -> Option<LoadedMesh> {
+/// How a load failed: unreadable bytes (`cannot open`, with the OS
+/// cause) vs rejected content (`cannot parse`, quoting the core
+/// loader's first line).
+pub(crate) enum LoadFailure {
+    Unreadable(String),
+    Unparseable(String),
+}
+
+impl LoadFailure {
+    pub(crate) fn verb(&self) -> &'static str {
+        match self {
+            Self::Unreadable(_) => "open",
+            Self::Unparseable(_) => "parse",
+        }
+    }
+
+    pub(crate) fn reason(&self) -> &str {
+        match self {
+            Self::Unreadable(reason) | Self::Unparseable(reason) => reason,
+        }
+    }
+}
+
+/// Single-line load failure: unreadable paths name the OS cause;
+/// anything else quotes the core loader's first line.
+fn load_failure_reason(filename: &Path, core_err: &str) -> LoadFailure {
+    if let Err(err) = std::fs::File::open(filename) {
+        return LoadFailure::Unreadable(os_reason(&err));
+    }
+    let line = core_err.lines().next().unwrap_or("").trim();
+    if line.is_empty() {
+        LoadFailure::Unparseable("failed to read file".to_string())
+    } else {
+        LoadFailure::Unparseable(line.to_string())
+    }
+}
+
+fn load_with(filename: &Path, loader: CoreLoader) -> Result<LoadedMesh, LoadFailure> {
     let mut positions: Vec<f32> = Vec::new();
     let mut loaded_triangles: Vec<Vec<usize>> = Vec::new();
     let mut warn = String::new();
@@ -42,14 +80,11 @@ fn load_with(filename: &Path, loader: CoreLoader) -> Option<LoadedMesh> {
         Some(&mut warn),
         Some(&mut err),
     );
-    if !warn.is_empty() {
-        eprintln!("WARN: {warn}");
-    }
-    if !err.is_empty() {
-        eprintln!("{err}");
+    if !warn.trim().is_empty() {
+        eprintln!("retopo: warning: {}", warn.trim_end());
     }
     if !ok {
-        return None;
+        return Err(load_failure_reason(filename, &err));
     }
     let pre_weld_vertices = positions.len() / 3;
     let pre_weld_triangles = loaded_triangles.len();
@@ -67,7 +102,7 @@ fn load_with(filename: &Path, loader: CoreLoader) -> Option<LoadedMesh> {
             positions[3 * i + 2] as f64,
         ));
     }
-    Some(LoadedMesh {
+    Ok(LoadedMesh {
         vertices,
         triangles: loaded_triangles,
         pre_weld_vertices,
@@ -76,7 +111,9 @@ fn load_with(filename: &Path, loader: CoreLoader) -> Option<LoadedMesh> {
     })
 }
 
-pub(crate) fn load_mesh(filename: &Path) -> Option<LoadedMesh> {
+/// Load a mesh, or the single-line failure (the caller reports it
+/// once, in convention shape — no loader double-report).
+pub(crate) fn load_mesh(filename: &Path) -> Result<LoadedMesh, LoadFailure> {
     // The extension checks take the lossy path text, matching argv which
     // is already lossy by the time it reaches the CLI.
     if glb_io::has_glb_extension(&filename.to_string_lossy()) {
@@ -113,7 +150,7 @@ pub(crate) fn report_loaded(loaded: &LoadedMesh, quiet: bool) {
 pub(crate) fn warn_dropped_non_finite(non_finite_dropped: usize) {
     if non_finite_dropped > 0 {
         eprintln!(
-            "Warning: dropped {non_finite_dropped} input triangles with non-finite corners (NaN or infinity)"
+            "retopo: warning: dropped {non_finite_dropped} input triangles with non-finite corners (NaN or infinity)."
         );
     }
 }

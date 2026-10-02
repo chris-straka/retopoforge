@@ -1,7 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Loaded 4 vertices, 4 triangles
-Error: cannot open --guides file 'CASE/shared/no-guides.txt'
+retopo: error: cannot open --guides file 'CASE/shared/no-guides.txt': no such file or directory.
 

@@ -28,18 +28,19 @@ fn flush_stdout() {
     let _ = std::io::stdout().flush();
 }
 
-/// Parse argv and run the pipeline, returning the process exit code.
-/// Parse failures print their error (plus usage where historical) and
-/// yield 1; `--help`/`--version` print and yield 0.
+/// Parse argv and run the pipeline, returning the process exit code:
+/// 0 success (warned-about island drops included), 1 runtime failure,
+/// 2 usage error. Usage-shape failures point at `--help` (never a usage
+/// dump); clamp warnings print before anything else runs.
 fn run_bin(argv: &[String]) -> i32 {
     let action = match parse_args(argv) {
         Ok(action) => action,
         Err(failure) => {
             failure.error.emit();
-            if failure.show_usage {
-                print_usage(&argv[0]);
+            if failure.show_pointer {
+                eprintln!("Run 'retopo --help' for usage.");
             }
-            return 1;
+            return 2;
         }
     };
     match action {
@@ -52,6 +53,9 @@ fn run_bin(argv: &[String]) -> i32 {
             0
         }
         Action::Run(config) => {
+            for warning in &config.warnings {
+                eprintln!("{warning}");
+            }
             let batch = config.input.is_dir();
             if !config.lod_targets.is_empty() || batch {
                 run::run_multi_mode(&config, batch)

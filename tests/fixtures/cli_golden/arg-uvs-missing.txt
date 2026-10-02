@@ -1,6 +1,7 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Error: --uvs requires a value
+retopo: error: --uvs requires a value.
+Run 'retopo --help' for usage.
 

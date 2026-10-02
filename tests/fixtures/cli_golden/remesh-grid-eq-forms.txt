@@ -10,4 +10,4 @@ Quads: 249
 Non-quads: 2
 Vertices: 252
 diagnostics:
-Warning: island 0 failed the coverage check (11 working verts uncovered) and recovered on retry 2 (4 verts uncovered)
+retopo: warning: island 0 failed the coverage check (11 working verts uncovered) and recovered on retry 2 (4 verts uncovered).

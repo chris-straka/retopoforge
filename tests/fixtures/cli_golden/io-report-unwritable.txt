@@ -1,16 +1,6 @@
 exit: Some(1)
 --- stdout ---
-=== retopoforge Report ===
-Input: FIXTURES/nasty-single-tetra.obj
-Output: CASE/out.obj
-Islands: 1
-Failed islands: 0
-Quads: 33
-Non-quads: 0
-Vertices: 35
-Time: T seconds
-==========================
 
 --- stderr ---
-Error: failed to write CASE/no-such-dir/report.txt
+retopo: error: cannot write --report file 'CASE/no-such-dir/report.txt': no such file or directory.
 

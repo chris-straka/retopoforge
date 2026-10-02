@@ -2,5 +2,5 @@ exit: Some(1)
 --- stdout ---
 
 --- stderr ---
-Error: failed to write CASE/no-such-dir/out.obj
+retopo: error: cannot write output 'CASE/no-such-dir/out.obj': no such file or directory.
 

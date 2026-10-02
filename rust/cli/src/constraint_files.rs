@@ -8,6 +8,7 @@
 //! newline. All bytes are pinned by the CLI contract goldens.
 
 use crate::error::CliError;
+use crate::error::os_reason;
 use retopo_core::vector3::Vector3;
 use std::path::Path;
 
@@ -110,7 +111,7 @@ fn raw_error(prefix: String, line: &[u8]) -> CliError {
     let mut bytes = prefix.into_bytes();
     bytes.extend_from_slice(line);
     bytes.extend_from_slice(b"'");
-    CliError::Raw(bytes)
+    CliError::UsageRaw(bytes)
 }
 
 /// Parse a `--guides`/`--features` polyline file. Short (< 2 point)
@@ -123,8 +124,12 @@ pub(crate) fn parse_guides_file(
 ) -> Result<(), CliError> {
     guides.clear();
     let path = path.display().to_string();
-    let data = std::fs::read(&path)
-        .map_err(|_| CliError::message(format!("Error: cannot open {flag_label} file '{path}'")))?;
+    let data = std::fs::read(&path).map_err(|err| {
+        CliError::usage(format!(
+            "retopo: error: cannot open {flag_label} file '{path}': {}.",
+            os_reason(&err)
+        ))
+    })?;
     let mut current: Vec<Vector3> = Vec::new();
     for (index, raw) in split_lines(&data).iter().enumerate() {
         let line_no = index + 1;
@@ -155,8 +160,9 @@ pub(crate) fn parse_guides_file(
             ok = trailing_blank_after(line, 3);
         }
         if !ok {
-            let prefix =
-                format!("Error: {flag_label} file '{path}' line {line_no} expects 'x y z', got '");
+            let prefix = format!(
+                "retopo: error: {flag_label} file '{path}' line {line_no} expects 'x y z', got '"
+            );
             return Err(raw_error(prefix, line));
         }
         current.push(Vector3::new(values[0], values[1], values[2]));
@@ -165,8 +171,8 @@ pub(crate) fn parse_guides_file(
         guides.push(std::mem::take(&mut current));
     }
     if guides.is_empty() {
-        return Err(CliError::message(format!(
-            "Error: {flag_label} file '{path}' holds no usable polyline (need 2+ points per polyline)"
+        return Err(CliError::usage(format!(
+            "retopo: error: {flag_label} file '{path}' holds no usable polyline (need 2+ points per polyline)."
         )));
     }
     Ok(())
@@ -176,8 +182,12 @@ pub(crate) fn parse_guides_file(
 pub(crate) fn parse_density_file(path: &Path, multipliers: &mut Vec<f64>) -> Result<(), CliError> {
     multipliers.clear();
     let path = path.display().to_string();
-    let data = std::fs::read(&path)
-        .map_err(|_| CliError::message(format!("Error: cannot open --density file '{path}'")))?;
+    let data = std::fs::read(&path).map_err(|err| {
+        CliError::usage(format!(
+            "retopo: error: cannot open --density file '{path}': {}.",
+            os_reason(&err)
+        ))
+    })?;
     for (index, raw) in split_lines(&data).iter().enumerate() {
         let line_no = index + 1;
         let line = strip_comment(raw);
@@ -197,15 +207,16 @@ pub(crate) fn parse_density_file(path: &Path, multipliers: &mut Vec<f64>) -> Res
             ok = trailing_blank_after(line, 1);
         }
         if !ok {
-            let prefix =
-                format!("Error: --density file '{path}' line {line_no} expects a number, got '");
+            let prefix = format!(
+                "retopo: error: --density file '{path}' line {line_no} expects a number, got '"
+            );
             return Err(raw_error(prefix, line));
         }
         multipliers.push(value);
     }
     if multipliers.is_empty() {
-        return Err(CliError::message(format!(
-            "Error: --density file '{path}' holds no multipliers"
+        return Err(CliError::usage(format!(
+            "retopo: error: --density file '{path}' holds no multipliers."
         )));
     }
     Ok(())

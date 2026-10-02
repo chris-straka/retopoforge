@@ -1,7 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Loaded 4 vertices, 4 triangles
-Error: --guides file 'CASE/shared/bad-guides.txt' line 1 expects 'x y z', got '1 2'
+retopo: error: --guides file 'CASE/shared/bad-guides.txt' line 1 expects 'x y z', got '1 2'
 

@@ -14,29 +14,42 @@ out/b_lod0.obj quads=120 nonquads=0 verts=124
 FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=25 non-quads=2 vertices=32 time=T seconds
 FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=8 non-quads=2 vertices=13 time=T seconds
 FILE b.obj LOD 0: target-quads=150 output=CASE/out/b_lod0.obj quads=120 non-quads=0 vertices=124 time=T seconds
+FILE b.obj LOD 1: FAILED remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out/b_lod1.obj'. Try a larger --target-quads
 FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=67 non-quads=0 vertices=69 time=T seconds
 FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=45 non-quads=0 vertices=47 time=T seconds
 Target quads: 150
+  Islands: 2
+  Failed islands: 0
   Quads: 25
   Non-quads: 2
   Vertices: 32
 Target quads: 80
+  Islands: 2
+  Failed islands: 0
   Quads: 8
   Non-quads: 2
   Vertices: 13
 Target quads: 150
+  Islands: 2
+  Failed islands: 0
   Quads: 120
   Non-quads: 0
   Vertices: 124
+Target quads: 80
+Failed: remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out/b_lod1.obj'. Try a larger --target-quads
 Target quads: 150
+  Islands: 1
+  Failed islands: 0
   Quads: 67
   Non-quads: 0
   Vertices: 69
 Target quads: 80
+  Islands: 1
+  Failed islands: 0
   Quads: 45
   Non-quads: 0
   Vertices: 47
 diagnostics:
-Error: failed to write CASE/out/b_lod1.obj (CASE/out/b_lod1.obj)
-FILE b.obj LOD 1: FAILED failed to write CASE/out/b_lod1.obj
 Failed files (1): b.obj
+note: skipped 1 non-mesh file in CASE/shared/indir
+retopo: error: b.obj: remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out/b_lod1.obj'. Try a larger --target-quads.

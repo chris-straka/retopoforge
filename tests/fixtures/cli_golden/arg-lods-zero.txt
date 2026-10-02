@@ -1,6 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Error: --lods expects positive integers, got '0'
+retopo: error: --lods expects positive integers, got '0'.
 

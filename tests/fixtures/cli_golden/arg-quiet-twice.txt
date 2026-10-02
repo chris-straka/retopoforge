@@ -2,7 +2,5 @@ exit: Some(1)
 --- stdout ---
 
 --- stderr ---
-Cannot open file [a]
-
-Error: failed to load a
+retopo: error: cannot open input 'a': no such file or directory.
 

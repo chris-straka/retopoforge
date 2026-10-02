@@ -1,6 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Error: --density needs a single input mesh, not a batch directory
+retopo: error: --density needs a single input mesh, not a batch directory.
 

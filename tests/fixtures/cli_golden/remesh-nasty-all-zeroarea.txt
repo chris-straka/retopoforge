@@ -4,4 +4,5 @@ out.obj missing
 report: absent
 counts:
 diagnostics:
-Error: failed to write CASE/out.obj
+retopo: error: remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out.obj'. Try a larger --target-quads.
+retopo: warning: 2 of 2 islands produced no output and were dropped from the mesh.

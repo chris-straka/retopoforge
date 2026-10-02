@@ -1,8 +1,6 @@
-exit: Some(1)
+exit: Some(2)
 --- stdout ---
 
 --- stderr ---
-Cannot open file [a]
-
-Error: failed to load a
+retopo: error: --quiet takes no value (got '=x').
 

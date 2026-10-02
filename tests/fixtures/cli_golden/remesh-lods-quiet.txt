@@ -9,12 +9,16 @@ out_lod1.obj quads=94 nonquads=0 verts=96
 LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=249 non-quads=2 vertices=252 time=T seconds
 LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=94 non-quads=0 vertices=96 time=T seconds
 Target quads: 300
+  Islands: 1
+  Failed islands: 0
   Quads: 249
   Non-quads: 2
   Vertices: 252
 Target quads: 150
+  Islands: 1
+  Failed islands: 0
   Quads: 94
   Non-quads: 0
   Vertices: 96
 diagnostics:
-Warning: island 0 failed the coverage check (11 working verts uncovered) and recovered on retry 2 (4 verts uncovered)
+retopo: warning: island 0 failed the coverage check (11 working verts uncovered) and recovered on retry 2 (4 verts uncovered).

@@ -1,0 +1,8 @@
+exit: Some(1)
+artifacts:
+out.obj missing
+report: absent
+counts:
+diagnostics:
+retopo: error: remeshing produced an empty mesh (all 1 island dropped); nothing written to 'CASE/out.obj'. Try a larger --target-quads.
+retopo: warning: 1 of 1 islands produced no output and was dropped from the mesh.

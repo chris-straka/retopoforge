@@ -9,10 +9,12 @@
 
 use crate::args::Config;
 use crate::constraint_files::{Constraints, parse_density_file, parse_guides_file};
+use crate::error::CliError;
+use crate::error::os_reason;
 use crate::format::g_format;
 use crate::mesh_io::{
-    LoadedMesh, cpp_stem_ext, file_name_of, load_mesh, lod_output_path, report_loaded, save_mesh,
-    warn_dropped_non_finite,
+    LoadFailure, LoadedMesh, cpp_stem_ext, file_name_of, load_mesh, lod_output_path, report_loaded,
+    save_mesh, warn_dropped_non_finite,
 };
 use crate::progress::{ProgressState, attach_progress};
 use crate::report::{Report, print_rung_line};
@@ -51,21 +53,26 @@ fn print_coverage_warnings(reports: &[CoverageReport], batch_name: Option<&str>)
         };
         if r.recovered {
             eprintln!(
-                "Warning: {prefix}island {} failed the coverage check ({} {side} uncovered) and recovered on retry {} ({} verts uncovered)",
+                "retopo: warning: {prefix}island {} failed the coverage check ({} {side} uncovered) and recovered on retry {} ({} verts uncovered).",
                 r.island_index, r.initial_uncovered, r.retries_made, r.final_uncovered
             );
         } else if r.kept_attempt == 0 {
             eprintln!(
-                "Warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, kept the original",
+                "retopo: warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, kept the original.",
                 r.island_index, r.initial_uncovered
             );
         } else {
             eprintln!(
-                "Warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, kept attempt {} (working-side cover; input side still short)",
+                "retopo: warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, kept attempt {} (working-side cover; input side still short).",
                 r.island_index, r.initial_uncovered, r.kept_attempt
             );
         }
     }
+}
+
+/// Plural-correct island-drop verb ("1 ... was", "2 ... were").
+fn island_verb(count: usize) -> &'static str {
+    if count == 1 { "was" } else { "were" }
 }
 
 fn count_islands_without_output(
@@ -155,11 +162,12 @@ fn dropped_island_count(
 }
 
 /// A `--density` mask must cover exactly the loaded vertices (an absent
-/// mask is fine). Returns the shared mismatch message.
+/// mask is fine). Returns the shared mismatch message (no prefix or
+/// period: the callers report it in convention shape).
 fn check_density_len(density: &[f64], vertices: usize) -> Result<(), String> {
     if !density.is_empty() && density.len() != vertices {
         return Err(format!(
-            "--density file holds {} multipliers, input has {} vertices",
+            "--density file holds {} multipliers but the input has {} vertices (need exactly one per input vertex)",
             density.len(),
             vertices
         ));
@@ -263,6 +271,22 @@ fn remesh_loaded_mesh(
     );
     result.coverage_reports = remesher.coverage_reports().to_vec();
 
+    // The save below fails on empty verts: name the real cause (a
+    // collapsed remesh), never the disk.
+    if remeshed_vertices.is_empty() {
+        let noun = if result.island_count == 1 {
+            "island"
+        } else {
+            "islands"
+        };
+        result.error = format!(
+            "remeshing produced an empty mesh (all {} {noun} dropped); nothing written to '{}'. Try a larger --target-quads",
+            result.island_count,
+            output_path.display()
+        );
+        return result;
+    }
+
     let uvs = if config.emit_uvs {
         Some(remesher.remeshed_vertex_uvs())
     } else {
@@ -309,22 +333,30 @@ fn write_multi_header(report: &mut Report, config: &Config) {
 }
 
 /// Collect the batch inputs: regular files with a supported extension,
-/// following symlinks, sorted by name.
-fn collect_batch_inputs(config: &Config) -> Result<Vec<String>, ()> {
+/// following symlinks, sorted by name. Also counts skipped non-mesh
+/// files (reported as one `note:` by the caller, never silently).
+fn collect_batch_inputs(config: &Config) -> Result<(Vec<String>, usize), CliError> {
     let entries = match std::fs::read_dir(&config.input) {
         Ok(entries) => entries,
-        Err(_) => {
-            eprintln!("Error: cannot read directory {}", config.input.display());
-            return Err(());
+        Err(err) => {
+            return Err(CliError::usage(format!(
+                "retopo: error: cannot read directory {}: {}.",
+                config.input.display(),
+                os_reason(&err)
+            )));
         }
     };
     let mut inputs: Vec<String> = Vec::new();
+    let mut skipped = 0usize;
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(_) => {
-                eprintln!("Error: cannot read directory {}", config.input.display());
-                return Err(());
+            Err(err) => {
+                return Err(CliError::usage(format!(
+                    "retopo: error: cannot read directory {}: {}.",
+                    config.input.display(),
+                    os_reason(&err)
+                )));
             }
         };
         // `metadata` follows symlinks: a symlink to a mesh counts.
@@ -336,51 +368,101 @@ fn collect_batch_inputs(config: &Config) -> Result<Vec<String>, ()> {
         let name = path.to_string_lossy().to_string();
         if glb_io::is_supported_input_extension(&name) {
             inputs.push(name);
+        } else {
+            skipped += 1;
         }
     }
     inputs.sort();
     if inputs.is_empty() {
-        eprintln!("Error: no .obj/.glb files in {}", config.input.display());
-        return Err(());
+        return Err(CliError::usage(format!(
+            "retopo: error: no .obj/.glb files in {}.",
+            config.input.display()
+        )));
     }
-    Ok(inputs)
+    Ok((inputs, skipped))
 }
 
 /// Load `--guides`/`--features`/`--density`, rejecting them in batch
-/// mode (they address one specific mesh).
-fn load_constraints(config: &Config, batch: bool) -> Result<Constraints, ()> {
+/// mode (they address one specific mesh). All failures are usage
+/// errors (exit 2): unreadable/malformed files fail before any mesh
+/// loads.
+fn load_constraints(config: &Config, batch: bool) -> Result<Constraints, CliError> {
     if batch && config.guides.is_some() {
-        eprintln!("Error: --guides needs a single input mesh, not a batch directory");
-        return Err(());
+        return Err(CliError::usage(
+            "retopo: error: --guides needs a single input mesh, not a batch directory.",
+        ));
     }
     if batch && config.features.is_some() {
-        eprintln!("Error: --features needs a single input mesh, not a batch directory");
-        return Err(());
+        return Err(CliError::usage(
+            "retopo: error: --features needs a single input mesh, not a batch directory.",
+        ));
     }
     if batch && config.density.is_some() {
-        eprintln!("Error: --density needs a single input mesh, not a batch directory");
-        return Err(());
+        return Err(CliError::usage(
+            "retopo: error: --density needs a single input mesh, not a batch directory.",
+        ));
     }
     let mut constraints = Constraints::default();
-    if let Some(path) = &config.guides
-        && let Err(error) = parse_guides_file(path, &mut constraints.guides, "--guides")
-    {
-        error.emit();
-        return Err(());
+    if let Some(path) = &config.guides {
+        parse_guides_file(path, &mut constraints.guides, "--guides")?;
     }
-    if let Some(path) = &config.features
-        && let Err(error) = parse_guides_file(path, &mut constraints.features, "--features")
-    {
-        error.emit();
-        return Err(());
+    if let Some(path) = &config.features {
+        parse_guides_file(path, &mut constraints.features, "--features")?;
     }
-    if let Some(path) = &config.density
-        && let Err(error) = parse_density_file(path, &mut constraints.density)
-    {
-        error.emit();
-        return Err(());
+    if let Some(path) = &config.density {
+        parse_density_file(path, &mut constraints.density)?;
     }
     Ok(constraints)
+}
+
+/// Batch guard: a nonexistent `--output` whose final component has a
+/// mesh extension is a mistyped file, not a directory to create.
+fn output_looks_like_file(output: &std::path::Path) -> bool {
+    glb_io::is_supported_input_extension(&file_name_of(output))
+}
+
+/// Fail-fast output check (single-file and `--lods` runs never create
+/// directories): the parent must exist and be a directory. Bare file
+/// names resolve against the working directory (proven at save time).
+fn probe_output_parent(path: &std::path::Path) -> Result<(), String> {
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => return Ok(()),
+    };
+    match std::fs::metadata(parent) {
+        Ok(meta) if meta.is_dir() => Ok(()),
+        Ok(_) => Err("not a directory".to_string()),
+        Err(err) => Err(os_reason(&err)),
+    }
+}
+
+/// Multi-mode load failure: one stderr line, the byte-stable stdout
+/// `FAILED to load` line, and a `Failed:` report entry (failed inputs
+/// are no longer silent in `--report`).
+fn report_load_failure(
+    report: Option<&mut Report>,
+    input_path: &str,
+    failure: &LoadFailure,
+    file_label: &str,
+    failed_files: &mut Vec<String>,
+    fail_name: &str,
+) {
+    eprintln!(
+        "retopo: error: cannot {} input '{input_path}': {}.",
+        failure.verb(),
+        failure.reason()
+    );
+    println!("{file_label}FAILED to load {input_path}");
+    if let Some(report) = report {
+        report.line(&format!("Input file: {input_path}"));
+        report.line(&format!(
+            "Failed: cannot {} input: {}",
+            failure.verb(),
+            failure.reason()
+        ));
+        report.blank();
+    }
+    push_failed(failed_files, fail_name);
 }
 
 fn push_failed(failed_files: &mut Vec<String>, name: &str) {
@@ -392,27 +474,68 @@ fn push_failed(failed_files: &mut Vec<String>, name: &str) {
 pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
     let constraints = match load_constraints(config, batch) {
         Ok(constraints) => constraints,
-        Err(()) => return 1,
-    };
-    let inputs: Vec<String> = if batch {
-        match collect_batch_inputs(config) {
-            Ok(inputs) => inputs,
-            Err(()) => return 1,
+        Err(error) => {
+            error.emit();
+            return 2;
         }
-    } else {
-        vec![config.input.to_string_lossy().into_owned()]
     };
     if batch {
-        if let Ok(meta) = std::fs::metadata(&config.output) {
-            if !meta.is_dir() {
-                eprintln!("Error: --output must be a directory when --input is a directory");
-                return 1;
+        let (inputs, skipped) = match collect_batch_inputs(config) {
+            Ok(collected) => collected,
+            Err(error) => {
+                error.emit();
+                return 2;
             }
-        }
-        if std::fs::create_dir_all(&config.output).is_err() {
+        };
+        if skipped > 0 {
+            let noun = if skipped == 1 { "file" } else { "files" };
             eprintln!(
-                "Error: cannot create output directory {}",
-                config.output.display()
+                "note: skipped {skipped} non-mesh {noun} in {}",
+                config.input.display()
+            );
+        }
+        return run_multi_inputs(config, true, &inputs, &constraints);
+    }
+    run_multi_inputs(
+        config,
+        false,
+        &[config.input.to_string_lossy().into_owned()],
+        &constraints,
+    )
+}
+
+/// The multi-mode input loop, shared by batch and `--lods` runs.
+fn run_multi_inputs(
+    config: &Config,
+    batch: bool,
+    inputs: &[String],
+    constraints: &Constraints,
+) -> i32 {
+    if batch {
+        match std::fs::metadata(&config.output) {
+            Ok(meta) if !meta.is_dir() => {
+                eprintln!(
+                    "retopo: error: --output must be a directory when --input is a directory."
+                );
+                return 2;
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                if output_looks_like_file(&config.output) {
+                    eprintln!(
+                        "retopo: error: --input is a directory, so --output must be a directory: '{}' looks like a file (hint: drop the extension or point --output at an existing directory).",
+                        config.output.display()
+                    );
+                    return 2;
+                }
+            }
+            Err(_) => {}
+        }
+        if let Err(err) = std::fs::create_dir_all(&config.output) {
+            eprintln!(
+                "retopo: error: cannot create output directory {}: {}.",
+                config.output.display(),
+                os_reason(&err)
             );
             return 1;
         }
@@ -428,19 +551,34 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
     let mut report: Option<Report> = None;
     if let Some(path) = &config.report {
         let mut opened = match Report::create(path) {
-            Some(opened) => opened,
-            None => {
-                eprintln!("Error: failed to write {}", path.display());
+            Ok(opened) => opened,
+            Err(err) => {
+                eprintln!(
+                    "retopo: error: cannot write --report file '{}': {}.",
+                    path.display(),
+                    os_reason(&err)
+                );
                 return 1;
             }
         };
         write_multi_header(&mut opened, config);
         report = Some(opened);
     }
+    if !batch && lod_mode {
+        // Fail fast: rung outputs land next to `--output`, whose parent
+        // is never created for us.
+        if let Err(reason) = probe_output_parent(&config.output) {
+            eprintln!(
+                "retopo: error: cannot write output '{}': {reason}.",
+                config.output.display()
+            );
+            return 1;
+        }
+    }
 
     let mut failed_files: Vec<String> = Vec::new();
 
-    for input_path in &inputs {
+    for input_path in inputs {
         let file_label = if batch {
             let name = file_name_of(Path::new(input_path));
             if lod_mode {
@@ -458,11 +596,16 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
         };
 
         let loaded = match load_mesh(Path::new(input_path)) {
-            Some(loaded) => loaded,
-            None => {
-                eprintln!("Error: failed to load {input_path}");
-                println!("{file_label}FAILED to load {input_path}");
-                push_failed(&mut failed_files, &fail_name);
+            Ok(loaded) => loaded,
+            Err(failure) => {
+                report_load_failure(
+                    report.as_mut(),
+                    input_path,
+                    &failure,
+                    &file_label,
+                    &mut failed_files,
+                    &fail_name,
+                );
                 continue;
             }
         };
@@ -494,13 +637,20 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
                 config,
                 &loaded.vertices,
                 &loaded.triangles,
-                &constraints,
+                constraints,
                 *target,
                 &output_path,
             );
             if !result.ok {
-                eprintln!("Error: {} ({})", result.error, output_path.display());
+                eprintln!("retopo: error: {fail_name}: {}.", result.error);
                 println!("{label}FAILED {}", result.error);
+                if let Some(report) = report.as_mut() {
+                    report.line(&format!("Input file: {input_path}"));
+                    report.line(&format!("Output file: {}", output_path.display()));
+                    report.line(&format!("Target quads: {target}"));
+                    report.line(&format!("Failed: {}", result.error));
+                    report.blank();
+                }
                 push_failed(&mut failed_files, &fail_name);
                 continue;
             }
@@ -508,13 +658,17 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
                 if batch {
                     let name = file_name_of(Path::new(input_path));
                     eprintln!(
-                        "Warning: FILE {name}: {} of {} islands produced no output and were dropped from the mesh",
-                        result.failed_islands, result.island_count
+                        "retopo: warning: FILE {name}: {} of {} islands produced no output and {} dropped from the mesh.",
+                        result.failed_islands,
+                        result.island_count,
+                        island_verb(result.failed_islands)
                     );
                 } else {
                     eprintln!(
-                        "Warning: {} of {} islands produced no output and were dropped from the mesh",
-                        result.failed_islands, result.island_count
+                        "retopo: warning: {} of {} islands produced no output and {} dropped from the mesh.",
+                        result.failed_islands,
+                        result.island_count,
+                        island_verb(result.failed_islands)
                     );
                 }
             }
@@ -536,6 +690,8 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
                 report.line(&format!("Output file: {}", output_path.display()));
                 report.line(&format!("Target quads: {target}"));
                 report.line("Results:");
+                report.line(&format!("  Islands: {}", result.island_count));
+                report.line(&format!("  Failed islands: {}", result.failed_islands));
                 report.line(&format!("  Quads: {}", result.quad_count));
                 report.line(&format!("  Non-quads: {}", result.non_quad_count));
                 report.line(&format!("  Vertices: {}", result.vertex_count));
@@ -550,7 +706,7 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
 
     if let (Some(path), Some(report)) = (&config.report, report.take()) {
         if !report.finish() {
-            eprintln!("Error: failed to write {}", path.display());
+            eprintln!("retopo: error: failed to write {}.", path.display());
             return 1;
         }
     }
@@ -572,23 +728,14 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
 pub(crate) fn run_single_mode(config: &Config) -> i32 {
     let start_time = Instant::now();
 
-    let loaded: LoadedMesh = match load_mesh(&config.input) {
-        Some(loaded) => loaded,
-        None => {
-            eprintln!("Error: failed to load {}", config.input.display());
-            return 1;
-        }
-    };
-    report_loaded(&loaded, config.quiet);
-    warn_dropped_non_finite(loaded.weld_stats.non_finite_dropped);
-
-    // Parsed after the mesh loads (so the counts read naturally), one
-    // file at a time: each count line precedes the next file's errors.
+    // Fail fast (multi-mode parity): constraint files before the mesh
+    // loads, input before output/report writability, all before the
+    // first remesh millisecond.
     let mut constraints = Constraints::default();
     if let Some(path) = &config.guides {
         if let Err(error) = parse_guides_file(path, &mut constraints.guides, "--guides") {
             error.emit();
-            return 1;
+            return 2;
         }
         if !config.quiet {
             eprintln!("Guide polylines: {}", constraints.guides.len());
@@ -597,7 +744,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     if let Some(path) = &config.features {
         if let Err(error) = parse_guides_file(path, &mut constraints.features, "--features") {
             error.emit();
-            return 1;
+            return 2;
         }
         if !config.quiet {
             eprintln!("Feature polylines: {}", constraints.features.len());
@@ -606,15 +753,57 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     if let Some(path) = &config.density {
         if let Err(error) = parse_density_file(path, &mut constraints.density) {
             error.emit();
+            return 2;
+        }
+    }
+
+    let loaded: LoadedMesh = match load_mesh(&config.input) {
+        Ok(loaded) => loaded,
+        Err(failure) => {
+            eprintln!(
+                "retopo: error: cannot {} input '{}': {}.",
+                failure.verb(),
+                config.input.display(),
+                failure.reason()
+            );
             return 1;
         }
+    };
+    report_loaded(&loaded, config.quiet);
+    warn_dropped_non_finite(loaded.weld_stats.non_finite_dropped);
+
+    // The density count needs the mesh to judge (exit 1, still before
+    // remeshing); unreadable/malformed masks already failed above.
+    if !constraints.density.is_empty() {
         if let Err(message) = check_density_len(&constraints.density, loaded.vertices.len()) {
-            eprintln!("Error: {message}");
+            eprintln!("retopo: error: {message}.");
             return 1;
         }
         if !config.quiet {
             eprintln!("Density multipliers: {}", constraints.density.len());
         }
+    }
+
+    let mut report: Option<Report> = None;
+    if let Some(path) = &config.report {
+        match Report::create(path) {
+            Ok(opened) => report = Some(opened),
+            Err(err) => {
+                eprintln!(
+                    "retopo: error: cannot write --report file '{}': {}.",
+                    path.display(),
+                    os_reason(&err)
+                );
+                return 1;
+            }
+        }
+    }
+    if let Err(reason) = probe_output_parent(&config.output) {
+        eprintln!(
+            "retopo: error: cannot write output '{}': {reason}.",
+            config.output.display()
+        );
+        return 1;
     }
 
     let mut remesher = AutoRemesher::new(&loaded.vertices, &loaded.triangles);
@@ -632,7 +821,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     }
 
     if !remesher.remesh() {
-        eprintln!("Error: remeshing produced no result");
+        eprintln!("retopo: error: remeshing produced no result.");
         return 1;
     }
 
@@ -655,8 +844,9 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     );
     if failed_islands > 0 {
         eprintln!(
-            "Warning: {failed_islands} of {} islands produced no output and were dropped from the mesh",
-            input_islands.len()
+            "retopo: warning: {failed_islands} of {} islands produced no output and {} dropped from the mesh.",
+            input_islands.len(),
+            island_verb(failed_islands)
         );
     }
     print_coverage_warnings(remesher.coverage_reports(), None);
@@ -671,13 +861,32 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
         }
     }
 
+    // The save below fails on empty verts: name the real cause (a
+    // collapsed remesh), never the disk.
+    if remeshed_vertices.is_empty() {
+        let noun = if input_islands.len() == 1 {
+            "island"
+        } else {
+            "islands"
+        };
+        eprintln!(
+            "retopo: error: remeshing produced an empty mesh (all {} {noun} dropped); nothing written to '{}'. Try a larger --target-quads.",
+            input_islands.len(),
+            config.output.display()
+        );
+        return 1;
+    }
+
     let uvs = if config.emit_uvs {
         Some(remesher.remeshed_vertex_uvs())
     } else {
         None
     };
     if !save_mesh(&config.output, remeshed_vertices, remeshed_quads, uvs) {
-        eprintln!("Error: failed to write {}", config.output.display());
+        eprintln!(
+            "retopo: error: failed to write {}.",
+            config.output.display()
+        );
         return 1;
     }
 
@@ -695,13 +904,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     println!("==========================");
 
     if let Some(path) = &config.report {
-        let mut report = match Report::create(path) {
-            Some(report) => report,
-            None => {
-                eprintln!("Error: failed to write {}", path.display());
-                return 1;
-            }
-        };
+        let mut report = report.take().expect("created before remeshing");
         report.line("retopoforge Report");
         report.line("==================");
         report.blank();
@@ -735,7 +938,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
             g_format(elapsed_seconds)
         ));
         if !report.finish() {
-            eprintln!("Error: failed to write {}", path.display());
+            eprintln!("retopo: error: failed to write {}.", path.display());
             return 1;
         }
     }
@@ -792,5 +995,28 @@ mod island_accounting_tests {
         );
         let near_both = vec![Vector3::new(0.5, 0.5, 0.0), Vector3::new(50.5, 50.5, 50.0)];
         assert_eq!(dropped_island_count(&[1], &islands, &input, &near_both), 0);
+    }
+}
+
+#[cfg(test)]
+mod batch_guard_tests {
+    use super::*;
+
+    #[test]
+    fn file_looking_outputs_spotted() {
+        assert!(output_looks_like_file(Path::new("somefile.obj")));
+        assert!(output_looks_like_file(Path::new("UP.GLB")));
+        assert!(output_looks_like_file(Path::new("a/b/c.glb")));
+        assert!(!output_looks_like_file(Path::new("remeshed")));
+        assert!(!output_looks_like_file(Path::new("out.d")));
+        assert!(!output_looks_like_file(Path::new("dir.objects/x")));
+    }
+
+    #[test]
+    fn output_probe_catches_missing_parents() {
+        assert!(probe_output_parent(Path::new("bare.obj")).is_ok());
+        assert!(probe_output_parent(Path::new("/tmp")).is_ok());
+        let missing = probe_output_parent(Path::new("/tmp/ux-probe-does-not-exist-ux/x.obj"));
+        assert_eq!(missing, Err("no such file or directory".to_string()));
     }
 }
