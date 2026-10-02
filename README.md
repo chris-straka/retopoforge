@@ -214,7 +214,7 @@ and the engine/CLI/addon split.
 ## Direction
 
 1. Headless engine + CLI + benchmarks (this fork's foundation, done)
-2. Blender addon driving the CLI (done, extension v0.2.0)
+2. Blender addon driving the CLI (done, extension v0.3.0)
 3. Rust rewrite of the engine + CLI, proven by differential oracles
    (done — shipped in 0.3.0, C++ tree removed afterwards, see
    [docs/rust-switch-verdict.md](docs/rust-switch-verdict.md))

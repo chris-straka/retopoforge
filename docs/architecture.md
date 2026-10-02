@@ -10,7 +10,7 @@ Date: 2026-10-01 (Rust-only tree; item-6 flip deleted `build.rs` +
 |---|---|---|---|
 | Engine | `rust/core/` + `rust/solvers/` | `retopo_core`, `retopo_solvers` crates | MIT |
 | CLI | `rust/cli/` | `retopo` binary | MIT |
-| Blender extension | `blender/retopoforge/` | extension v0.2.0, Blender 4.2+ | GPL-3.0-or-later |
+| Blender extension | `blender/retopoforge/` | extension v0.3.0, Blender 4.2+ | GPL-3.0-or-later |
 
 (There is no desktop app: the upstream Qt shell was removed and Blender
 is the UI. The original C++ engine was the differential oracle for the

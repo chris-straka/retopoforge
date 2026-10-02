@@ -399,7 +399,9 @@ port, creature volume/auto-placement). Toolbox siblings, no contest.
 - [x] Headless verification (`blender/tests/test_headless.py`, all passing)
 - [x] Honest UV / vertex-color data-loss notice in the UI
 - [x] Zip install path verified (`package_install_files`) end to end
-      in an isolated config (0.2.0)
+      in an isolated config (0.2.0; re-verified at 0.3.0 — installed
+      manifest carries 0.3.0, enables as `bl_ext.user_default.retopoforge`,
+      all operators register)
 - [ ] Release packaging (signed zip? extensions.blender.org listing?) —
       DEFERRED by owner 2026-09-30: no Apple $99 fee, no listing for now
 - [x] Iterate loop: per-object settings recall (last-used params
