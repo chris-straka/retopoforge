@@ -136,9 +136,15 @@ when comparing back ends.
       residuals, dist 4.8-8.2 vs 13.5-30.6), other bench cases
       byte-identical, contract + full suite green (62 ok), bench gate
       green, permanent `coverage_retry.rs` regression (skips without
-      the corpus; proven to fail with retries off). The retry re-rolls
-      the tiling, it does not fix the fold: beast stays a first-
-      attempt-coverage target for the patch back end.
+      the corpus; proven to fail with retries off). Follow-ups landed:
+      unrecoverable suite case pinned explicitly (diff id 58, docs say
+      why retries fail); retry jitter confined to the parameterization
+      (extractor embeds unjittered; median output-to-working 2.2e-15,
+      pinned); per-region patch bar (>= 10 connected beyond 3 widths)
+      for thin drops the floor misses (claw fixture; suite grid case +
+      CLI grid goldens legitimately recover and re-baseline). The retry
+      re-rolls the tiling, it does not fix the fold: beast stays a
+      first-attempt-coverage target for the patch back end.
 - [ ] Untangling stage in the current engine (Garanzha et al. 2021
       foldover-free maps; prototype forward-ported from branch
       `exp/igm-validity` to main, still `RETOPO_UNTANGLE`-gated):

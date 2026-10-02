@@ -26,7 +26,9 @@
 //   everything C++ solves; cover-derived quantities (remeshed
 //   verts/quads/uvs, IUV/IOUV/SING values and singular counts,
 //   connections) are reported, not asserted.
-use retopo_core::auto_remesher::{AutoRemesher, AutoRemesherProgressHandler, ModelType};
+use retopo_core::auto_remesher::{
+    AutoRemesher, AutoRemesherProgressHandler, CoverageReport, ModelType,
+};
 use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector2::Vector2;
 use retopo_core::vector3::Vector3;
@@ -402,6 +404,39 @@ fn differential_replay() {
         remesher.set_progress_handler(Some(handler));
         remesher.set_tag(tag_ptr);
         let ok = remesher.remesh();
+        // Coverage retry pins (see `docs/coverage-retry.md`): case 58
+        // (soup fragment) fires and cannot recover; case 99 (grid)
+        // fires on a 24-connected small drop the count floor misses
+        // and recovers on retry 1. Every other case must stay
+        // retry-free so future firings fail loudly here.
+        let coverage = remesher.coverage_reports();
+        if id == 58 {
+            assert_eq!(
+                coverage,
+                &[CoverageReport {
+                    island_index: 2,
+                    retries_made: 3,
+                    recovered: false,
+                    initial_uncovered: 69,
+                    final_uncovered: 69,
+                }],
+                "{case}: case-58 coverage report skew"
+            );
+        } else if id == 99 {
+            assert_eq!(
+                coverage,
+                &[CoverageReport {
+                    island_index: 0,
+                    retries_made: 1,
+                    recovered: true,
+                    initial_uncovered: 24,
+                    final_uncovered: 11,
+                }],
+                "{case}: case-99 coverage report skew"
+            );
+        } else if !coverage.is_empty() {
+            panic!("{case}: unexpected coverage retry fired: {coverage:?}");
+        }
         let got_events = events.lock().unwrap().clone();
         unsafe {
             drop(Arc::from_raw(tag_ptr as *const Mutex<Vec<(f32, String)>>));

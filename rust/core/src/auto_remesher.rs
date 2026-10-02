@@ -682,7 +682,7 @@ impl Default for IslandContext {
 /// first full-coverage result); `recovered` tells whether one covered
 /// fully (else attempt 0 was kept); `initial_uncovered`/`final_uncovered`
 /// count working verts beyond the coverage width before/after.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CoverageReport {
     pub island_index: usize,
     pub retries_made: usize,
@@ -1446,6 +1446,12 @@ impl AutoRemesher {
     /// Minimum uncovered working verts that count as a failed region
     /// (isolated spikes never fire the retry on their own).
     const COVERAGE_MIN_REGION_VERTS: usize = 25;
+    /// Minimum CONNECTED uncovered verts (working-triangle-adjacent)
+    /// that count as a failed small region: the per-region catcher
+    /// for thin drops the count floor misses. Calibrated at 10
+    /// (healthiest non-firing patch anywhere: 3; smallest genuine
+    /// small drop: 10; bench unjittered: 0).
+    const COVERAGE_MIN_PATCH_VERTS: usize = 10;
 
     /// Coverage retry seeds (deterministic jitter variants), tried in
     /// order; the first full-coverage result wins.
@@ -1640,19 +1646,73 @@ impl AutoRemesher {
     /// Coverage verdict over per-vertex `gaps`: `(failed, uncovered)`,
     /// where `uncovered` counts verts beyond
     /// [`Self::COVERAGE_WIDTH_MULTIPLE`] nominal quad widths
-    /// (`diag/sqrt(nquads)`). Empty quads never fail here (the
-    /// failed-island path owns them); degenerate inputs (zero quads,
-    /// zero/NaN diag) report no failure.
-    fn coverage_failed(gaps: &[f64], diag: f64, nquads: usize) -> (bool, usize) {
+    /// (`diag/sqrt(nquads)`). Fails on a severe miss (`uncovered` past
+    /// [`Self::COVERAGE_MIN_REGION_VERTS`], anywhere) or a small
+    /// connected drop (the largest working-triangle-adjacent patch
+    /// beyond the bar holds [`Self::COVERAGE_MIN_PATCH_VERTS`]+ verts:
+    /// the per-region catcher for thin features the count floor
+    /// misses). Empty quads never fail here (the failed-island path
+    /// owns them); degenerate inputs (zero quads, zero/NaN diag) report
+    /// no failure.
+    fn coverage_failed(
+        gaps: &[f64],
+        diag: f64,
+        nquads: usize,
+        triangles: &[Vec<usize>],
+        nverts: usize,
+    ) -> (bool, usize) {
         if nquads == 0 || !(diag > 0.0) {
             return (false, 0);
         }
         let unit = diag / (nquads as f64).sqrt();
-        let uncovered = gaps
-            .iter()
-            .filter(|g| **g > Self::COVERAGE_WIDTH_MULTIPLE * unit)
-            .count();
-        (uncovered >= Self::COVERAGE_MIN_REGION_VERTS, uncovered)
+        let bar = Self::COVERAGE_WIDTH_MULTIPLE * unit;
+        let uncovered = gaps.iter().filter(|g| **g > bar).count();
+        if uncovered >= Self::COVERAGE_MIN_REGION_VERTS {
+            return (true, uncovered);
+        }
+        let patch = Self::largest_uncovered_patch(gaps, triangles, nverts, bar);
+        (patch >= Self::COVERAGE_MIN_PATCH_VERTS, uncovered)
+    }
+
+    /// Largest connected set of verts with `gaps` beyond `bar`,
+    /// adjacent over `triangles` (indices into `nverts` verts; out of
+    /// range corners are skipped, never trusted).
+    fn largest_uncovered_patch(
+        gaps: &[f64],
+        triangles: &[Vec<usize>],
+        nverts: usize,
+        bar: f64,
+    ) -> usize {
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nverts];
+        for t in triangles.iter() {
+            if t.len() == 3 && t[0] < nverts && t[1] < nverts && t[2] < nverts {
+                for e in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                    adj[e.0].push(e.1);
+                    adj[e.1].push(e.0);
+                }
+            }
+        }
+        let mut seen = vec![false; nverts];
+        let mut best = 0usize;
+        for i in 0..gaps.len().min(nverts) {
+            if seen[i] || gaps[i] <= bar {
+                continue;
+            }
+            let mut stack = vec![i];
+            seen[i] = true;
+            let mut size = 0usize;
+            while let Some(u) = stack.pop() {
+                size += 1;
+                for &nb in adj[u].iter() {
+                    if nb < gaps.len() && !seen[nb] && gaps[nb] > bar {
+                        seen[nb] = true;
+                        stack.push(nb);
+                    }
+                }
+            }
+            best = best.max(size);
+        }
+        best
     }
 
     /// SplitMix64 (Steele et al.): deterministic cross-platform u64 stream
@@ -2532,7 +2592,13 @@ impl AutoRemesher {
                                 }
                                 let _ = std::fs::write(uv_path, uv);
                             }
-                            let mut remesher = QuadExtractor::new(vertices, triangles, &uvs);
+                            // The extractor always embeds in the UNJITTERED
+                            // working mesh: retry jitter steers only the
+                            // parameterization (field/rounding/layout),
+                            // never the output positions (identical to
+                            // `vertices` on attempt 0).
+                            let mut remesher =
+                                QuadExtractor::new(&island.vertices, triangles, &uvs);
                             remesher.set_original_triangle_uvs(&thread.captured_original_uvs);
                             remesher
                                 .set_singular_vertices(&thread.captured_singular_vertex_indices);
@@ -2595,17 +2661,22 @@ impl AutoRemesher {
                         }
                     }
                     // Coverage verdict for this attempt (unconditional:
-                    // the retry gate runs on every island).
+                    // the retry gate runs on every island). Measured
+                    // against the unjittered working mesh (what the
+                    // extractor embeds in; identical to `vertices` on
+                    // attempt 0).
                     let attempt_gaps = Self::coverage_gaps(
-                        vertices,
+                        &island.vertices,
                         &thread.remeshed_vertices,
                         &thread.remeshed_quads,
                     );
-                    let attempt_diag = Self::bbox_diag(vertices);
+                    let attempt_diag = Self::bbox_diag(&island.vertices);
                     let (attempt_failed, attempt_uncovered) = Self::coverage_failed(
                         &attempt_gaps,
                         attempt_diag,
                         thread.remeshed_quads.len(),
+                        triangles,
+                        island.vertices.len(),
                     );
                     let attempt_empty = thread.remeshed_quads.is_empty();
                     // Research probe (RETOPO_COVERAGE_LOG=dir): one
@@ -2629,6 +2700,16 @@ impl AutoRemesher {
                         // quad width (diag/sqrt(nquads)).
                         let unit = diag / (nquads.max(1) as f64).sqrt();
                         let c3 = gaps.iter().filter(|g| **g > 3.0 * unit).count();
+                        // Largest connected uncovered patch (the per-region
+                        // bar's input); shares the verdict helper. Uses the
+                        // UNSORTED gaps (vertex order): the sorted copy
+                        // above would scramble adjacency into garbage.
+                        let p3n = Self::largest_uncovered_patch(
+                            &attempt_gaps,
+                            triangles,
+                            island.vertices.len(),
+                            3.0 * unit,
+                        );
                         if let Ok(mut f) = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
@@ -2637,7 +2718,7 @@ impl AutoRemesher {
                             // Single write_all: one syscall stays atomic under
                             // O_APPEND when island workers log concurrently.
                             let line = format!(
-                                "island={} attempt={attempt} nverts={} quads={} worst={} diag={diag} frac={} p50={} p90={} p99={} f02={} f05={} f10={} c3={c3}\n",
+                                "island={} attempt={attempt} nverts={} quads={} worst={} diag={diag} frac={} p50={} p90={} p99={} f02={} f05={} f10={} c3={c3} p3n={p3n}\n",
                                 thread.island_index,
                                 vertices.len(),
                                 nquads,
@@ -3185,37 +3266,72 @@ mod coverage_tests {
         // diag 100, 100 quads: nominal width 10, bar at 30.
         let diag = 100.0;
         let nquads = 100;
-        // 24 verts at 31 (over the bar) + rest covered: quiet.
+        let no_tris: &[Vec<usize>] = &[];
+        // 24 scattered verts at 31 (over the bar) + rest covered:
+        // quiet (no adjacency, no patch).
         let mut gaps = vec![0.5; 200];
         for g in gaps.iter_mut().take(24) {
             *g = 31.0;
         }
         assert_eq!(
-            AutoRemesher::coverage_failed(&gaps, diag, nquads),
+            AutoRemesher::coverage_failed(&gaps, diag, nquads, no_tris, 200),
             (false, 24)
         );
-        // The 25th over-the-bar vert trips the retry.
+        // The 25th over-the-bar vert trips the count floor.
         gaps[24] = 31.0;
         assert_eq!(
-            AutoRemesher::coverage_failed(&gaps, diag, nquads),
+            AutoRemesher::coverage_failed(&gaps, diag, nquads, no_tris, 200),
             (true, 25)
         );
         // Just under the bar never counts, however many.
         let gaps = vec![29.9; 200];
         assert_eq!(
-            AutoRemesher::coverage_failed(&gaps, diag, nquads),
+            AutoRemesher::coverage_failed(&gaps, diag, nquads, no_tris, 200),
             (false, 0)
         );
         // Empty quads belong to the failed-island path, never retry.
-        assert_eq!(AutoRemesher::coverage_failed(&gaps, diag, 0), (false, 0));
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, 0, no_tris, 200),
+            (false, 0)
+        );
         // Degenerate scale never fires.
         assert_eq!(
-            AutoRemesher::coverage_failed(&gaps, 0.0, nquads),
+            AutoRemesher::coverage_failed(&gaps, 0.0, nquads, no_tris, 200),
             (false, 0)
         );
         assert_eq!(
-            AutoRemesher::coverage_failed(&gaps, f64::NAN, nquads),
+            AutoRemesher::coverage_failed(&gaps, f64::NAN, nquads, no_tris, 200),
             (false, 0)
+        );
+    }
+
+    #[test]
+    fn coverage_failed_catches_connected_patch_below_floor() {
+        // Same bar (30): a CONNECTED run of over-the-bar verts trips
+        // the per-region patch bar at 10 even though the count floor
+        // (25) stays quiet; 9 connected stays quiet.
+        let diag = 100.0;
+        let nquads = 100;
+        // Triangle strip chaining verts 0..24 (overlapping windows).
+        let strip: Vec<Vec<usize>> = (0..23).map(|i| vec![i, i + 1, i + 2]).collect();
+        let mut gaps = vec![0.5; 200];
+        for g in gaps.iter_mut().take(10) {
+            *g = 31.0;
+        }
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, nquads, &strip, 200),
+            (true, 10)
+        );
+        gaps[9] = 0.5;
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, nquads, &strip, 200),
+            (false, 9)
+        );
+        // Out-of-range corners never panic, never connect.
+        let wild = vec![vec![500, 501, 502], vec![0, 1]];
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, nquads, &wild, 200),
+            (false, 9)
         );
     }
 
@@ -3266,5 +3382,103 @@ mod coverage_tests {
         }
         assert!((gaps[2] - 1.0).abs() < 1e-12, "gaps[2]={}", gaps[2]);
         assert!((gaps[5] - 1.0).abs() < 1e-12, "gaps[5]={}", gaps[5]);
+    }
+
+    /// Small-feature fixture: 3x3x3 body with a thin 0.5x0.5 claw
+    /// rising `protrusion` above its top face, stitched into ONE
+    /// edge-connected island (separate intersecting boxes split into
+    /// two islands at the separator, which tests island failure, not
+    /// region coverage).
+    fn body_with_claw(protrusion: f64) -> (Vec<Vector3>, Vec<Vec<usize>>) {
+        // Rings (CCW from +z): 0(-,-) 1(+,-) 2(+,+) 3(-,+).
+        let mut verts = Vec::new();
+        for (z, h) in [(-1.5, 1.5), (1.5, 1.5), (1.5, 0.25)] {
+            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                verts.push(v(sx * h, sy * h, z));
+            }
+        }
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            verts.push(v(sx * 0.25, sy * 0.25, 1.5 + protrusion));
+        }
+        let (b, t, f, c) = (0, 4, 8, 12);
+        let mut tris: Vec<Vec<usize>> = vec![vec![b, b + 2, b + 1], vec![b, b + 3, b + 2]];
+        for e in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+            // Body sides (low b, high t) and claw walls (low f, high c).
+            for (l, h) in [(b, t), (f, c)] {
+                tris.push(vec![l + e.0, h + e.1, h + e.0]);
+                tris.push(vec![l + e.0, l + e.1, h + e.1]);
+            }
+            // Top frame (outer t, inner f).
+            tris.push(vec![t + e.0, t + e.1, f + e.1]);
+            tris.push(vec![t + e.0, f + e.1, f + e.0]);
+        }
+        tris.push(vec![c, c + 1, c + 2]);
+        tris.push(vec![c, c + 2, c + 3]);
+        (verts, tris)
+    }
+
+    /// Small-feature gate: losing the thin claw must trip the
+    /// per-region (connected-patch) bar at protrusion 3.0 even though
+    /// the 25-count floor stays quiet; the real (unclipped) outputs
+    /// stay quiet; the short 2.0 nub stays quiet when clipped
+    /// (fidelity-class: worst gap under the bar, healthy-comparable —
+    /// coverage catches missing parts, not sub-bar deviations).
+    #[test]
+    fn dropped_claw_trips_patch_bar() {
+        for (protrusion, expect_fire) in [(3.0, true), (2.0, false)] {
+            let (vertices, triangles) = body_with_claw(protrusion);
+            let mut r = AutoRemesher::new(&vertices, &triangles);
+            r.set_target_triangle_count(300);
+            r.set_quiet(true);
+            assert!(r.remesh());
+            assert!(
+                r.coverage_reports().is_empty(),
+                "protrusion {protrusion}: real output stays quiet"
+            );
+            let wv = r.isotropic_vertices();
+            let wt = r.isotropic_triangles();
+            let diag = AutoRemesher::bbox_diag(wv);
+            // Simulate the drop: clip quads touching the claw region.
+            let qv = r.remeshed_vertices();
+            let clipped: Vec<Vec<usize>> = r
+                .remeshed_quads()
+                .iter()
+                .filter(|q| !q.iter().any(|&i| qv[i].z() > 1.4))
+                .cloned()
+                .collect();
+            assert!(
+                !clipped.is_empty() && clipped.len() < r.remeshed_quads().len(),
+                "protrusion {protrusion}: clip must remove some but not all quads"
+            );
+            let gaps = AutoRemesher::coverage_gaps(wv, qv, &clipped);
+            let (failed, uncovered) =
+                AutoRemesher::coverage_failed(&gaps, diag, clipped.len(), wt, wv.len());
+            if expect_fire {
+                assert!(
+                    failed,
+                    "protrusion {protrusion}: dropped claw must trip (uncovered={uncovered})"
+                );
+                assert!(
+                    uncovered < AutoRemesher::COVERAGE_MIN_REGION_VERTS,
+                    "protrusion {protrusion}: the patch bar (not the floor) must fire"
+                );
+                let unit = diag / (clipped.len() as f64).sqrt();
+                let patch = AutoRemesher::largest_uncovered_patch(
+                    &gaps,
+                    wt,
+                    wv.len(),
+                    AutoRemesher::COVERAGE_WIDTH_MULTIPLE * unit,
+                );
+                assert!(
+                    patch >= AutoRemesher::COVERAGE_MIN_PATCH_VERTS,
+                    "protrusion {protrusion}: tip patch must clear the patch bar (patch={patch})"
+                );
+            } else {
+                assert!(
+                    !failed,
+                    "protrusion {protrusion}: short nub stays quiet (uncovered={uncovered})"
+                );
+            }
+        }
     }
 }
