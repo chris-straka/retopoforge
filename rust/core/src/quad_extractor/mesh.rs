@@ -30,7 +30,7 @@ impl<'a> QuadExtractor<'a> {
         let mut corners = BTreeSet::new();
         let triangle_round = 4;
         for round in 0..5 {
-            for (level0, _) in edge_connect_map.iter() {
+            for level0 in edge_connect_map.keys() {
                 let level0 = *level0;
                 let Some(find_level1) = edge_connect_map.get(&level0) else {
                     continue;

@@ -293,9 +293,11 @@ impl AxisAlignedBoundingBoxTree {
             box_indices_order_list: Vec::new(),
             spans: [(0, 0.0); 3],
         };
-        let mut root = AabbTreeNode::default();
-        root.bounding_box = outter_box;
-        root.box_indices = box_indices;
+        let mut root = AabbTreeNode {
+            bounding_box: outter_box,
+            box_indices,
+            ..Default::default()
+        };
         if !root.box_indices.is_empty() {
             for box_index in root.box_indices.clone() {
                 root.center += tree.boxes[box_index].center;

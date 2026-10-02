@@ -84,7 +84,7 @@ fn timing_symmetry_pipeline() {
     // Bitwise sink proves identical streams and identical ops.
     assert_eq!(
         sink.to_bits(),
-        (-65.539505422980611f64).to_bits(),
+        (-65.539_505_422_980_61_f64).to_bits(),
         "sink diverged: streams or ops differ from C++"
     );
 }

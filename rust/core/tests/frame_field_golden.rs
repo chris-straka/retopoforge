@@ -1,3 +1,6 @@
+// Harness indexes parallel arrays/cursors in lockstep; index loops stay.
+#![allow(clippy::needless_range_loop)]
+
 // Replicated goldens: mirrors the FrameField-level test groups of
 // tests/test_guides.cpp and tests/test_sharp.cpp 1:1 at the same tolerance
 // (engine end-to-end groups are out of scope for this lane). All builders
@@ -186,7 +189,7 @@ fn degenerate_guides_are_noop() {
     let plain_again = FrameField::create(&mesh, 90.0, &[], &[]).expect("must solve");
     let rerun_diff = max_position_difference(&plain, &plain_again);
     eprintln!("degenerate-vs-plain {junk_diff:.3e}, rerun-vs-plain {rerun_diff:.3e}");
-    assert!(junk_diff >= 0.0 && junk_diff < 1e-9);
+    assert!((0.0..1e-9).contains(&junk_diff));
     // Sequential port: reruns are bitwise identical (the C++ only asserts
     // the no-op bound, but determinism is a structural fact worth pinning).
     assert_eq!(rerun_diff, 0.0);
@@ -263,7 +266,7 @@ fn degenerate_sharps_are_noop() {
     assert_eq!(plain.len(), degenerate.len());
     let junk_diff = max_position_difference(&plain, &degenerate);
     eprintln!("degenerate-vs-plain field diff {junk_diff:.3e}");
-    assert!(junk_diff >= 0.0 && junk_diff < 1e-9);
+    assert!((0.0..1e-9).contains(&junk_diff));
 }
 
 // Early-false path: an empty mesh has no field.

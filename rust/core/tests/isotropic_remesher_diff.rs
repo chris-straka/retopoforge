@@ -12,6 +12,9 @@ use std::sync::{Arc, Mutex};
 
 const FIXTURE: &str = include_str!("../../../tests/fixtures/isoremesh_diff.txt");
 
+/// Recorded progress callback shared by the replay harnesses.
+type ProgHandler = Box<dyn Fn(f32, &str) + Send + Sync>;
+
 const WRAPPER_CASES: usize = 212;
 const KERNEL_CASES: usize = 36;
 
@@ -158,7 +161,7 @@ fn differential_replay() {
             // Replay through the Rust port.
             let prog: Arc<Mutex<Vec<(u32, String)>>> = Arc::new(Mutex::new(Vec::new()));
             let prog_clone = Arc::clone(&prog);
-            let handler: Box<dyn Fn(f32, &str) + Send + Sync> = Box::new(move |fraction, name| {
+            let handler: ProgHandler = Box::new(move |fraction, name| {
                 prog_clone
                     .lock()
                     .expect("prog lock")

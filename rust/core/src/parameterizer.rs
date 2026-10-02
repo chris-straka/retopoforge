@@ -39,6 +39,7 @@
 //! - the tensor smoothing line fuses as `fma(tensor, 0.5, (0.5*avg)/n)`;
 //! - the f32 cover-progress remap fuses as
 //!   `fma(fraction, 0.99-0.28, 0.28)`.
+//!
 //! Notably unfused (plain operators, verified absent from the IR): the
 //! tensor accumulation, the neighbor averaging, the face-tensor gather,
 //! the scaling-field curvature loop, and every `pow`/`sqrt`/`acos` site.
@@ -418,6 +419,7 @@ impl<'a> Parameterizer<'a> {
         self.progress_handler = Some(Arc::new(progress_handler));
     }
 
+    #[allow(clippy::manual_clamp)] // Port mirrors the C++ branch ladder; `clamp` differs on NaN.
     fn compute_face_scaling_field(
         &self,
         vertices: &[Vector3],
@@ -470,6 +472,7 @@ impl<'a> Parameterizer<'a> {
             return face_scaling;
         }
         const MIN_RATIO: f64 = 0.3;
+        #[allow(clippy::manual_clamp)] // Port mirrors the C++ branch ladder; `clamp` differs on NaN.
         const MAX_RATIO: f64 = 3.0;
         // Sequential: the C++ TBB loop writes disjoint per-face slots.
         for (i, triangle) in triangles.iter().enumerate() {
@@ -614,10 +617,10 @@ impl<'a> Parameterizer<'a> {
         // Null or empty input leaves snapped_sharps empty and every sharp
         // pass below is skipped, keeping the default run bit-identical.
         let mut snapped_sharps: Vec<Vec<Vector3>> = Vec::new();
-        if let Some(sharps) = self.sharp_polylines {
-            if !sharps.is_empty() {
-                snapped_sharps = snap_polylines_to_mesh(&topology, sharps);
-            }
+        if let Some(sharps) = self.sharp_polylines
+            && !sharps.is_empty()
+        {
+            snapped_sharps = snap_polylines_to_mesh(&topology, sharps);
         }
         let mut field: Vec<Vector3>;
         if let Some(triangle_field_vectors) = self.triangle_field_vectors {

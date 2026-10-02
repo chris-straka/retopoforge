@@ -90,8 +90,8 @@ impl Vector2 {
         if is_zero(length) {
             return;
         }
-        self.data[0] = self.data[0] / length;
-        self.data[1] = self.data[1] / length;
+        self.data[0] /= length;
+        self.data[1] /= length;
     }
 
     /// In-circle test via a 4x4 determinant (mirrors `isInCircle`, which

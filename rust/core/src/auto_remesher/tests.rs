@@ -14,7 +14,7 @@ mod normalization_tests {
         assert_eq!(AutoRemesher::normalization_scale(&two_points(0.0)), 1.0);
         assert_eq!(AutoRemesher::normalization_scale(&[]), 1.0);
         assert_eq!(
-            AutoRemesher::normalization_scale(&vec![
+            AutoRemesher::normalization_scale(&[
                 Vector3::new(f64::NAN, 0.0, 0.0),
                 Vector3::new(0.0, 0.0, 0.0)
             ]),

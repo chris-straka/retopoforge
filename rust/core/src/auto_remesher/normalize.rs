@@ -8,6 +8,7 @@ impl AutoRemesher {
     /// denormal, or non-finite diagonals are left for downstream to
     /// handle as today. Scaling up also refuses inputs whose largest
     /// coordinate would overflow to infinity.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
     pub(crate) fn normalization_scale(vertices: &[Vector3]) -> f64 {
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];

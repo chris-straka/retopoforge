@@ -63,7 +63,9 @@ fn load_fixture(name: &str) -> (Vec<Vector3>, Vec<Vec<usize>>) {
     assert!(ok, "load {name}: {err}");
     assert!(!triangles.is_empty(), "load {name}: no triangles");
     let verts = positions
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|p| Vector3::new(p[0] as f64, p[1] as f64, p[2] as f64))
         .collect();
     (verts, triangles)

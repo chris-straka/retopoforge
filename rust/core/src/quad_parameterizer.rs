@@ -131,6 +131,7 @@ enum EdgeConstraint {
     AlignV,
 }
 
+#[allow(clippy::manual_clamp)] // Port mirrors the C++ branch ladder; `clamp` differs on NaN.
 fn edge_constraint(
     mesh: &SurfaceMesh,
     c: usize,
@@ -178,6 +179,7 @@ fn edge_constraint(
 // mark is alignment-only (`AlignU`/`AlignV`): the cover keeps the UV
 // equality without the integer period or the curl anchor (see the
 // `EdgeConstraint` docs). Returns None when no sharp passes nearby.
+#[allow(clippy::manual_clamp)] // Port mirrors the C++ branch ladder; `clamp` differs on NaN.
 fn sharp_edge_constraint(
     mesh: &SurfaceMesh,
     c: usize,
@@ -233,6 +235,9 @@ struct CoverContext<'a> {
     face_scaling: &'a [f64],
     scale: f64,
 }
+
+/// Optional cover-solver progress callback (fraction 0..1, stage name).
+type ProgressCallback<'a> = Option<&'a dyn Fn(f32, &str)>;
 
 fn initialize_field_and_normals(
     mesh: &SurfaceMesh,
@@ -707,7 +712,7 @@ fn add_rotation_constraints(
     r: i32,
     sign: f64,
 ) {
-    let r = ((r % 4) + 4) % 4;
+    let r = r.rem_euclid(4);
     if r == 0 {
         s.add_constraint2(ax, 1.0, bx, sign);
         s.add_constraint2(ax + 1, 1.0, bx + 1, sign);
@@ -872,6 +877,7 @@ fn dipole_flip_edge(mesh: &SurfaceMesh, rotation: &mut [i32], c: usize) -> (usiz
 /// into the dense side (see `DipolePlacement`); sub-threshold steps,
 /// specks, and sliver islands place nothing. Returns the flip count (0
 /// when disabled, unmasked, or mild).
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
 fn insert_dipoles(
     mesh: &SurfaceMesh,
     rotation: &mut [i32],
@@ -1112,7 +1118,7 @@ fn insert_dipoles(
             for l in 0..3 {
                 let y = mesh.corner_vertex(3 * dense_face + l);
                 let d = density_field[y];
-                if d_best.map_or(true, |(bd, bi)| (d, y) > (bd, bi)) {
+                if d_best.is_none_or(|(bd, bi)| (d, y) > (bd, bi)) {
                     d_best = Some((d, y));
                 }
             }
@@ -1126,7 +1132,7 @@ fn insert_dipoles(
                     continue;
                 }
                 let m = fan_mean(y);
-                if x_best.map_or(true, |(bm, bi)| (m, y) > (bm, bi)) {
+                if x_best.is_none_or(|(bm, bi)| (m, y) > (bm, bi)) {
                     x_best = Some((m, y));
                 }
             }
@@ -1319,7 +1325,7 @@ fn dipole_log_cover_gradients(
 /// Mirrors `solveQuadCover`, returning the solved values (`None` when a
 /// rounding iteration fails or the system never converges, exactly where
 /// the C++ returns `false`).
-fn solve_quad_cover(ctx: &CoverContext, progress: Option<&dyn Fn(f32, &str)>) -> Option<Vec<f64>> {
+fn solve_quad_cover(ctx: &CoverContext, progress: ProgressCallback<'_>) -> Option<Vec<f64>> {
     let mesh = ctx.mesh;
     let field = ctx.field;
     let normals = ctx.normals;
@@ -1705,7 +1711,7 @@ impl QuadParameterizer {
                 p(0.63f32.mul_add(fraction, 0.35f32), name);
             }
         };
-        let cover_progress_ref: Option<&dyn Fn(f32, &str)> = if progress_handler.is_some() {
+        let cover_progress_ref: ProgressCallback<'_> = if progress_handler.is_some() {
             Some(&cover_progress)
         } else {
             None

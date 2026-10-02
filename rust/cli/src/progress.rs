@@ -13,16 +13,9 @@ use std::ffi::c_void;
 use std::io::Write;
 use std::sync::Mutex;
 
+#[derive(Default)]
 pub(crate) struct ProgressState {
     seen: HashSet<(i32, String)>,
-}
-
-impl Default for ProgressState {
-    fn default() -> Self {
-        Self {
-            seen: HashSet::new(),
-        }
-    }
 }
 
 fn report_progress(tag: *mut c_void, progress: f32, status: &str) {

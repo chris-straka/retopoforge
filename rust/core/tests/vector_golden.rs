@@ -204,6 +204,7 @@ fn vector3_angle() {
 }
 
 #[test]
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
 fn vector3_lexicographic_order() {
     assert!(Vector3::new(0.0, 0.0, 0.0) < Vector3::new(1.0, 0.0, 0.0));
     assert!(Vector3::new(1.0, 0.0, 0.0) < Vector3::new(1.0, 1.0, 0.0));

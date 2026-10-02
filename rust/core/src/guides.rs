@@ -45,6 +45,7 @@ impl Guides {
     /// surface (more than 60 degrees out of the tangent plane) and so
     /// carries no flow direction for it.
     #[must_use]
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
     pub fn tangent_near(
         guides: &[Vec<Vector3>],
         point: &Vector3,

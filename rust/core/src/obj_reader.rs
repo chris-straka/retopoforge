@@ -202,7 +202,7 @@ fn hex_to_f64(neg: bool, int_hex: &[u8], frac_hex: &[u8], pexp: i64) -> f64 {
     }
     let sh = sh as u32;
     let mut q = if sh >= 64 { 0 } else { acc >> sh };
-    let guard = if sh == 0 || sh - 1 >= 64 {
+    let guard = if sh == 0 || sh > 64 {
         0
     } else {
         (acc >> (sh - 1)) & 1
@@ -335,10 +335,11 @@ fn scan_double(line: &[u8], start: usize) -> Option<(f64, usize)> {
         return Some((f64::from_bits(bits), i));
     }
     // Hex float; on no hex digits fall through to decimal (`0x` parses as 0).
-    if at(line, i) == b'0' && (at(line, i + 1) == b'x' || at(line, i + 1) == b'X') {
-        if let Some(found) = scan_hex_float(line, i + 2, neg) {
-            return Some(found);
-        }
+    if at(line, i) == b'0'
+        && (at(line, i + 1) == b'x' || at(line, i + 1) == b'X')
+        && let Some(found) = scan_hex_float(line, i + 2, neg)
+    {
+        return Some(found);
     }
     // Decimal: digits [.digits] | .digits, optional exponent with backtrack.
     let int_start = i;
@@ -376,10 +377,11 @@ fn scan_double(line: &[u8], start: usize) -> Option<(f64, usize)> {
     let subject = &line[num_start..end];
     // The scanned subject always matches Rust's decimal grammar (correctly
     // rounded, like `strtod`); map the impossible failure to no-conversion.
-    match std::str::from_utf8(subject).ok()?.parse::<f64>().ok() {
-        Some(v) => Some((v, end)),
-        None => None,
-    }
+    std::str::from_utf8(subject)
+        .ok()?
+        .parse::<f64>()
+        .ok()
+        .map(|v| (v, end))
 }
 
 // Zero-based index with relative-index support, mirroring tinyobj's fixIndex:
@@ -788,7 +790,7 @@ pub fn weld_positions_and_triangles(
     // flatten step below bails out on them, and engine input validation
     // rejects the mesh loudly instead of indexing out of bounds.
     let face_has_non_finite_corner = |face: &[usize], positions: &[f32]| -> bool {
-        if positions.len() % 3 != 0 {
+        if !positions.len().is_multiple_of(3) {
             return false;
         }
         let vertex_count = positions.len() / 3;
@@ -831,7 +833,7 @@ pub fn weld_positions_and_triangles(
         }
     }
 
-    if triangles.is_empty() || positions.is_empty() || positions.len() % 3 != 0 {
+    if triangles.is_empty() || positions.is_empty() || !positions.len().is_multiple_of(3) {
         return;
     }
     let vertex_count = positions.len() / 3;
@@ -918,7 +920,7 @@ pub fn weld_positions_and_triangles(
         }
         i += 3;
     }
-    if let Some(s) = stats.as_deref_mut() {
+    if let Some(s) = stats {
         s.degenerate_dropped += collapsed_dropped;
     }
 

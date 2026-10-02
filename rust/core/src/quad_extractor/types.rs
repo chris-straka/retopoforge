@@ -36,7 +36,7 @@ impl EdgeFaceIndex {
         }
         // Stable: pairs start in face order, so each edge's group keeps
         // ascending face order exactly like the serial `push` build.
-        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs.sort_by_key(|a| a.0);
         let mut edges = Vec::new();
         let mut starts = Vec::new();
         let mut faces = Vec::new();

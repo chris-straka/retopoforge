@@ -101,6 +101,7 @@ impl Default for Config {
 }
 
 /// What `main` should do after parsing.
+#[allow(clippy::large_enum_variant)] // Boxing the big variant would penalize the hot path; accepted.
 pub(crate) enum Action {
     Help {
         /// `--help --all`: append expert flag detail.
@@ -580,47 +581,6 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
     Ok(Action::Run(config))
 }
 
-#[cfg(test)]
-mod arg_tests {
-    use super::*;
-
-    #[test]
-    fn did_you_mean_suggests_within_two() {
-        assert_eq!(suggest_flag("inputx"), Some("input"));
-        assert_eq!(suggest_flag("symetry"), Some("symmetry"));
-        assert_eq!(suggest_flag("uv"), Some("uvs"));
-        assert_eq!(suggest_flag("bogus"), None);
-        assert_eq!(suggest_flag(""), None);
-    }
-
-    #[test]
-    fn clamp_warns_once_per_flag_in_help_order() {
-        let mut config = Config {
-            adaptivity: 7.0,
-            edge_scaling: 99.0,
-            ..Config::default()
-        };
-        clamp_ranges(&mut config);
-        assert_eq!(config.edge_scaling, 4.0);
-        assert_eq!(config.adaptivity, 1.0);
-        assert_eq!(config.warnings.len(), 2);
-        assert!(
-            config.warnings[0].contains("--edge-scaling"),
-            "help order: {}",
-            config.warnings[0]
-        );
-        assert!(
-            config.warnings[1].contains("--adaptivity"),
-            "help order: {}",
-            config.warnings[1]
-        );
-        // In-range values pass silently.
-        let mut clean = Config::default();
-        clamp_ranges(&mut clean);
-        assert!(clean.warnings.is_empty());
-    }
-}
-
 /// Print help: grouped one-liners by default, expert flag detail
 /// appended for `--help --all`. Pinned byte-for-byte by the CLI
 /// contract goldens.
@@ -715,4 +675,45 @@ pub(crate) fn print_usage(all: bool) {
         "                           insertion. Higher ratio = fewer, sharper\n",
         "                           steps qualify. (default: 0 = auto 1.5)\n",
     ));
+}
+
+#[cfg(test)]
+mod arg_tests {
+    use super::*;
+
+    #[test]
+    fn did_you_mean_suggests_within_two() {
+        assert_eq!(suggest_flag("inputx"), Some("input"));
+        assert_eq!(suggest_flag("symetry"), Some("symmetry"));
+        assert_eq!(suggest_flag("uv"), Some("uvs"));
+        assert_eq!(suggest_flag("bogus"), None);
+        assert_eq!(suggest_flag(""), None);
+    }
+
+    #[test]
+    fn clamp_warns_once_per_flag_in_help_order() {
+        let mut config = Config {
+            adaptivity: 7.0,
+            edge_scaling: 99.0,
+            ..Config::default()
+        };
+        clamp_ranges(&mut config);
+        assert_eq!(config.edge_scaling, 4.0);
+        assert_eq!(config.adaptivity, 1.0);
+        assert_eq!(config.warnings.len(), 2);
+        assert!(
+            config.warnings[0].contains("--edge-scaling"),
+            "help order: {}",
+            config.warnings[0]
+        );
+        assert!(
+            config.warnings[1].contains("--adaptivity"),
+            "help order: {}",
+            config.warnings[1]
+        );
+        // In-range values pass silently.
+        let mut clean = Config::default();
+        clamp_ranges(&mut clean);
+        assert!(clean.warnings.is_empty());
+    }
 }

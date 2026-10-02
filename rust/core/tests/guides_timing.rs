@@ -13,13 +13,16 @@ use retopo_core::surface_mesh::SurfaceMesh;
 use retopo_core::vector3::Vector3;
 use std::time::Instant;
 
-fn make_inputs() -> (
+/// Grid positions, triangles, zigzag guides, query points, query normals.
+type GuideInputs = (
     Vec<Vector3>,
     Vec<Vec<usize>>,
     Vec<Vec<Vector3>>,
     Vec<Vector3>,
     Vec<Vector3>,
-) {
+);
+
+fn make_inputs() -> GuideInputs {
     let (w, h) = (120usize, 120usize);
     let mut positions = Vec::with_capacity((w + 1) * (h + 1));
     for y in 0..=h {

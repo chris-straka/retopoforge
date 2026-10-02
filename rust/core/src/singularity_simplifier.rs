@@ -697,7 +697,7 @@ impl<'a> SingularitySimplifier<'a> {
             // Stable sort: identical to the pinned libc++ `std::sort` for
             // the < 24-candidate regime (see the module docs); past that
             // the C++ tie order is unspecified anyway.
-            candidates.sort_by(|x, y| x.hops.cmp(&y.hops));
+            candidates.sort_by_key(|x| x.hops);
             let mut used = vec![false; singular.len()];
             let mut cancelled = 0usize;
             for c in &candidates {

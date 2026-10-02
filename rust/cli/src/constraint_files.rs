@@ -100,7 +100,7 @@ fn parse_double_token(token: &[u8]) -> Option<f64> {
     text.parse::<f64>().ok()
 }
 
-fn strip_comment<'a>(line: &'a [u8]) -> &'a [u8] {
+fn strip_comment(line: &[u8]) -> &[u8] {
     match line.iter().position(|&b| b == b'#') {
         Some(hash) => &line[..hash],
         None => line,

@@ -70,7 +70,7 @@ fn timing_vector_loop() {
     // Bitwise sink proves identical streams and identical ops.
     assert_eq!(
         sink.to_bits(),
-        (-9_330_304_745_762_6352f64).to_bits(),
+        (-93_303_047_457_626_352f64).to_bits(),
         "sink diverged: streams or ops differ from C++"
     );
 }

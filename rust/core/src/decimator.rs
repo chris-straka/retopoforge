@@ -400,7 +400,7 @@ fn update_edge_adjacency(
     debug_assert_eq!(offset as usize, indices.len());
 
     // fill edge data
-    for triangle in indices.chunks_exact(3) {
+    for triangle in indices.as_chunks::<3>().0 {
         let (mut a, mut b, mut c) = (triangle[0], triangle[1], triangle[2]);
         if let Some(remap) = remap {
             a = remap[a as usize];
@@ -484,6 +484,7 @@ fn has_edge(adjacency: &EdgeAdjacency, a: u32, b: u32) -> bool {
 /// `loop_`/`loopback` double as the open-edge scratch maps (`openout` is
 /// `loop_`, `openinc` is `loopback`), exactly as upstream, and keep the
 /// open-edge targets for the collapse passes.
+#[allow(clippy::too_many_arguments)] // Port keeps the C++ parameter list 1:1.
 fn classify_vertices(
     result: &mut [u8],
     loop_: &mut [u32],
@@ -666,7 +667,7 @@ fn fill_face_quadrics(
     vertex_positions: &[[f64; 3]],
     remap: &[u32],
 ) {
-    for triangle in indices.chunks_exact(3) {
+    for triangle in indices.as_chunks::<3>().0 {
         let i0 = triangle[0] as usize;
         let i1 = triangle[1] as usize;
         let i2 = triangle[2] as usize;
@@ -744,7 +745,7 @@ fn fill_edge_quadrics(
 ) {
     const NEXT: [usize; 4] = [1, 2, 0, 1];
 
-    for triangle in indices.chunks_exact(3) {
+    for triangle in indices.as_chunks::<3>().0 {
         for e in 0..3 {
             let i0 = triangle[e] as usize;
             let i1 = triangle[NEXT[e]] as usize;
@@ -878,7 +879,7 @@ fn pick_edge_collapses(
     let collapse_capacity = collapses.len();
     let mut collapse_count = 0usize;
 
-    for triangle in indices.chunks_exact(3) {
+    for triangle in indices.as_chunks::<3>().0 {
         // this should never happen as boundEdgeCollapses should give an upper bound for the collapse count, but in an unlikely event it does we can just drop extra collapses
         if collapse_count + 3 > collapse_capacity {
             break;

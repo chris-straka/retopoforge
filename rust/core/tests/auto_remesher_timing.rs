@@ -75,7 +75,7 @@ fn timing_remesh() {
         // Pinned checksum for the same mesh: proves repeated runs
         // remesh the identical system (determinism tripwire).
         // Scale-aware 1e-6, like the oracle values.
-        const PINNED_CHECKSUM: f64 = 47965.0223020472913;
+        const PINNED_CHECKSUM: f64 = 47_965.022_302_047_29;
         let tol = 1e-6 * PINNED_CHECKSUM.abs().max(1.0);
         assert!(
             (checksum - PINNED_CHECKSUM).abs() <= tol,

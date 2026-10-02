@@ -80,7 +80,7 @@ fn timing_parameterize() {
         // fixture): proves both sides solved the same system. Scale-aware
         // 1e-6, like the oracle values (absorbs the ~1e-14 run-to-run
         // threading wobble on the C++ side with wide margin).
-        const CPP_CHECKSUM: f64 = 883758.56426802336;
+        const CPP_CHECKSUM: f64 = 883_758.564_268_023_4;
         let tol = 1e-6 * CPP_CHECKSUM.abs().max(1.0);
         assert!(
             (checksum - CPP_CHECKSUM).abs() <= tol,

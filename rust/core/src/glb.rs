@@ -55,10 +55,10 @@ fn lower_extension(path: &str) -> String {
         None => return String::new(),
     };
     // A trailing dot or a dot in a directory component is not an extension.
-    if let Some(slash) = path.rfind(['/', '\\']) {
-        if dot < slash {
-            return String::new();
-        }
+    if let Some(slash) = path.rfind(['/', '\\'])
+        && dot < slash
+    {
+        return String::new();
     }
     path[dot..].to_ascii_lowercase()
 }
@@ -246,10 +246,10 @@ impl<'a> Parser<'a> {
             return false;
         }
         // A letter immediately after means a longer word (`info`, `nanx`).
-        if let Some(next) = self.bytes.get(end) {
-            if next.is_ascii_alphabetic() {
-                return false;
-            }
+        if let Some(next) = self.bytes.get(end)
+            && next.is_ascii_alphabetic()
+        {
+            return false;
         }
         self.pos = end;
         true
@@ -303,7 +303,7 @@ impl<'a> Parser<'a> {
             }
         }
         // Infallible: the token is ASCII digits/punctuation by construction.
-        Ok(String::from_utf8(self.bytes[start..self.pos].to_vec()).map_err(|_| ())?)
+        String::from_utf8(self.bytes[start..self.pos].to_vec()).map_err(|_| ())
     }
 
     /// Raw inner text with escape validation (no decoding: section keys
@@ -791,7 +791,7 @@ fn parse_primitive(value: &Json, accessor_count: usize) -> Result<Primitive, ()>
     let _ = value.as_object().ok_or(())?;
     // Default triangles; unknown modes (incl. -1 from bad JSON) count as
     // non-triangles downstream, exactly like cgltf_primitive_type_invalid.
-    let is_triangles = value.member("mode").map_or(true, |v| prim_int(v) == 4);
+    let is_triangles = value.member("mode").is_none_or(|v| prim_int(v) == 4);
     let indices = match value.member("indices") {
         Some(v) => opt_index(v, accessor_count)?,
         None => None,
@@ -1229,7 +1229,7 @@ fn accessor_read_uint(
 // fallback for files without the magic).
 // ---------------------------------------------------------------------------
 
-const GLB_MAGIC: [u8; 4] = [b'g', b'l', b'T', b'F'];
+const GLB_MAGIC: [u8; 4] = *b"glTF";
 const GLB_JSON_TYPE: u32 = 0x4E4F534A;
 const GLB_BIN_TYPE: u32 = 0x004E4942;
 
@@ -1338,7 +1338,7 @@ fn append_mesh(
         }
         let Some(index_accessor) = prim.indices else {
             // Non-indexed soup: every three vertices are one triangle.
-            if vert_count % 3 != 0 {
+            if !vert_count.is_multiple_of(3) {
                 return Err("non-indexed primitive vertex count is not a multiple of 3".to_string());
             }
             for i in (0..vert_count).step_by(3) {
@@ -1347,7 +1347,7 @@ fn append_mesh(
             continue;
         };
         let index_count = doc.accessors[index_accessor].count;
-        if index_count % 3 != 0 {
+        if !index_count.is_multiple_of(3) {
             return Err("index count is not a multiple of 3".to_string());
         }
         for i in (0..index_count).step_by(3) {
@@ -1404,7 +1404,6 @@ pub fn load_glb_positions_and_triangles(
     // not sentinel); warn/err are only assigned where C++ assigns them.
     positions.clear();
     triangles.clear();
-    let mut warn = warn;
     let mut err = err;
 
     let file = match std::fs::read(filename) {
@@ -1448,16 +1447,17 @@ pub fn load_glb_positions_and_triangles(
     // outside the subset); uri-less buffers without data stay unbound and
     // fail later at the read, like cgltf's null buffer data.
     let mut bound: Vec<Option<&[u8]>> = vec![None; doc.buffers.len()];
-    if !doc.buffers.is_empty() && !doc.buffers[0].has_uri {
-        if let Some(bin) = container.bin {
-            if bin.len() < doc.buffers[0].length {
-                return fail_load(
-                    &mut err,
-                    format!("failed to load GLB buffers from {}", filename.display()),
-                );
-            }
-            bound[0] = Some(bin);
+    if !doc.buffers.is_empty()
+        && !doc.buffers[0].has_uri
+        && let Some(bin) = container.bin
+    {
+        if bin.len() < doc.buffers[0].length {
+            return fail_load(
+                &mut err,
+                format!("failed to load GLB buffers from {}", filename.display()),
+            );
         }
+        bound[0] = Some(bin);
     }
     for (i, buffer) in doc.buffers.iter().enumerate() {
         if bound[i].is_some() {
@@ -1530,15 +1530,15 @@ pub fn load_glb_positions_and_triangles(
             format!("GLB file has no triangle geometry: {}", filename.display()),
         );
     }
-    if stats.skipped_non_triangles > 0 || stats.skipped_no_position > 0 {
-        if let Some(w) = warn.as_deref_mut() {
-            *w = format!(
-                "skipped {} non-triangle and {} position-less primitives in {}",
-                stats.skipped_non_triangles,
-                stats.skipped_no_position,
-                filename.display()
-            );
-        }
+    if (stats.skipped_non_triangles > 0 || stats.skipped_no_position > 0)
+        && let Some(w) = warn
+    {
+        *w = format!(
+            "skipped {} non-triangle and {} position-less primitives in {}",
+            stats.skipped_non_triangles,
+            stats.skipped_no_position,
+            filename.display()
+        );
     }
     true
 }
@@ -1782,24 +1782,24 @@ fn write_glb_bytes(
     json.push_str(",\"bufferViews\":[");
     json.push_str("{\"buffer\":0,\"byteOffset\":0,\"byteLength\":");
     json.push_str(&vert_bytes.to_string());
-    json.push_str("}");
+    json.push('}');
     json.push_str(",{\"buffer\":0,\"byteOffset\":");
     json.push_str(&vert_bytes.to_string());
     json.push_str(",\"byteLength\":");
     json.push_str(&index_bytes.to_string());
-    json.push_str("}");
+    json.push('}');
     if have_uvs {
         json.push_str(",{\"buffer\":0,\"byteOffset\":");
         json.push_str(&(vert_bytes + index_bytes).to_string());
         json.push_str(",\"byteLength\":");
         json.push_str(&uv_bytes.to_string());
-        json.push_str("}");
+        json.push('}');
     }
     json.push(']');
     json.push_str(",\"buffers\":[{\"byteLength\":");
     json.push_str(&bin_length.to_string());
     json.push_str("}]}");
-    while json.len() % 4 != 0 {
+    while !json.len().is_multiple_of(4) {
         json.push(' ');
     }
 

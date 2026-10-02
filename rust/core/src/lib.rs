@@ -4,6 +4,10 @@
 //! `core/objreader.*` -> [`obj_reader`], etc. Each module's contract is its
 //! differential oracle: see `docs/rust-port-conventions.md`.
 
+// Port mandate: index loops mirror the C++ 1:1, so the lint that wants
+// iterators stays off crate-wide (integration tests fix their own).
+#![allow(clippy::needless_range_loop)]
+
 // Wave 1 leaves land here:
 pub mod double_utils;
 pub mod iso_remesh_kernel;

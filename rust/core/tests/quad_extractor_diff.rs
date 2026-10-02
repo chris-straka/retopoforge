@@ -1,3 +1,6 @@
+// Harness indexes parallel arrays/cursors in lockstep; index loops stay.
+#![allow(clippy::needless_range_loop)]
+
 // Differential oracle for the quad_extractor port: replays every case in
 // tests/fixtures/quadextractor_diff.txt through the Rust extractor and
 // compares against the C++ dump.

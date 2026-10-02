@@ -727,11 +727,11 @@ fn run_multi_inputs(
         }
     }
 
-    if let (Some(path), Some(report)) = (&config.report, report.take()) {
-        if !report.finish() {
-            eprintln!("retopo: error: failed to write {}.", path.display());
-            return 1;
-        }
+    if let (Some(path), Some(report)) = (&config.report, report.take())
+        && !report.finish()
+    {
+        eprintln!("retopo: error: failed to write {}.", path.display());
+        return 1;
     }
 
     if batch {
@@ -773,11 +773,11 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
             eprintln!("Feature polylines: {}", constraints.features.len());
         }
     }
-    if let Some(path) = &config.density {
-        if let Err(error) = parse_density_file(path, &mut constraints.density) {
-            error.emit();
-            return 2;
-        }
+    if let Some(path) = &config.density
+        && let Err(error) = parse_density_file(path, &mut constraints.density)
+    {
+        error.emit();
+        return 2;
     }
 
     let loaded: LoadedMesh = match load_mesh(&config.input) {

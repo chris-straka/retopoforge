@@ -208,7 +208,7 @@ impl<'a> QuadExtractor<'a> {
         // Either way the line also needs the verbose flag (CLI
         // `--verbose` only).
         if self.verbose_dump && (progress.is_some() || self.progress_handler.is_some()) {
-            eprint!("Merge shared five edge faces:{merge_count}\n");
+            eprintln!("Merge shared five edge faces:{merge_count}");
         }
         self.rebuild_half_edges();
 

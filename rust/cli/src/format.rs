@@ -34,7 +34,7 @@ pub(crate) fn g_format(value: f64) -> String {
     debug_assert_eq!(digits.len(), 6);
     let exp: i32 = sci[epos + 1..].parse().expect("bad scientific exponent");
     let digits = digits.into_bytes();
-    if exp < -4 || exp >= 6 {
+    if !(-4..6).contains(&exp) {
         // `%e` style: strip trailing zero digits, keep at least one.
         let mut end = digits.len();
         while end > 1 && digits[end - 1] == b'0' {

@@ -120,6 +120,7 @@ fn curvature_tensor_matrix(coefficients: &[f64; 6]) -> [[f64; 3]; 3] {
 /// `eig.info() != Eigen::Success` (the caller skips the face); Jacobi has no
 /// other failure mode, so only a non-finite result (NaN/Inf input tensor)
 /// reports failure.
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
 fn symmetric_eigen_3x3(matrix: &[[f64; 3]; 3]) -> Option<([f64; 3], [[f64; 3]; 3])> {
     let mut a = *matrix;
     let mut v = [[0.0; 3]; 3];
@@ -454,9 +455,7 @@ impl FrameField {
                     row_index += 1;
                 }
             }
-            let Some(solved) = system.solve() else {
-                return None;
-            };
+            let solved = system.solve()?;
             periodic = solved;
             normalize_periodic(&mut periodic, faces);
         }

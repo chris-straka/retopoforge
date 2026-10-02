@@ -604,7 +604,7 @@ impl AutoRemesher {
                                         obj.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
                                     }
                                     for q in thread.remeshed_quads.iter() {
-                                        obj.push_str("f");
+                                        obj.push('f');
                                         for c in q.iter() {
                                             obj.push_str(&format!(" {}", c + 1));
                                         }

@@ -39,6 +39,7 @@ impl Density {
     /// OFF state: callers skip all density work when the result is empty, so
     /// the pipeline stays bit-identical to a run without any field.
     #[must_use]
+    #[allow(clippy::manual_clamp)] // Port mirrors the C++ branch ladder; `clamp` differs on NaN.
     pub fn normalize_field(field: &[f64]) -> Vec<f64> {
         if field.is_empty() {
             return Vec::new();
@@ -113,6 +114,7 @@ impl Density {
     /// vertex density, then renormalize all entries so SUM A_f/m_f^2 is
     /// preserved: quads move into dense regions without changing the total
     /// budget. No-op on any size mismatch.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
     pub fn apply_to_scaling_field(
         vertices: &[Vector3],
         triangles: &[Vec<usize>],

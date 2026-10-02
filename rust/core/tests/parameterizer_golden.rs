@@ -92,8 +92,8 @@ fn golden_single_triangle() {
         &taken,
         &[[
             [0.0, 0.0],
-            [0.87867965635248946, 0.0],
-            [0.0, 0.87867965635248946],
+            [0.878_679_656_352_489_5, 0.0],
+            [0.0, 0.878_679_656_352_489_5],
         ]],
     );
     check_structural("single_triangle", &p, &taken, &[]);
@@ -128,8 +128,8 @@ fn golden_fan_singularity() {
     let vertices = vec![
         v(0.0, 0.0, 0.0),
         v(1.0, 0.0, 0.0),
-        v(-0.49999999999999983, 0.86602540378443871, 0.0),
-        v(-0.50000000000000044, -0.86602540378443837, 0.0),
+        v(-0.49999999999999983, 0.866_025_403_784_438_7, 0.0),
+        v(-0.500_000_000_000_000_4, -0.866_025_403_784_438_4, 0.0),
     ];
     let triangles = vec![vec![0, 1, 2], vec![0, 2, 3], vec![0, 3, 1]];
     let guides: Vec<Vec<Vector3>> = vec![];
@@ -137,7 +137,7 @@ fn golden_fan_singularity() {
         vec![v(0.0, 0.0, 0.0), v(1.0, 0.0, 0.0)],
         vec![
             v(0.0, 0.0, 0.0),
-            v(-0.49999999999999983, 0.86602540378443871, 0.0),
+            v(-0.49999999999999983, 0.866_025_403_784_438_7, 0.0),
         ],
     ];
     let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -197,35 +197,20 @@ fn golden_fan_singularity() {
 #[test]
 fn golden_tetra_guided_dense() {
     let vertices = vec![
-        v(0.19739999999999999, -0.189, -0.033000000000000002),
-        v(1.1806000000000001, -0.2802, -0.13619999999999999),
-        v(0.032399999999999998, 1.1929000000000001, -0.1308),
-        v(0.18509999999999999, 0.26339999999999997, 1.1584000000000001),
+        v(0.197_4, -0.189, -0.033),
+        v(1.180_6, -0.2802, -0.136_2),
+        v(0.032_4, 1.192_9, -0.1308),
+        v(0.185_1, 0.26339999999999997, 1.158_4),
     ];
     let triangles = vec![vec![0, 2, 1], vec![0, 1, 3], vec![0, 3, 2], vec![1, 2, 3]];
-    let guides: Vec<Vec<Vector3>> = vec![vec![
-        v(10.1974, 9.8109999999999999, 9.9670000000000005),
-        v(11.1806, 9.7197999999999993, 9.8637999999999995),
-    ]];
+    let guides: Vec<Vec<Vector3>> =
+        vec![vec![v(10.1974, 9.811, 9.967), v(11.1806, 9.719_8, 9.863_8)]];
     let sharps: Vec<Vec<Vector3>> = vec![vec![
-        v(
-            0.032399999999999998,
-            0.64294266666666677,
-            0.67508266666666672,
-        ),
-        v(
-            0.60650000000000004,
-            0.26975733333333329,
-            0.34711733333333339,
-        ),
-        v(1.1806000000000001, 0.26975733333333329, 0.34711733333333328),
+        v(0.032_4, 0.642_942_666_666_666_8, 0.675_082_666_666_666_7),
+        v(0.606_5, 0.269_757_333_333_333_3, 0.347_117_333_333_333_4),
+        v(1.180_6, 0.269_757_333_333_333_3, 0.347_117_333_333_333_3),
     ]];
-    let rho: Vec<f64> = vec![
-        2.04,
-        0.85999999999999999,
-        2.8200000000000003,
-        -0.036000000000000032,
-    ];
+    let rho: Vec<f64> = vec![2.04, 0.86, 2.8200000000000003, -0.036_000_000_000_000_03];
     let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let handler: ProgressHandler = Box::new({
         let events = events.clone();
@@ -284,6 +269,7 @@ fn golden_tetra_guided_dense() {
 }
 // Fixture case 245 (KIND fvec): 4 vertices, 2 faces, scaling 1, hard 90, adapt 0.5, aniso 1, simp 1, maxpd 6, symaxis -1, guides 0, sharps 0, density-mode 0, fieldvec-mode 1.
 #[test]
+#[allow(clippy::approx_constant)] // Golden expected value, not the named constant.
 fn golden_provided_field() {
     let vertices = vec![
         v(0.0, 0.0, 0.0),
@@ -294,10 +280,7 @@ fn golden_provided_field() {
     let triangles = vec![vec![0, 1, 2], vec![0, 2, 3]];
     let _guides: Vec<Vec<Vector3>> = vec![];
     let _sharps: Vec<Vec<Vector3>> = vec![];
-    let fvecs: Vec<Vector3> = vec![
-        v(-0.91000000000000003, -0.56299999999999994, -0.123),
-        v(0.39200000000000002, 0.318, -0.155),
-    ];
+    let fvecs: Vec<Vector3> = vec![v(-0.91, -0.563, -0.123), v(0.392, 0.318, -0.155)];
     let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let handler: ProgressHandler = Box::new({
         let events = events.clone();
@@ -323,13 +306,13 @@ fn golden_provided_field() {
         &[
             [
                 [0.0, 0.0],
-                [-0.7530406320634434, 0.52673253701655143],
+                [-0.7530406320634434, 0.526_732_537_016_551_4],
                 [-1.2858995489186271, -0.21798957846239736],
             ],
             [
                 [0.0, 0.0],
                 [-1.2858995489186271, -0.21798957846239736],
-                [-0.53490593709253986, -0.75845167427946525],
+                [-0.534_905_937_092_539_9, -0.758_451_674_279_465_2],
             ],
         ],
     );
@@ -371,9 +354,9 @@ fn golden_symmetric_quad() {
     let triangles = vec![vec![0, 1, 2], vec![0, 2, 3]];
     let guides: Vec<Vec<Vector3>> = vec![vec![v(10.0, 10.0, 10.0), v(11.0, 11.0, 10.0)]];
     let sharps: Vec<Vec<Vector3>> = vec![vec![
-        v(0.0, 0.71999999999999997, 0.0),
-        v(0.5, 0.28000000000000003, 0.0),
-        v(1.0, 0.28000000000000003, 0.0),
+        v(0.0, 0.72, 0.0),
+        v(0.5, 0.28, 0.0),
+        v(1.0, 0.28, 0.0),
     ]];
     let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let handler: ProgressHandler = Box::new({

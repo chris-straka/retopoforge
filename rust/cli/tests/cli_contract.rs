@@ -1,3 +1,6 @@
+// Harness indexes parallel arrays/cursors in lockstep; index loops stay.
+#![allow(clippy::needless_range_loop)]
+
 // CLI contract test: the Rust `retopo` binary against committed goldens.
 //
 // Replaces the retired C++-vs-Rust differential oracle (`e2e_diff.rs`,
@@ -179,10 +182,11 @@ fn normalize_line(line: &str, case_tag: &str) -> String {
     }
     // One-line close "done: … in 0.73 s": erase the wall time (counts
     // stay pinned).
-    if out.starts_with("done:") && out.ends_with(" s") {
-        if let Some(pos) = out.rfind(" in ") {
-            out.replace_range(pos + 4..out.len() - 2, "T");
-        }
+    if out.starts_with("done:")
+        && out.ends_with(" s")
+        && let Some(pos) = out.rfind(" in ")
+    {
+        out.replace_range(pos + 4..out.len() - 2, "T");
     }
     out
 }
@@ -198,10 +202,7 @@ fn normalize_bytes(bytes: &[u8], case_dir: &str) -> Vec<String> {
             // Side subdirs (`cpp`, `cpp-3`, `rs`, `rs2`) collapse too:
             // both sides write the same relative layout.
             let mut scan = 0;
-            loop {
-                let Some(rel) = line[scan..].find("CASE/") else {
-                    break;
-                };
+            while let Some(rel) = line[scan..].find("CASE/") {
                 let pos = scan + rel;
                 let rest = &line[pos + 5..];
                 let seg_end = rest.find('/').map(|p| pos + 5 + p).unwrap_or(line.len());
@@ -226,12 +227,12 @@ fn normalize_bytes(bytes: &[u8], case_dir: &str) -> Vec<String> {
 fn normalize_argv0(line: &str) -> String {
     // "Usage: <argv0> --input ..." -> argv0-independent, but only when
     // argv0 is a real path: the CLI prints a literal `retopo` now.
-    if let Some(rest) = line.strip_prefix("Usage: ") {
-        if let Some(pos) = rest.find(" --input ") {
-            let argv0 = &rest[..pos];
-            if argv0.contains('/') {
-                return format!("Usage: BIN{}", &rest[pos..]);
-            }
+    if let Some(rest) = line.strip_prefix("Usage: ")
+        && let Some(pos) = rest.find(" --input ")
+    {
+        let argv0 = &rest[..pos];
+        if argv0.contains('/') {
+            return format!("Usage: BIN{}", &rest[pos..]);
         }
     }
     line.to_string()
@@ -781,10 +782,10 @@ fn remesh_case(
         }
     ));
     for (label, art) in labels.iter().zip(&a.artifacts) {
-        if let Some(bytes) = art {
-            if label.ends_with(".obj") {
-                text.push_str(&format!("{label} {}\n", obj_counts(bytes)));
-            }
+        if let Some(bytes) = art
+            && label.ends_with(".obj")
+        {
+            text.push_str(&format!("{label} {}\n", obj_counts(bytes)));
         }
     }
     for line in a.stdout.iter().chain(a.report.iter().flatten()) {

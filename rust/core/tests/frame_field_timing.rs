@@ -71,7 +71,7 @@ fn timing_field_solve() {
         // C++ T-line checksum for the same mesh (see the committed
         // fixture): proves both sides solved the same system. Scale-aware
         // 1e-6, like the oracle values.
-        const CPP_CHECKSUM: f64 = 7804.9411148705358;
+        const CPP_CHECKSUM: f64 = 7_804.941_114_870_536;
         let tol = 1e-6 * CPP_CHECKSUM.abs().max(1.0);
         assert!(
             (checksum - CPP_CHECKSUM).abs() <= tol,

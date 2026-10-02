@@ -112,9 +112,9 @@ impl Vector3 {
         if is_zero(length) {
             return;
         }
-        self.data[0] = self.data[0] / length;
-        self.data[1] = self.data[1] / length;
-        self.data[2] = self.data[2] / length;
+        self.data[0] /= length;
+        self.data[1] /= length;
+        self.data[2] /= length;
     }
 
     #[inline]

@@ -28,7 +28,7 @@ struct SparseMatrix {
 }
 
 fn normalize(row: &mut Vec<Coeff>) {
-    row.sort_by(|a, b| a.index.cmp(&b.index));
+    row.sort_by_key(|a| a.index);
     let mut out = 0usize;
     let mut i = 0usize;
     while i < row.len() {

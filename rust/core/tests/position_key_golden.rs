@@ -25,7 +25,7 @@ fn equality_is_quantized() {
 
 #[test]
 fn position_round_trips_exact_input() {
-    let pos = PositionKey::new(1.5, -2.25, 3.125).position().clone();
+    let pos = *PositionKey::new(1.5, -2.25, 3.125).position();
     assert_eq!(pos.x(), 1.5);
     assert_eq!(pos.y(), -2.25);
     assert_eq!(pos.z(), 3.125);

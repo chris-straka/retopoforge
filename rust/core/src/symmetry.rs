@@ -253,7 +253,7 @@ impl Symmetry {
     /// Fraction of vertices whose mirror across the plane lands within
     /// `tolerance` of another vertex (mirrors `Symmetry::scorePlane`).
     pub fn score_plane(vertices: &[Vector3], axis: i32, offset: f64, tolerance: f64) -> f64 {
-        if vertices.is_empty() || axis < 0 || axis > 2 || tolerance <= 0.0 {
+        if vertices.is_empty() || !(0..=2).contains(&axis) || tolerance <= 0.0 {
             return 0.0;
         }
         let plane = SymmetryPlane {
@@ -305,7 +305,7 @@ impl Symmetry {
     /// (mirrors `Symmetry::fixedPlane`).
     pub fn fixed_plane(vertices: &[Vector3], axis: i32) -> SymmetryPlane {
         let mut plane = SymmetryPlane::default();
-        if vertices.is_empty() || axis < 0 || axis > 2 {
+        if vertices.is_empty() || !(0..=2).contains(&axis) {
             return plane;
         }
         let mut lower = Vector3::default();
@@ -326,7 +326,7 @@ impl Symmetry {
     pub fn symmetrize_frame_field(
         vertices: &[Vector3],
         triangles: &[Vec<usize>],
-        field: &mut Vec<Vector3>,
+        field: &mut [Vector3],
         plane: &SymmetryPlane,
     ) {
         if !plane.valid() || triangles.is_empty() || field.len() != triangles.len() {

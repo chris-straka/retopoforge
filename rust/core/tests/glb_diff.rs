@@ -49,7 +49,7 @@ fn unescape(s: &str) -> Vec<u8> {
 }
 
 fn hex_decode(s: &str) -> Vec<u8> {
-    assert!(s.len() % 2 == 0, "odd hex length");
+    assert!(s.len().is_multiple_of(2), "odd hex length");
     let mut out = Vec::with_capacity(s.len() / 2);
     for i in (0..s.len()).step_by(2) {
         out.push(u8::from_str_radix(&s[i..i + 2], 16).expect("bad hex"));
@@ -454,7 +454,7 @@ fn differential_replay() {
                     .flat_map(|v| [v.x() as f32, v.y() as f32, v.z() as f32])
                     .collect();
                 let mut expected_pos = Vec::with_capacity(flat.len());
-                for v in flat.chunks_exact(3) {
+                for v in flat.as_chunks::<3>().0 {
                     let (x, y, z) = (v[0], v[1], v[2]);
                     expected_pos.push(1.0 * x + 0.0 * y + 0.0 * z + 0.0);
                     expected_pos.push(0.0 * x + 1.0 * y + 0.0 * z + 0.0);

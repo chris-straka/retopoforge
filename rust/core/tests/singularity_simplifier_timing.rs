@@ -115,4 +115,4 @@ fn timing_dipoles() {
 const BEFORE: usize = 4;
 const AFTER: usize = 0;
 const CANCELLED: usize = 2;
-const XSUM: f64 = 3176.4670855100489;
+const XSUM: f64 = 3_176.467_085_510_049;

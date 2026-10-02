@@ -518,6 +518,7 @@ impl AutoRemesher {
     /// misses). Empty quads never fail here (the failed-island path
     /// owns them); degenerate inputs (zero quads, zero/NaN diag) report
     /// no failure.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
     pub(crate) fn coverage_failed(
         gaps: &[f64],
         diag: f64,
@@ -629,6 +630,7 @@ impl AutoRemesher {
     /// fingertip-class sits just inside at 0.93x — a downstream
     /// fidelity miss, not a drop). Quiet on empty quads (the
     /// failed-island path owns them).
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
     pub(crate) fn input_coverage_failed(
         input_vertices: &[Vector3],
         input_triangles: &[Vec<usize>],
@@ -675,6 +677,7 @@ impl AutoRemesher {
     /// and the retry seed; pure function of (positions, diag, seed), no
     /// tables, identical on every platform (integer hash, one rounded
     /// multiply per coord).
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // Port mirrors the C++ negated comparison; `!(a<b)` differs from `a>=b` on NaN.
     pub(crate) fn jitter_working_vertices(vertices: &mut [Vector3], island_diag: f64, seed: u64) {
         let eps = Self::COVERAGE_JITTER_AMPLITUDE * island_diag;
         if !(eps > 0.0) {
