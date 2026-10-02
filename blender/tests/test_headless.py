@@ -783,6 +783,70 @@ def main():
             if os.path.isfile(p):
                 os.remove(p)
 
+        # --- One-click end-to-end: fresh textured high, single action
+        # remeshes it, then Smart-UVs + bakes every PBR map to the
+        # result (keep_original forced for the chain, then restored).
+        check(hasattr(bpy.ops.retopoforge, "remesh_and_bake"),
+              "one-click operator registered")
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        high2 = bpy.context.active_object
+        for _ in range(2):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.subdivide(number_cuts=2)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        mat_a = bpy.data.materials.new("OneClickA")
+        mat_a.use_nodes = True
+        bsdf_a = mat_a.node_tree.nodes["Principled BSDF"]
+        bsdf_a.inputs["Base Color"].default_value = (1.0, 0.0, 0.0, 1.0)
+        bsdf_a.inputs["Roughness"].default_value = 0.2
+        bsdf_a.inputs["Emission Color"].default_value = (1.0, 0.0, 0.0, 1.0)
+        bsdf_a.inputs["Emission Strength"].default_value = 2.0
+        mat_b = bpy.data.materials.new("OneClickB")
+        mat_b.use_nodes = True
+        bsdf_b = mat_b.node_tree.nodes["Principled BSDF"]
+        bsdf_b.inputs["Base Color"].default_value = (0.0, 1.0, 0.0, 1.0)
+        bsdf_b.inputs["Roughness"].default_value = 0.9
+        bsdf_b.inputs["Metallic"].default_value = 1.0
+        high2.data.materials.append(mat_a)
+        high2.data.materials.append(mat_b)
+        for poly in high2.data.polygons:
+            poly.material_index = 0 if poly.center.x < 0.0 else 1
+        params.target_quads = 100
+        params.keep_original = False
+        params.bake_size = 256
+        bpy.ops.object.select_all(action="DESELECT")
+        high2.select_set(True)
+        bpy.context.view_layer.objects.active = high2
+        result = bpy.ops.retopoforge.remesh_and_bake()
+        check("FINISHED" in result, f"one-click finished (got {result})")
+        retopo = bpy.data.objects.get(f"{high2.name}_retopo")
+        check(retopo is not None, "one-click produced a _retopo object")
+        check(len(retopo.data.polygons) < len(high2.data.polygons),
+              "one-click low is lighter than high")
+        check(params.keep_original is False,
+              "one-click restored keep_original")
+        check(bpy.context.view_layer.objects.active == high2,
+              "active=HIGH restored after one-click")
+        for name in ("diffuse", "normal", "roughness", "metallic", "ao",
+                     "emission"):
+            oc_path = os.path.join("/tmp", f"{retopo.name}_{name}.png")
+            check(os.path.isfile(oc_path), f"one-click {name} png saved")
+        probe = bpy.data.images.load(
+            os.path.join("/tmp", f"{retopo.name}_diffuse.png"))
+        try:
+            spread = max(probe.pixels) - min(probe.pixels)
+            check(spread > 0.05,
+                  f"one-click diffuse saw HIGH (spread {spread:.3f})")
+        finally:
+            bpy.data.images.remove(probe)
+        report = bpy.context.scene.retopoforge_last_report
+        check("quads" in report and "diffuse ->" in report,
+              "one-click report has remesh + bake lines")
+        for name in ("diffuse", "normal", "roughness", "metallic", "ao",
+                     "emission"):
+            os.remove(os.path.join("/tmp", f"{retopo.name}_{name}.png"))
+
         leftovers = [o for o in bpy.data.objects if o.name.startswith("in_")]
         check(not leftovers, "no temp objects left behind")
 

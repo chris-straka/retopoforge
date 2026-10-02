@@ -109,6 +109,11 @@ cage instead of extrusion — it must match LOW's face count
 (duplicate LOW and inflate it slightly). The scene's render engine,
 sample count, and cage settings are restored afterwards.
 
+**Remesh + Bake All** chains the whole pipeline in one action: make
+the HIGH-poly source the active object and hit it — the add-on
+remeshes (keeping the original regardless of the panel toggle),
+then Smart-UVs and bakes every PBR map to the `_retopo` result.
+
 ## Install
 
 1. Build the CLI: `cargo build --locked --release -p retopo` (binary at `rust/target/release/retopo`)

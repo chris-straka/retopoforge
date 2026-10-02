@@ -1473,6 +1473,60 @@ class RETOPOFORGE_OT_export_density(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class RETOPOFORGE_OT_remesh_and_bake(bpy.types.Operator):
+    """Remesh the active HIGH object, then Smart-UV + bake all PBR maps
+    to the result in one action"""
+
+    bl_idname = "retopoforge.remesh_and_bake"
+    bl_label = "Remesh + Bake All"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        params = context.scene.retopoforge_params
+        high = context.active_object
+        if high is None or high.type != "MESH":
+            self.report({"ERROR"},
+                        "Make the HIGH-poly mesh the active object")
+            return {"CANCELLED"}
+        # Chained bake needs the HIGH mesh intact: force keep-original
+        # for the remesh leg, restoring the user's setting afterwards.
+        saved_keep = params.keep_original
+        params.keep_original = True
+        before = set(bpy.data.objects)
+        try:
+            for o in context.selected_objects:
+                o.select_set(False)
+            high.select_set(True)
+            context.view_layer.objects.active = high
+            result = bpy.ops.retopoforge.remesh()
+            if "FINISHED" not in result:
+                self.report({"ERROR"}, "Remesh leg failed, bake skipped")
+                return {"CANCELLED"}
+            fresh = [o for o in bpy.data.objects
+                     if o not in before and o.type == "MESH"]
+            if not fresh:
+                self.report({"ERROR"},
+                            "Remesh produced no new mesh object")
+                return {"CANCELLED"}
+            low = fresh[0]
+            # The remesh leg hides HIGH; the chained bake raycasts it,
+            # so unhide first (viewport-hidden objects bake black).
+            high.hide_viewport = False
+            for o in context.selected_objects:
+                o.select_set(False)
+            low.select_set(True)
+            high.select_set(True)
+            context.view_layer.objects.active = high
+            result = bpy.ops.retopoforge.bake_textures()
+            if "FINISHED" not in result:
+                self.report({"ERROR"}, "Bake leg failed")
+                return {"CANCELLED"}
+        finally:
+            params.keep_original = saved_keep
+        self.report({"INFO"}, f"Remeshed + baked '{high.name}'")
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_OT_reload(bpy.types.Operator):
     """Reload all scripts (picks up extension updates), then confirm"""
 
@@ -1654,6 +1708,8 @@ class RETOPOFORGE_PT_bake(bpy.types.Panel):
         bcol.prop(params, "bake_emission")
         layout.operator("retopoforge.bake_textures", text="Bake High to Low",
                         icon="RENDER_RESULT")
+        layout.operator("retopoforge.remesh_and_bake", text="Remesh + Bake All",
+                        icon="PLAY")
 
 
 _CLASSES = (
@@ -1662,6 +1718,7 @@ _CLASSES = (
     RETOPOFORGE_OT_remesh,
     RETOPOFORGE_OT_generate_lods,
     RETOPOFORGE_OT_bake_textures,
+    RETOPOFORGE_OT_remesh_and_bake,
     RETOPOFORGE_OT_export_guides,
     RETOPOFORGE_OT_export_features,
     RETOPOFORGE_OT_export_density,

@@ -285,7 +285,12 @@ when comparing back ends.
       (no native bake type), cage picker with face-count validation.
       Headless phases A/B/C green (skip notes, 6 non-uniform PNGs,
       dup cleanup, cage bake + wrong-topology cancel).
-- [ ] One-click end-to-end: remesh → UV → bake all maps in one action
+- [x] One-click end-to-end: remesh → UV → bake all maps in one action.
+      LANDED (`retopoforge.remesh_and_bake`, "Remesh + Bake All"):
+      active HIGH → sync remesh (keep-original forced + restored) →
+      Smart-UV + full PBR bake to the `_retopo` result (HIGH unhidden
+      for the bake raycast, active restored). Headless section green
+      (6 PNGs, diffuse saw HIGH, report has both legs).
 - [ ] Better low-poly UVs: proper unwrap + pack with texel-density
       control (replacing Smart UV), or the engine-side global atlas
       (see Engine backlog)
