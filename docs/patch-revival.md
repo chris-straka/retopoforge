@@ -65,3 +65,39 @@ irregular verts (54.7% vs ~9%), angles (28.0 vs ~12).
 The branch stays as the first-attempt-coverage reference: beast
 appendage coverage without retry is proven and pinned
 (`beast_1000_covers_appendage_first_attempt`).
+
+## Revival round 2: agreement + all-quad odd fills (2026-10-02)
+
+Weld/correctness fixes (duplicate/sliver attribution): backward-side
+Node endpoints were swapped (order-dependent node corruption, 257
+tube slivers); cut endpoints are now shared Node keys (was 677/858
+beast dup groups); hexagon/n=7 cut sides were swapped (masked by
+symmetric cut keys); patch loops rotate to run boundaries (all 251
+run-not-endpoint failures were wrap-around).
+
+Quantization agreement (two-phase fill): phase 1 solves all counts
+(small patches, quad propagation with pin-parsimony matching,
+deferred-quad + ngon agreement), phase 2 emits read-only.
+Shared-arc disagreements 12 → 0.
+
+All-quad odd fills: trigon wheels (+pentagon/quad+wheel, heptagon+
+terminals, monogons), digon 2-quads, conflicted-quad rescue ladder
+(diagonal wheels, corner-split, corner-cut), fallback tri pairing
+(all-or-nothing per patch).
+
+Beast@1000 now (single run): 4 non-quads (was 520), dist_mean 0.11 /
+dist_max 2.27 (was 0.30/3.58), irr 43.9% (was 54.7%), angles 25.8
+(was 28.0). Default seed spread (noise.py, 8 seeds): non-quads 6–12,
+dist_max 5.21–7.94, irr 12.1–21.2%, angles 16.0–22.1°.
+
+Verdict: STILL KEEP ON BRANCH. Patch now WINS non-quads (4 vs 6–12)
+and distance (2.27 vs ≥5.21 max) but loses irr (43.9% vs ≤21.2%)
+and angles (25.8° vs ≤22.1°). Root cause, triangulated three ways
+(pin provenance probes + unclaimed-propagation ablation): independent
+per-patch solving with hard first-writer pins CONSERVES conflicts —
+unclaiming quad pins moves 179 noplan → 93 conflicted quads / 152
+tris (net worse). Odd-boundary-length quads are provably unfillable
+with fixed counts. Landing needs soft pins (±1 bumps absorbed by
+transition strips) or global coordination (backtracking/recolor);
+both are large novel builds. The weld/agreement/wheel machinery on
+this branch is the foundation either sits on.
