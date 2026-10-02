@@ -149,6 +149,9 @@ fn patch_from_faces(
     }
     if boundary_corners.is_empty() {
         // Closed patch (no arcs around it): fallback covers it.
+        if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+            eprintln!("unusable: faces={} reason=closed", faces.len());
+        }
         return Patch {
             faces: faces.to_vec(),
             sides: Vec::new(),
@@ -215,21 +218,29 @@ fn patch_from_faces(
     }
     if !simple || loops.len() != 1 {
         // Pinched boundary or holes: fallback covers it.
+        if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "unusable: faces={} reason={} loops={}",
+                faces.len(),
+                if simple { "holed" } else { "pinched" },
+                loops.len()
+            );
+        }
         return Patch {
             faces: faces.to_vec(),
             sides: Vec::new(),
             usable: false,
         };
     }
-    let boundary = &loops[0];
+    let raw_boundary = &loops[0];
     // Map each loop edge to its blocking arc (or boundary run).
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum EdgeOwner {
         Arc(usize),
         OpenBoundary,
     }
-    let mut owners: Vec<EdgeOwner> = Vec::with_capacity(boundary.len());
-    for &corner in boundary {
+    let mut owners: Vec<EdgeOwner> = Vec::with_capacity(raw_boundary.len());
+    for &corner in raw_boundary {
         let face = topology.corner_face(corner);
         let opposite = topology.opposite_corner(corner);
         if opposite == SurfaceMesh::NPOS {
@@ -243,6 +254,9 @@ fn patch_from_faces(
             // Unblocked dual between different patches: cannot happen
             // (the flood would have joined them); treat as inconsistent.
             None => {
+                if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+                    eprintln!("unusable: faces={} reason=unblocked-dual", faces.len());
+                }
                 return Patch {
                     faces: faces.to_vec(),
                     sides: Vec::new(),
@@ -250,6 +264,39 @@ fn patch_from_faces(
                 };
             }
         }
+    }
+    // Rotate the loop to a run boundary: the walk starts at an
+    // arbitrary corner, and linear compression would otherwise split
+    // a run that wraps around the loop start (every one of beast's
+    // 251 run-not-endpoint failures was this). Single-owner loops
+    // rotate to the arc's endpoint vertex instead.
+    let mut boundary = raw_boundary.clone();
+    if owners.iter().all(|&o| o == owners[0]) {
+        if let EdgeOwner::Arc(arc) = owners[0] {
+            let endpoint = graph.arcs[arc].path[0];
+            if let Some(pos) = boundary
+                .iter()
+                .position(|&c| topology.corner_vertex(c) == endpoint)
+            {
+                boundary.rotate_left(pos);
+                owners.rotate_left(pos);
+            } else {
+                if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+                    eprintln!(
+                        "unusable: faces={} reason=loop-misses-endpoint",
+                        faces.len()
+                    );
+                }
+                return Patch {
+                    faces: faces.to_vec(),
+                    sides: Vec::new(),
+                    usable: false,
+                };
+            }
+        }
+    } else if let Some(pos) = owners.iter().position(|&o| o != owners[0]) {
+        boundary.rotate_left(pos);
+        owners.rotate_left(pos);
     }
     // Compress runs; boundary runs become boundary arcs.
     let mut sides: Vec<PatchSide> = Vec::new();
@@ -268,6 +315,15 @@ fn patch_from_faces(
                     false
                 } else {
                     // Run end is not an arc endpoint: inconsistent.
+                    if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+                        eprintln!(
+                            "unusable: faces={} reason=run-not-endpoint run_start={run_start} n_runs_boundary={} wrap_same={} arclen={}",
+                            faces.len(),
+                            boundary.len(),
+                            owners[0] == owners[boundary.len() - 1],
+                            graph.arcs[arc].path.len()
+                        );
+                    }
                     return Patch {
                         faces: faces.to_vec(),
                         sides: Vec::new(),
@@ -286,6 +342,9 @@ fn patch_from_faces(
                     expected.reverse();
                 }
                 if chain != expected {
+                    if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+                        eprintln!("unusable: faces={} reason=run-not-full-arc", faces.len());
+                    }
                     return Patch {
                         faces: faces.to_vec(),
                         sides: Vec::new(),
@@ -333,6 +392,9 @@ fn patch_from_faces(
             graph.arcs[next.arc].b
         };
         if exit != entry {
+            if std::env::var_os("RETOPO_PATCH_DEBUG").is_some() {
+                eprintln!("unusable: faces={} reason=corner-mismatch", faces.len());
+            }
             return Patch {
                 faces: faces.to_vec(),
                 sides: Vec::new(),
