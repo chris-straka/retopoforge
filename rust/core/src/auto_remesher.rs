@@ -1133,6 +1133,7 @@ impl AutoRemesher {
             positions.push((position.y() - center.y()) as f32);
             positions.push((position.z() - center.z()) as f32);
         }
+        Self::snap_decimator_input(&mut positions, &lower_bound, &upper_bound);
 
         let mut remap = vec![0u32; vertices.len()];
         // SAFETY: FFI transcription of the C++ calls. All pointers come
@@ -1245,9 +1246,48 @@ impl AutoRemesher {
             .triangles_after
             .fetch_add(decimated_triangles.len(), Ordering::SeqCst);
 
+        // Research probe (RETOPO_DUMP_DECIMATED=dir): writes the decimated
+        // island as OBJ for cross-seed combinatorics comparison. No state
+        // touched.
+        if let Some(dir) = std::env::var_os("RETOPO_DUMP_DECIMATED") {
+            let path = std::path::Path::new(&dir).join(format!("decim_island{_island_index}.obj"));
+            let mut obj = String::new();
+            for v in decimated_vertices.iter() {
+                obj.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
+            }
+            for t in decimated_triangles.iter() {
+                obj.push_str(&format!("f {} {} {}\n", t[0] + 1, t[1] + 1, t[2] + 1));
+            }
+            let _ = std::fs::write(path, obj);
+        }
+
         *vertices = decimated_vertices;
         *triangles = decimated_triangles;
         true
+    }
+
+    /// Noise canonicalization for the decimator input (flat f32
+    /// xyz, centered). Sub-visible input noise (1e-9 of the diagonal)
+    /// survives the f32 cast near the bbox center and flips meshopt's
+    /// collapse order globally (~23% of decimated faces differ across
+    /// noise seeds). Snapping to a 1e-6-diagonal grid kills the noise
+    /// uniformly (grid >> noise, grid << edges — the tightest bench
+    /// mesh has min-edge 1.8e-5 of its diagonal), leaving only rare
+    /// grid-boundary flips local (measured: 77% -> 91% face overlap).
+    /// Degenerate bounds skip snapping (positions untouched).
+    fn snap_decimator_input(positions: &mut [f32], lower: &Vector3, upper: &Vector3) {
+        let diag = (*upper - *lower).length();
+        let step = diag / 1e6;
+        if !step.is_finite() || step <= 0.0 {
+            return;
+        }
+        let g = step as f32;
+        if !g.is_finite() || g <= 0.0 {
+            return;
+        }
+        for c in positions.iter_mut() {
+            *c = (*c / g).round() * g;
+        }
     }
 
     /// Mirrors `resample`. The stats/time pointers are non-null at the
@@ -2394,5 +2434,56 @@ mod normalization_tests {
                 assert_eq!((x * s) * (1.0 / s), x, "s={s} x={x:e}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod snap_tests {
+    use super::*;
+
+    fn bounds(diag: f64) -> (Vector3, Vector3) {
+        (Vector3::new(0.0, 0.0, 0.0), Vector3::new(diag, 0.0, 0.0))
+    }
+
+    #[test]
+    fn snap_kills_sub_grid_noise() {
+        // Grid 1e-6 of diag 228.8; noise 1e-9 must vanish.
+        let (lo, hi) = bounds(228.8);
+        let clean = [10.0f32, -3.25, 0.5];
+        for jitter in [0.0, 1e-7, -1e-7, 2.28e-7, -2.28e-7] {
+            let mut p = [clean[0] + jitter, clean[1] + jitter, clean[2] + jitter];
+            AutoRemesher::snap_decimator_input(&mut p, &lo, &hi);
+            let mut q = clean;
+            AutoRemesher::snap_decimator_input(&mut q, &lo, &hi);
+            assert_eq!(p, q, "jitter={jitter:e}");
+        }
+    }
+
+    #[test]
+    fn snap_is_idempotent_and_close() {
+        let (lo, hi) = bounds(100.0);
+        let orig = [33.33333f32, -99.99999, 0.00001];
+        let mut p = orig;
+        AutoRemesher::snap_decimator_input(&mut p, &lo, &hi);
+        // Displacement bounded by half a grid step (1e-4 here).
+        for (c, o) in p.iter().zip(orig.iter()) {
+            assert!((c - o).abs() <= 0.5e-4 * 1.01, "c={c} o={o}");
+        }
+        // Snapping twice is bitwise identical (fixed point).
+        let mut q = p;
+        AutoRemesher::snap_decimator_input(&mut q, &lo, &hi);
+        assert_eq!(p, q);
+    }
+
+    #[test]
+    fn snap_skips_degenerate_bounds() {
+        let zero = Vector3::new(1.0, 2.0, 3.0);
+        let mut p = [1.5f32, 2.5, 3.5];
+        AutoRemesher::snap_decimator_input(&mut p, &zero, &zero);
+        assert_eq!(p, [1.5, 2.5, 3.5]);
+        let nan = Vector3::new(f64::NAN, 0.0, 0.0);
+        let mut q = [1.5f32, 2.5, 3.5];
+        AutoRemesher::snap_decimator_input(&mut q, &zero, &nan);
+        assert_eq!(q, [1.5, 2.5, 3.5]);
     }
 }

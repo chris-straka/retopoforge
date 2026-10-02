@@ -927,14 +927,42 @@ fn differential_replay() {
         if regen && strict {
             let idx = regen_map[&(tag.clone(), id)];
             // Per-section triggers. Strict mode re-pins count/flag
-            // changes only (value-only drift keeps failing as usual);
-            // permissive mode (order-only re-baselines) snapshots any
-            // exact-inequal section, since an order swap legitimately
-            // moves float values at equal counts. SYM rides along only
-            // on an axis change outside permissive mode.
+            // changes only (value-only drift keeps failing as usual).
+            // Permissive mode (order-only re-baselines) additionally
+            // snapshots value drift, but ONLY within re-tiled cases
+            // (some section's counts moved): untouched cases keep
+            // their tolerance-slack values pinned. SYM rides along
+            // only on an axis change outside permissive mode.
             let mut edits: Vec<(usize, String)> = Vec::new();
-            let snap =
-                |same_counts: bool, same_values: bool| !same_counts || (permissive && !same_values);
+            // Same-count re-tilings also count (integer fields are
+            // compared exactly, so they carry no tolerance slack).
+            // Single-island PROG too (exact there); multi-island
+            // interleaving wobbles run to run and is robust-checked,
+            // so it must never trigger a snapshot by itself.
+            let prog_exact_same = got_events.len() == exp_events.len()
+                && got_events
+                    .iter()
+                    .zip(exp_events.iter())
+                    .all(|(g, e)| g.0.to_bits() == e.0.to_bits() && g.1 == e.1);
+            let retiled = got_rv.len() != exp_rv.len()
+                || got_rq != exp_rq
+                || got_ruv.len() != exp_ruv.len()
+                || got_isl != exp_isl.as_slice()
+                || remesher.decimated() != exp_dec
+                || got_dv.len() != exp_dv.len()
+                || got_dt != exp_dt
+                || got_iv.len() != exp_iv.len()
+                || got_it != exp_it
+                || got_iuv.len() != exp_iuv.len()
+                || got_iouv.len() != exp_iouv.len()
+                || got_sing.len() != exp_sing.len()
+                || got_conn.len() != exp_conn.len()
+                || got_moved.len() != exp_moved.len()
+                || remesher.symmetry_plane_axis() as i64 != exp_symaxis
+                || (single && !prog_exact_same);
+            let snap = |same_counts: bool, same_values: bool| {
+                !same_counts || (permissive && retiled && !same_values)
+            };
             if snap(got_rv.len() == exp_rv.len(), got_rv == exp_rv) {
                 edits.push((idx[1], fmt_rv(got_rv)));
             }
@@ -994,7 +1022,9 @@ fn differential_replay() {
             let sym_same = remesher.symmetry_plane_axis() as i64 == exp_symaxis
                 && remesher.symmetry_plane_offset().to_bits() == exp_symoff.to_bits()
                 && remesher.symmetry_plane_score().to_bits() == exp_symscore.to_bits();
-            if remesher.symmetry_plane_axis() as i64 != exp_symaxis || (permissive && !sym_same) {
+            if remesher.symmetry_plane_axis() as i64 != exp_symaxis
+                || (permissive && retiled && !sym_same)
+            {
                 edits.push((
                     idx[11],
                     fmt_sym(
@@ -1012,7 +1042,7 @@ fn differential_replay() {
                     .iter()
                     .zip(exp_events.iter())
                     .all(|(g, e)| g.0.to_bits() == e.0.to_bits() && g.1 == e.1);
-            if permissive && !prog_same {
+            if permissive && retiled && !prog_same {
                 let mut prev = 0.0f32;
                 for (f, _) in &got_events {
                     assert!(

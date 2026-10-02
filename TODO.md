@@ -99,8 +99,16 @@ when comparing back ends.
       dragon-50k 25.6s before=after, RSS unchanged. Regen now supports
       exact-compare snapshots + PROG re-pin (monotonicity-checked) in
       permissive mode.
-- [ ] Reduce tiling chaos from decimation (meshopt collapse order flips
-      under 1e-9 noise; see docs/igm-validity-spike.md)
+- [x] Reduce tiling chaos from decimation: snap decimator f32 inputs
+      to a 1e-6-diagonal grid (noise 1e-9 vanishes except rare boundary
+      flips; grid 18x below the tightest bench min-edge). Decimated
+      face overlap 77%->91% across seeds; armadillo @1000 quads spread
+      [501-749]->[534-639]; @5000 quality spreads tighten (angdev width
+      halved); medians neutral everywhere incl. dragon; no-decimation
+      beast bit-identical (control). Oracle: 7 decimating cases
+      re-pinned (+4 PHASE count tokens by hand); macOS baseline
+      regenerated (Linux baseline NEEDS a Linux regen — counts shifted).
+      Kept RETOPO_DUMP_DECIMATED probe for the meshoptimizer item.
 - [ ] Migrate meshoptimizer (the last C++ in `thirdparty/`, called via
       `rust/core/build.rs` for weld-on-load + decimation) to Rust: a
       decimator designed to be stable under tiny input noise (fixed
