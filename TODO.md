@@ -57,7 +57,11 @@ push main from lanes (explicit refspec only); game assets never committed.
       `rust/Cargo.lock` committed, C++ frozen as oracle reference
 - [ ] Post-switch superiority batch (equality proved — now beat C++):
       sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
-      redesign (flags/errors/progress), single-island parallelism in Rust
+      redesign (flags/errors/progress — proposal on branch
+      lane/cli-ux-spec, docs/cli-ux-redesign.md; owner scope: same flag
+      names, no clap redesign; do after the engine items land; CLI
+      internals already modularized under rust/cli/src/), single-island
+      parallelism in Rust
 
 ## Next work (2026-10-01; read docs/direction.md first)
 
