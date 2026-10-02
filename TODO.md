@@ -109,13 +109,27 @@ when comparing back ends.
       re-pinned (+4 PHASE count tokens by hand); macOS baseline
       regenerated (Linux baseline NEEDS a Linux regen — counts shifted).
       Kept RETOPO_DUMP_DECIMATED probe for the meshoptimizer item.
-- [ ] Migrate meshoptimizer (the last C++ in `thirdparty/`, called via
-      `rust/core/build.rs` for weld-on-load + decimation) to Rust: a
-      decimator designed to be stable under tiny input noise (fixed
-      tie-breaks, error quantization), then a Rust weld; delete
-      `thirdparty/` and the `cc` build step. Gate: noise.py spread on
-      decimated cases shrinks, bench + contract tests green. Do after the
-      chaos item above shows the decimator is the cause.
+- [x] Migrate meshoptimizer to Rust (`retopo_core::decimator`, f64
+      internals), kept behind `RETOPO_DECIMATOR=native` (default stays
+      FFI meshopt): f32 transcription proven bit-faithful (matches
+      no-contract C++ seed-for-seed); FMA contraction found to be old's
+      stability source (fewer rounding flips); f64 kills rounding flips
+      -> decimated overlap 87-99% to 99.7-100%, armadillo@1000 final
+      exactly fixed. FLIP BLOCKED on downstream knife-edge: f64's
+      statically-equal decimation lands beast@1000 badly (dist 7->30,
+      7/8 seeds; forensics rule out decimator fault) — flip only after
+      item 7 robustifies the downstream. Native weld bit-identical
+      (unit-pinned), default path byte-identical to pre-migration.
+- [ ] Untangling stage in the current engine (Garanzha et al. 2021
+      foldover-free maps; prototype on branch `exp/igm-validity`,
+      `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not
+      beast, and is slow (60 rounds, unconverged). Finish convergence +
+      speed, then gate on scores; built into the existing pipeline, not a
+      separate back end. NOTE (item 6): beast@1000 under
+      RETOPO_DECIMATOR=native is the knife-edge repro (valid decimation
+      -> collapsed region at ~(-133,147,81), dist 30 vs 7); use it plus
+      the deformation score (item 9) to gate robustness before flipping
+      the decimator default.
 - [ ] Untangling stage in the current engine (Garanzha et al. 2021
       foldover-free maps; prototype on branch `exp/igm-validity`,
       `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not

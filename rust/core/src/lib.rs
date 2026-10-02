@@ -36,5 +36,8 @@ pub mod glb;
 pub mod quad_extractor;
 // Lane/par-single-island: shared deterministic parallelism helpers.
 pub(crate) mod par;
+// Native Rust decimator (noise-stable meshoptimizer port; selected by
+// RETOPO_DECIMATOR=native, default remains meshopt C++ via build.rs FFI).
+pub mod decimator;
 // Wave 3 lane: rs-autoremesher (meshoptimizer stays C++ via build.rs FFI).
 pub mod auto_remesher;
