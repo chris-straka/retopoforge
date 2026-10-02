@@ -55,13 +55,17 @@ push main from lanes (explicit refspec only); game assets never committed.
       `docs/rust-switch-verdict.md`, Blender addon + Homebrew formula
       (0.3.0, rust-only) + bench default point at the Rust binary,
       `rust/Cargo.lock` committed, C++ frozen as oracle reference
-- [ ] Post-switch superiority batch (equality proved — now beat C++):
-      sizing-aware MILS rounding driven by the QPX/FFX flip maps, CLI UX
-      redesign (flags/errors/progress — proposal on branch
-      lane/cli-ux-spec, docs/cli-ux-redesign.md; owner scope: same flag
-      names, no clap redesign; do after the engine items land; CLI
-      internals already modularized under rust/cli/src/), single-island
-      parallelism in Rust
+- [x] Post-switch superiority batch (equality proved — now beat C++):
+      sizing-aware MILS rounding: SCOPED OUT, verdict NO (see
+      `docs/mils-rounding-scope.md` — progressive schedule degrades the
+      production path: fewer retry fires but unrecoverable folds,
+      dist_max tail 1.7x, medians wrong-way; third negative after
+      greedy-rejected and schedule-flat). CLI UX redesign LANDED
+      (chunks 0-2: version 0.3.0, errors teach + fail fast, grouped
+      help + `--verbose` gating + stream split; spec was on branch
+      lane/cli-ux-spec). Single-island parallelism LANDED (lane
+      par-single-island: O(1) containers + scoped-thread data-parallel
+      loops; dragon-50k >20min -> 22.3s, bitwise-identical).
 
 ## Next work (2026-10-01; read docs/direction.md first)
 
