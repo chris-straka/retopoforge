@@ -30,6 +30,12 @@ Options:
                               (default: 1.0, range: 0.0-1.0)
   --model-type <organic|hardsurface>
                               Model type hint (default: organic)
+  --backend <default|patch>   Remeshing back end (default: default).
+                              patch selects the patch-layout back end
+                              (experimental): same front end, patch
+                              tracing plus quantization instead of
+                              the seamless cover. --dipoles is
+                              ignored with patch
   --symmetry <off|auto|x|y|z>  Mirror-symmetry constraints
                               (default: off). auto detects the dominant
                               plane; x/y/z pin it. Falls back to

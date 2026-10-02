@@ -8,16 +8,24 @@
 //! - quad patches: direct Coons grid after opposite-side equalization
 //!   (single deterministic priority pass; unresolvable pairs fall back
 //!   to a diagonal triangle pair, which is rare and reported);
-//! - even n-gons: recursive corner-to-corner cutting into Coons quads
-//!   (exact opposite matches only, else the per-face fallback);
-//! - odd n-gons: recursive cutting into Coons quads plus one small
-//!   triangle (subdivided while its sides stay even);
+//! - n-gons (n >= 5): one greedy cut sequence planned from side-count
+//!   arithmetic (first-valid-choice per level), then emitted
+//!   infallibly — no backtracking (the old try-every-cut search was
+//!   exponential in n and hung beast@1000);
+//! - odd n-gons terminate in one small triangle (subdivided while its
+//!   sides stay even);
 //! - digons/monogons: split into triangles at shared grid points;
 //! - closed/holed/inconsistent patches: per-face 3-quad subdivision,
 //!   which keeps full coverage by construction.
 //!
-//! All grid vertices are projected onto their own patch's triangles,
-//! so thin features can never snap across gaps. Shared sides weld by
+//! Hard caps keep every patch bounded: 128 plannable sides, 2048
+//! cut-plan search nodes, and 16384 grid points per Coons piece —
+//! past any of them, the patch takes the per-face fallback (counted
+//! as `capped_patches`).
+//!
+//! All grid vertices are projected onto their own patch's triangles
+//! through an exact closest-point index (grid + scan fallback), so
+//! thin features can never snap across gaps. Shared sides weld by
 //! key, giving a manifold mesh except along fallback borders and
 //! conflict diagonals (both rare and reported).
 
@@ -25,7 +33,7 @@ use crate::patch_backend::layout::Layout;
 use crate::surface_mesh::SurfaceMesh;
 use crate::vector3::Vector3;
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
 /// Fill statistics for the phase report.
 #[derive(Clone, Debug, Default)]
@@ -37,6 +45,28 @@ pub(crate) struct FillStats {
     pub fallback_faces: usize,
     pub degenerate_skipped: usize,
     pub clamped_arcs: usize,
+    pub capped_patches: usize,
+}
+
+/// Hard cap on n-gon sides entering the cut planner: past it the
+/// patch is degenerate tracing and takes the per-face fallback, which
+/// keeps full coverage by construction.
+const FILL_MAX_PLAN_SIDES: usize = 128;
+
+/// Hard attempt cap on cut-plan search nodes per patch (the planner
+/// backtracks over rotations, so depth alone cannot bound it): past
+/// it the patch takes the per-face fallback.
+const FILL_MAX_PLAN_NODES: usize = 2048;
+
+/// Hard cap on Coons grid points per piece ((a+1) x (b+1)): past it
+/// the patch takes the per-face fallback instead of emitting a giant
+/// grid (quantization is shared, so counts are never clamped here).
+const FILL_MAX_GRID_POINTS: usize = 16384;
+
+/// Whether a Coons piece over opposite counts (a, b) exceeds the grid
+/// cap (saturating: huge counts cap, never overflow).
+fn grid_over_cap(a: usize, b: usize) -> bool {
+    a.saturating_add(1).saturating_mul(b.saturating_add(1)) > FILL_MAX_GRID_POINTS
 }
 
 /// Filled island: welded verts/faces plus per-vertex patch UVs.
@@ -116,6 +146,334 @@ fn closest_on_triangle(p: &Vector3, a: &Vector3, b: &Vector3, c: &Vector3) -> Ve
     *a + ab * v + ac * w
 }
 
+/// Exact closest-point index over one patch's faces (grid vertex
+/// projection runs per Coons interior point, where the old per-query
+/// full scan was O(faces) each). Ring expansion tracks the best
+/// candidate and exits when `(r*h)^2 >= best_d2`, which proves exact
+/// (remaining cells sit beyond `r*h`); ties keep the first tested
+/// (fixed ring order, insertion-ordered cell lists), so queries are
+/// deterministic. Small or degenerate face sets take the `Scan` arm:
+/// when the mean edge collapses (h -> 0 on zero-area tris), ring
+/// expansion would walk ~dist/h empty rings before its first hit.
+enum PatchProjection<'a> {
+    Grid(ProjectionGrid<'a>),
+    Scan {
+        verts: &'a [Vector3],
+        tris: Vec<[usize; 3]>,
+    },
+}
+
+/// Face counts below this scan faster than a grid can index.
+const PROJECTION_SCAN_TRIS: usize = 64;
+
+/// Absolute cell cap for projection-grid build; beyond it the face
+/// set is degenerate at grid scale and the caller scans instead.
+const PROJECTION_MAX_CELLS: usize = 1_000_000;
+
+impl<'a> PatchProjection<'a> {
+    /// Indexes `faces` (topology face ids). Never empty-armed: zero
+    /// faces scan to the query point itself (the old behavior).
+    fn build(topology: &SurfaceMesh, verts: &'a [Vector3], faces: &[usize]) -> Self {
+        let mut tris = Vec::with_capacity(faces.len());
+        let mut total = 0.0;
+        for &face in faces {
+            let tri = topology.triangle(face);
+            if tri[0] < verts.len() && tri[1] < verts.len() && tri[2] < verts.len() {
+                total += (verts[tri[1]] - verts[tri[0]]).length();
+                tris.push(*tri);
+            }
+        }
+        if tris.len() < PROJECTION_SCAN_TRIS {
+            return Self::Scan { verts, tris };
+        }
+        let h = 2.0 * total / tris.len() as f64;
+        let mut lo = Vector3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+        let mut hi = Vector3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for v in verts {
+            lo.set_data(lo.x().min(v.x()), lo.y().min(v.y()), lo.z().min(v.z()));
+            hi.set_data(hi.x().max(v.x()), hi.y().max(v.y()), hi.z().max(v.z()));
+        }
+        let diag = (hi - lo).length();
+        // Degenerate guard (also catches h <= 0 and NaN): a collapsed
+        // cell size would send ring expansion to billions of empty
+        // rings before its first candidate.
+        if !(h > 1e-9 * diag) {
+            return Self::Scan { verts, tris };
+        }
+        match ProjectionGrid::build(verts, tris, h) {
+            Some(grid) => Self::Grid(grid),
+            // Cell-cap bail: re-collect for the scan (O(faces), on a
+            // path that then does O(queries x faces) scan work).
+            None => {
+                let mut tris = Vec::with_capacity(faces.len());
+                for &face in faces {
+                    let tri = topology.triangle(face);
+                    if tri[0] < verts.len() && tri[1] < verts.len() && tri[2] < verts.len() {
+                        tris.push(*tri);
+                    }
+                }
+                Self::Scan { verts, tris }
+            }
+        }
+    }
+
+    /// Closest point on the indexed faces to `point`. `seen`/`stamp`
+    /// dedupe triangle tests across the rings of one grid query (the
+    /// scan arm ignores them); `seen` must span the tri count.
+    fn closest(&self, point: &Vector3, seen: &mut [u32], stamp: u32) -> Vector3 {
+        match self {
+            Self::Grid(grid) => grid.closest(point, seen, stamp),
+            Self::Scan { verts, tris } => {
+                let mut best = *point;
+                let mut best_d2 = f64::INFINITY;
+                for tri in tris {
+                    let candidate =
+                        closest_on_triangle(point, &verts[tri[0]], &verts[tri[1]], &verts[tri[2]]);
+                    let d2 = (candidate - *point).length_squared();
+                    if d2 < best_d2 {
+                        best_d2 = d2;
+                        best = candidate;
+                    }
+                }
+                best
+            }
+        }
+    }
+
+    fn tri_count(&self) -> usize {
+        match self {
+            Self::Grid(grid) => grid.tris.len(),
+            Self::Scan { tris, .. } => tris.len(),
+        }
+    }
+}
+
+struct ProjectionGrid<'a> {
+    verts: &'a [Vector3],
+    tris: Vec<[usize; 3]>,
+    cells: HashMap<[i64; 3], Vec<u32>>,
+    h: f64,
+}
+
+impl<'a> ProjectionGrid<'a> {
+    /// Indexes pre-collected `tris` (`None` past
+    /// `PROJECTION_MAX_CELLS`: the caller scans instead).
+    fn build(verts: &'a [Vector3], tris: Vec<[usize; 3]>, h: f64) -> Option<Self> {
+        let mut cells: HashMap<[i64; 3], Vec<u32>> = HashMap::new();
+        for (t, tri) in tris.iter().enumerate() {
+            if cells.len() > PROJECTION_MAX_CELLS {
+                return None;
+            }
+            let (pa, pb, pc) = (&verts[tri[0]], &verts[tri[1]], &verts[tri[2]]);
+            let lo = [
+                (pa.x().min(pb.x()).min(pc.x()) / h).floor() as i64,
+                (pa.y().min(pb.y()).min(pc.y()) / h).floor() as i64,
+                (pa.z().min(pb.z()).min(pc.z()) / h).floor() as i64,
+            ];
+            let hi = [
+                (pa.x().max(pb.x()).max(pc.x()) / h).floor() as i64,
+                (pa.y().max(pb.y()).max(pc.y()) / h).floor() as i64,
+                (pa.z().max(pb.z()).max(pc.z()) / h).floor() as i64,
+            ];
+            for i in lo[0]..=hi[0] {
+                for j in lo[1]..=hi[1] {
+                    for k in lo[2]..=hi[2] {
+                        cells.entry([i, j, k]).or_default().push(t as u32);
+                    }
+                }
+            }
+        }
+        Some(Self {
+            verts,
+            tris,
+            cells,
+            h,
+        })
+    }
+
+    /// Exact closest point: ring expansion tracking the best
+    /// candidate; exits when `(r*h)^2 >= best_d2` (remaining rings sit
+    /// beyond `r*h`, so no untested tri can win). Fixed shell order +
+    /// strict improvement = deterministic.
+    fn closest(&self, point: &Vector3, seen: &mut [u32], stamp: u32) -> Vector3 {
+        let c = [
+            (point.x() / self.h).floor() as i64,
+            (point.y() / self.h).floor() as i64,
+            (point.z() / self.h).floor() as i64,
+        ];
+        // Wrapping: a query past ~9e18 cells saturates its base key;
+        // neighbors then alias arbitrary cells, but every tested tri is
+        // still measured exactly, so the exit below still terminates
+        // the walk.
+        let cell = |dx: i64, dy: i64, dz: i64| {
+            [
+                c[0].wrapping_add(dx),
+                c[1].wrapping_add(dy),
+                c[2].wrapping_add(dz),
+            ]
+        };
+        let mut best = *point;
+        let mut best_d2 = f64::INFINITY;
+        let mut r: i64 = 0;
+        loop {
+            // Chebyshev shell == r, each cell once (r == 0 visits the
+            // center once; the y strips run the open x-interval so
+            // shared edges meet once).
+            if r == 0 {
+                self.test_shell_cell(point, c, seen, stamp, &mut best, &mut best_d2);
+            } else {
+                for &dz in &[-r, r] {
+                    for dx in -r..=r {
+                        for dy in -r..=r {
+                            self.test_shell_cell(
+                                point,
+                                cell(dx, dy, dz),
+                                seen,
+                                stamp,
+                                &mut best,
+                                &mut best_d2,
+                            );
+                        }
+                    }
+                }
+                for dz in -(r - 1)..=(r - 1) {
+                    for d in -r..=r {
+                        self.test_shell_cell(
+                            point,
+                            cell(r, d, dz),
+                            seen,
+                            stamp,
+                            &mut best,
+                            &mut best_d2,
+                        );
+                        self.test_shell_cell(
+                            point,
+                            cell(-r, d, dz),
+                            seen,
+                            stamp,
+                            &mut best,
+                            &mut best_d2,
+                        );
+                    }
+                    for d in -(r - 1)..=(r - 1) {
+                        self.test_shell_cell(
+                            point,
+                            cell(d, r, dz),
+                            seen,
+                            stamp,
+                            &mut best,
+                            &mut best_d2,
+                        );
+                        self.test_shell_cell(
+                            point,
+                            cell(d, -r, dz),
+                            seen,
+                            stamp,
+                            &mut best,
+                            &mut best_d2,
+                        );
+                    }
+                }
+            }
+            if (r as f64 * self.h).powi(2) >= best_d2 {
+                return best;
+            }
+            r += 1;
+        }
+    }
+
+    /// Tests one cell's tris, keeping the strictly closest (ties keep
+    /// the first tested: fixed order, deterministic).
+    #[allow(clippy::too_many_arguments)]
+    fn test_shell_cell(
+        &self,
+        point: &Vector3,
+        key: [i64; 3],
+        seen: &mut [u32],
+        stamp: u32,
+        best: &mut Vector3,
+        best_d2: &mut f64,
+    ) {
+        let Some(list) = self.cells.get(&key) else {
+            return;
+        };
+        for &t in list {
+            if seen[t as usize] == stamp {
+                continue;
+            }
+            seen[t as usize] = stamp;
+            let tri = self.tris[t as usize];
+            let candidate = closest_on_triangle(
+                point,
+                &self.verts[tri[0]],
+                &self.verts[tri[1]],
+                &self.verts[tri[2]],
+            );
+            let d2 = (candidate - *point).length_squared();
+            if d2 < *best_d2 {
+                *best_d2 = d2;
+                *best = candidate;
+            }
+        }
+    }
+}
+
+/// Terminal kind of a cut plan: which loop arm the 5/6-side
+/// remainder takes (the arm re-derives the planned rotation as its
+/// first-valid choice, so the rotation itself needs no payload).
+#[derive(Clone, Copy, Debug)]
+enum NgonTerminal {
+    Pent,
+    Hex,
+}
+
+/// First pentagon rotation whose cut yields a quad plus a triangle:
+/// quad sides (arc, arc, arc, cut) need sides[0] == sides[2], and the
+/// cut takes sides[1]. Over-cap rotations are skipped (`capped`).
+fn first_pent_cut(counts: &[usize], capped: &mut bool) -> Option<usize> {
+    debug_assert_eq!(counts.len(), 5);
+    for i in 0..5 {
+        let s0 = counts[(i + 2) % 5];
+        let s1 = counts[(i + 3) % 5];
+        let s2 = counts[(i + 4) % 5];
+        if s0 != s2 {
+            continue;
+        }
+        if grid_over_cap(s0, s1) {
+            *capped = true;
+            continue;
+        }
+        return Some(i);
+    }
+    None
+}
+
+/// First hexagon rotation whose halving cut yields two quads: cut
+/// i -> i+3 needs a == c, d == f, and b == e (shared cut count).
+/// Over-cap rotations are skipped (`capped`).
+fn first_hex_cut(counts: &[usize], capped: &mut bool) -> Option<usize> {
+    debug_assert_eq!(counts.len(), 6);
+    for i in 0..6 {
+        let sides = [
+            counts[i],
+            counts[(i + 1) % 6],
+            counts[(i + 2) % 6],
+            counts[(i + 3) % 6],
+            counts[(i + 4) % 6],
+            counts[(i + 5) % 6],
+        ];
+        if sides[0] != sides[2] || sides[3] != sides[5] || sides[1] != sides[4] {
+            continue;
+        }
+        if grid_over_cap(sides[0], sides[1]) || grid_over_cap(sides[3], sides[4]) {
+            *capped = true;
+            continue;
+        }
+        return Some(i);
+    }
+    None
+}
+
 /// The fill context: one island's inputs plus the welded output.
 struct Filler<'a> {
     topology: &'a SurfaceMesh,
@@ -130,6 +488,9 @@ struct Filler<'a> {
     stats: FillStats,
     degenerate_area: f64,
     next_tri_edge: usize,
+    projection: PatchProjection<'a>,
+    proj_seen: Vec<u32>,
+    proj_stamp: u32,
 }
 
 impl<'a> Filler<'a> {
@@ -173,25 +534,20 @@ impl<'a> Filler<'a> {
         self.faces_out.push(corners.to_vec());
     }
 
-    /// Closest point on the patch's own triangles.
-    fn project(&self, patch_faces: &[usize], point: &Vector3) -> Vector3 {
-        let mut best = *point;
-        let mut best_d2 = f64::INFINITY;
-        for &face in patch_faces {
-            let tri = self.topology.triangle(face);
-            let candidate = closest_on_triangle(
-                point,
-                &self.verts[tri[0]],
-                &self.verts[tri[1]],
-                &self.verts[tri[2]],
-            );
-            let d2 = (candidate - *point).length_squared();
-            if d2 < best_d2 {
-                best_d2 = d2;
-                best = candidate;
-            }
-        }
-        best
+    /// Rebuilds the projection index for a patch's faces:
+    /// structured fills project onto their own patch only, so thin
+    /// features can never snap across gaps.
+    fn begin_patch(&mut self, patch_faces: &[usize]) {
+        self.projection = PatchProjection::build(self.topology, self.verts, patch_faces);
+        self.proj_seen = vec![0u32; self.projection.tri_count()];
+        self.proj_stamp = 1;
+    }
+
+    /// Closest point on the current patch's triangles.
+    fn project(&mut self, point: &Vector3) -> Vector3 {
+        self.proj_stamp = self.proj_stamp.wrapping_add(1).max(1);
+        self.projection
+            .closest(point, &mut self.proj_seen, self.proj_stamp)
     }
 
     /// Resample an arc path to count+1 points by arc length.
@@ -240,9 +596,15 @@ impl<'a> Filler<'a> {
         let mut keys: Vec<Key> = (0..=count).map(|i| Key::SidePoint(side.arc, i)).collect();
         // Endpoints are corner nodes.
         let (entry, exit) = if side.forward {
-            (self.layout.graph.arcs[side.arc].a, self.layout.graph.arcs[side.arc].b)
+            (
+                self.layout.graph.arcs[side.arc].a,
+                self.layout.graph.arcs[side.arc].b,
+            )
         } else {
-            (self.layout.graph.arcs[side.arc].b, self.layout.graph.arcs[side.arc].a)
+            (
+                self.layout.graph.arcs[side.arc].b,
+                self.layout.graph.arcs[side.arc].a,
+            )
         };
         keys[0] = Key::Node(entry);
         keys[count] = Key::Node(exit);
@@ -274,7 +636,6 @@ impl<'a> Filler<'a> {
         positions: &[Vec<Vector3>; 4],
         a: usize,
         b: usize,
-        patch_faces: &[usize],
     ) {
         debug_assert_eq!(positions[0].len(), a + 1);
         debug_assert_eq!(positions[2].len(), a + 1);
@@ -321,14 +682,12 @@ impl<'a> Filler<'a> {
                     let top = positions[2][a - i];
                     let left = positions[3][b - j];
                     let right = positions[1][j];
-                    let mut point = bottom * (1.0 - v)
-                        + top * v + left * (1.0 - u)
-                        + right * u
+                    let mut point = bottom * (1.0 - v) + top * v + left * (1.0 - u) + right * u
                         - corners[0] * (1.0 - u) * (1.0 - v)
                         - corners[1] * u * (1.0 - v)
                         - corners[2] * u * v
                         - corners[3] * (1.0 - u) * v;
-                    point = self.project(patch_faces, &point);
+                    point = self.project(&point);
                     (Key::Grid(patch, piece, i, j), point)
                 };
                 let uv = (i as f64 / a as f64, j as f64 / b as f64);
@@ -337,17 +696,19 @@ impl<'a> Filler<'a> {
         }
         for i in 0..a {
             for j in 0..b {
-                self.emit_face(&[grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]]);
+                self.emit_face(&[
+                    grid[i][j],
+                    grid[i + 1][j],
+                    grid[i + 1][j + 1],
+                    grid[i][j + 1],
+                ]);
             }
         }
     }
 
-    /// Dijkstra vertex path across patch faces between two corners.
-    ///
-    /// Binary-heap open set keyed by (distance bits, vertex): distances
-    /// are non-negative so the bit order matches the float order, and
-    /// the vertex id breaks ties, keeping the path deterministic.
-    fn cut_path(&self, patch_faces: &[usize], from: usize, to: usize) -> Vec<usize> {
+    /// Sorted patch-vertex adjacency for cut paths, built once per
+    /// patch (every plan level shares it).
+    fn cut_adjacency(&self, patch_faces: &[usize]) -> BTreeMap<usize, Vec<usize>> {
         let mut in_patch: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for &face in patch_faces {
             let tri = self.topology.triangle(face);
@@ -365,6 +726,22 @@ impl<'a> Filler<'a> {
             neighbors.sort_unstable();
             neighbors.dedup();
         }
+        in_patch
+    }
+
+    /// Dijkstra vertex path across patch faces between two corners.
+    ///
+    /// Binary-heap open set keyed by (distance bits, vertex): distances
+    /// are non-negative so the bit order matches the float order, and
+    /// the vertex id breaks ties, keeping the path deterministic.
+    /// Always returns a usable path (direct hop when disconnected).
+    fn cut_path(
+        &self,
+        adjacency: &BTreeMap<usize, Vec<usize>>,
+        from: usize,
+        to: usize,
+    ) -> Vec<usize> {
+        let in_patch = adjacency;
         if !in_patch.contains_key(&from) || !in_patch.contains_key(&to) {
             return vec![from, to];
         }
@@ -418,7 +795,6 @@ impl<'a> Filler<'a> {
         cut: usize,
         path: &[usize],
         count: usize,
-        patch_faces: &[usize],
         forward: bool,
     ) -> Vec<Key> {
         let points: Vec<Vector3> = path.iter().map(|&v| self.verts[v]).collect();
@@ -435,9 +811,7 @@ impl<'a> Filler<'a> {
                 0.0
             };
             let mut segment = 0;
-            while segment + 1 < points.len().saturating_sub(1)
-                && cumulative[segment + 1] < target
-            {
+            while segment + 1 < points.len().saturating_sub(1) && cumulative[segment + 1] < target {
                 segment += 1;
             }
             let mut point = if points.len() >= 2 {
@@ -451,7 +825,7 @@ impl<'a> Filler<'a> {
             } else {
                 points[0]
             };
-            point = self.project(patch_faces, &point);
+            point = self.project(&point);
             let key = Key::CutPoint(patch, cut, if forward { i } else { count - i });
             let uv = (i as f64 / count.max(1) as f64, 0.5);
             self.emit(key, point, patch, uv);
@@ -463,9 +837,66 @@ impl<'a> Filler<'a> {
         keys
     }
 
-    /// Recursive corner-cut fill of an n-gon (n >= 5) into Coons quads
-    /// plus one triangle (odd n). Returns false when no exact cut
-    /// sequence exists (caller runs the per-face fallback).
+    /// Greedy cut planner: pure side-count arithmetic deciding the
+    /// single cut sequence (first-valid-choice at every level, loop
+    /// order) before any geometry runs. Geometry never fails (Dijkstra
+    /// always returns a path, Coons never fails), so planning success
+    /// is exactly the old backtracking search's first success —
+    /// without the exponential re-emission (n x (n-2) x ... Dijkstra +
+    /// Coons runs, which hung beast@1000). `None` = no exact sequence
+    /// or a cap bound: the caller falls back (`capped` tells which).
+    ///
+    /// Plan levels (cut rotation per level, loop order) append to
+    /// `cuts`; the terminal is the 5/6-side kind the terminal branch
+    /// takes. `budget` bounds total search nodes (the rotation search
+    /// backtracks, so depth alone cannot bound it).
+    fn plan_ngon_cuts(
+        counts: &[usize],
+        cuts: &mut Vec<usize>,
+        capped: &mut bool,
+        budget: &mut usize,
+    ) -> Option<NgonTerminal> {
+        if *budget == 0 {
+            *capped = true;
+            return None;
+        }
+        *budget -= 1;
+        match counts.len() {
+            5 => first_pent_cut(counts, capped).map(|_| NgonTerminal::Pent),
+            6 => first_hex_cut(counts, capped).map(|_| NgonTerminal::Hex),
+            n => {
+                for i in 0..n {
+                    let a = counts[i];
+                    let b = counts[(i + 1) % n];
+                    let c = counts[(i + 2) % n];
+                    if a != c {
+                        continue;
+                    }
+                    if grid_over_cap(a, b) {
+                        *capped = true;
+                        continue;
+                    }
+                    let mut rest = Vec::with_capacity(n - 2);
+                    for k in 3..n {
+                        rest.push(counts[(i + k) % n]);
+                    }
+                    rest.push(b.max(1));
+                    cuts.push(i);
+                    if let Some(terminal) = Self::plan_ngon_cuts(&rest, cuts, capped, budget) {
+                        return Some(terminal);
+                    }
+                    cuts.pop();
+                }
+                None
+            }
+        }
+    }
+
+    /// Corner-cut fill of an n-gon (n >= 5) into Coons quads plus one
+    /// triangle (odd n). Plans the single cut sequence first, then
+    /// emits it infallibly (no tentative geometry, no rollback).
+    /// Returns false when no exact cut sequence exists or a cap binds
+    /// (caller runs the per-face fallback).
     ///
     /// `corners` are node ids in loop order, `sides` the side-grid key
     /// sequences between consecutive corners (lengths give counts+1).
@@ -478,12 +909,17 @@ impl<'a> Filler<'a> {
         patch_faces: &[usize],
         piece_base: &mut usize,
         cut_base: &mut usize,
+        capped: &mut bool,
     ) -> bool {
         let n = corners.len();
         debug_assert!(n >= 5 && sides.len() == n);
+        // fill_ngon keeps patch_faces for the one-shot adjacency
+        // build (projection runs through begin_patch state instead).
+        let adjacency = self.cut_adjacency(patch_faces);
         if n == 5 {
             // Pentagon: try all corner-to-second-neighbor cuts; each
-            // yields a quad plus a triangle.
+            // yields a quad plus a triangle. Bounded (5 Dijkstras, no
+            // recursion) — not the old hang.
             for i in 0..5 {
                 let quad_corners = [
                     corners[(i + 2) % 5],
@@ -501,16 +937,21 @@ impl<'a> Filler<'a> {
                 if quad_sides[0] != quad_sides[2] {
                     continue;
                 }
+                if grid_over_cap(quad_sides[0], quad_sides[1]) {
+                    *capped = true;
+                    continue;
+                }
                 let cut_count = quad_sides[1].max(1);
                 let from = self.layout.graph.nodes[quad_corners[3]].vertex;
                 let to = self.layout.graph.nodes[quad_corners[0]].vertex;
-                let path = self.cut_path(patch_faces, from, to);
+                let path = self.cut_path(&adjacency, from, to);
                 let cut = *cut_base;
                 *cut_base += 1;
-                let cut_keys =
-                    self.cut_sequence(patch, cut, &path, cut_count, patch_faces, true);
-                let cut_points: Vec<Vector3> =
-                    cut_keys.iter().map(|k| self.verts_out[self.keys[k]]).collect();
+                let cut_keys = self.cut_sequence(patch, cut, &path, cut_count, true);
+                let cut_points: Vec<Vector3> = cut_keys
+                    .iter()
+                    .map(|k| self.verts_out[self.keys[k]])
+                    .collect();
                 let piece = *piece_base;
                 *piece_base += 1;
                 self.fill_coons(
@@ -530,7 +971,6 @@ impl<'a> Filler<'a> {
                     ],
                     quad_sides[0],
                     quad_sides[1],
-                    patch_faces,
                 );
                 // The triangle (corners i, i+1, i+2) with its real
                 // side grids, so shared sides weld instead of cracking.
@@ -540,27 +980,20 @@ impl<'a> Filler<'a> {
                 cut_pts_rev.reverse();
                 self.fill_triangle(
                     patch,
-                    &[
-                        sides[i].clone(),
-                        sides[(i + 1) % 5].clone(),
-                        cut_rev,
-                    ],
+                    &[sides[i].clone(), sides[(i + 1) % 5].clone(), cut_rev],
                     &[
                         side_points[i].clone(),
                         side_points[(i + 1) % 5].clone(),
                         cut_pts_rev,
                     ],
-                    patch_faces,
                     0,
                 );
                 return true;
             }
             return false;
         }
-        // n >= 6: cut off one quad (corners i..i+3 plus cut), recurse
-        // on the (n-2)-gon. Both parities terminate (even reaches 4
-        // via repeated cuts handled by the caller... only odd reaches
-        // 5 here; even n == 6 splits into two quads below).
+        // n == 6: halving cut into two quads. Bounded (6
+        // Dijkstras, no recursion) — not the old hang.
         if n == 6 {
             for i in 0..6 {
                 let a = sides[i].len() - 1;
@@ -574,16 +1007,21 @@ impl<'a> Filler<'a> {
                 if a != c || d != f || b != e {
                     continue;
                 }
+                if grid_over_cap(a, b) || grid_over_cap(d, e) {
+                    *capped = true;
+                    continue;
+                }
                 let cut_count = b.max(1);
                 let from = self.layout.graph.nodes[corners[i]].vertex;
                 let to = self.layout.graph.nodes[corners[(i + 3) % 6]].vertex;
-                let path = self.cut_path(patch_faces, from, to);
+                let path = self.cut_path(&adjacency, from, to);
                 let cut = *cut_base;
                 *cut_base += 1;
-                let cut_keys =
-                    self.cut_sequence(patch, cut, &path, cut_count, patch_faces, true);
-                let cut_points: Vec<Vector3> =
-                    cut_keys.iter().map(|k| self.verts_out[self.keys[k]]).collect();
+                let cut_keys = self.cut_sequence(patch, cut, &path, cut_count, true);
+                let cut_points: Vec<Vector3> = cut_keys
+                    .iter()
+                    .map(|k| self.verts_out[self.keys[k]])
+                    .collect();
                 let mut rev_keys = cut_keys.clone();
                 rev_keys.reverse();
                 let mut rev_points = cut_points.clone();
@@ -607,7 +1045,6 @@ impl<'a> Filler<'a> {
                     ],
                     a,
                     b,
-                    patch_faces,
                 );
                 let piece = *piece_base;
                 *piece_base += 1;
@@ -628,123 +1065,100 @@ impl<'a> Filler<'a> {
                     ],
                     d,
                     e,
-                    patch_faces,
                 );
                 return true;
             }
             return false;
         }
-        // n >= 7: cut off one quad, recurse.
-        for i in 0..n {
-            let a = sides[i].len() - 1;
-            let b = sides[(i + 1) % n].len() - 1;
-            let c = sides[(i + 2) % n].len() - 1;
-            if a != c {
-                continue;
-            }
+        // n >= 7: plan the single cut sequence, then emit it
+        // infallibly (no tentative geometry, no rollback). The old
+        // backtracking search (try every cut, recurse, roll back) was
+        // exponential in n with a Dijkstra + Coons fill per attempt —
+        // that hung beast@1000.
+        if n > FILL_MAX_PLAN_SIDES {
+            *capped = true;
+            return false;
+        }
+        let counts: Vec<usize> = sides.iter().map(|s| s.len() - 1).collect();
+        let mut plan_cuts = Vec::new();
+        let mut plan_capped = false;
+        let mut budget = FILL_MAX_PLAN_NODES;
+        if Self::plan_ngon_cuts(&counts, &mut plan_cuts, &mut plan_capped, &mut budget).is_none() {
+            *capped |= plan_capped;
+            return false;
+        }
+        *capped |= plan_capped;
+        let mut level_corners = corners.to_vec();
+        let mut level_sides = sides.to_vec();
+        let mut level_points = side_points.to_vec();
+        for &i in &plan_cuts {
+            let m = level_corners.len();
+            let a = level_sides[i].len() - 1;
+            let b = level_sides[(i + 1) % m].len() - 1;
             let cut_count = b.max(1);
-            let from = self.layout.graph.nodes[corners[i]].vertex;
-            let to = self.layout.graph.nodes[corners[(i + 3) % n]].vertex;
-            let path = self.cut_path(patch_faces, from, to);
-            // Tentatively fill the quad, then recurse on the rest. The
-            // recursion owns later pieces/cuts, so a failed recursion
-            // must roll back: snapshot the output lengths. (Emitted
-            // vertices stay (harmless duplicates are impossible: keys
-            // are unique), only faces roll back... vertices are keyed,
-            // so keeping them is consistent.)
-            let faces_before = self.faces_out.len();
+            let from = self.layout.graph.nodes[level_corners[i]].vertex;
+            let to = self.layout.graph.nodes[level_corners[(i + 3) % m]].vertex;
+            let path = self.cut_path(&adjacency, from, to);
             let cut = *cut_base;
-            let cut_keys = self.cut_sequence(patch, cut, &path, cut_count, patch_faces, true);
-            let cut_points: Vec<Vector3> =
-                cut_keys.iter().map(|k| self.verts_out[self.keys[k]]).collect();
+            *cut_base += 1;
+            let cut_keys = self.cut_sequence(patch, cut, &path, cut_count, true);
+            let cut_points: Vec<Vector3> = cut_keys
+                .iter()
+                .map(|k| self.verts_out[self.keys[k]])
+                .collect();
             let piece = *piece_base;
+            *piece_base += 1;
             self.fill_coons(
                 patch,
                 piece,
                 &[
-                    sides[i].clone(),
-                    sides[(i + 1) % n].clone(),
-                    sides[(i + 2) % n].clone(),
+                    level_sides[i].clone(),
+                    level_sides[(i + 1) % m].clone(),
+                    level_sides[(i + 2) % m].clone(),
                     cut_keys.clone(),
                 ],
                 &[
-                    side_points[i].clone(),
-                    side_points[(i + 1) % n].clone(),
-                    side_points[(i + 2) % n].clone(),
+                    level_points[i].clone(),
+                    level_points[(i + 1) % m].clone(),
+                    level_points[(i + 2) % m].clone(),
                     cut_points.clone(),
                 ],
                 a,
                 b,
-                patch_faces,
             );
-            // Remainder: corners i+3..i+n-1, i with the cut closing it.
-            let mut rest_corners = Vec::new();
-            let mut rest_sides: Vec<Vec<Key>> = Vec::new();
-            let mut rest_points: Vec<Vec<Vector3>> = Vec::new();
-            for k in 3..n {
-                rest_corners.push(corners[(i + k) % n]);
+            // Remainder: corners i+3..i+m-1, i with the cut closing it.
+            let mut rest_corners = Vec::with_capacity(m - 2);
+            let mut rest_sides = Vec::with_capacity(m - 2);
+            let mut rest_points = Vec::with_capacity(m - 2);
+            for k in 3..m {
+                rest_corners.push(level_corners[(i + k) % m]);
+                rest_sides.push(level_sides[(i + k) % m].clone());
+                rest_points.push(level_points[(i + k) % m].clone());
             }
-            rest_corners.push(corners[i]);
-            for k in 3..n {
-                rest_sides.push(sides[(i + k) % n].clone());
-                rest_points.push(side_points[(i + k) % n].clone());
-            }
+            rest_corners.push(level_corners[i]);
             let mut rev_keys = cut_keys;
             rev_keys.reverse();
             let mut rev_points = cut_points;
             rev_points.reverse();
             rest_sides.push(rev_keys);
             rest_points.push(rev_points);
-            // The remainder has n-2 >= 5 sides; quad remainder (n == 6
-            // handled above; n == 7 gives 5) recurses directly.
-            *piece_base += 1;
-            *cut_base += 1;
-            let ok = if rest_corners.len() == 4 {
-                // Direct quad: needs opposite equality on the nose.
-                let lens: Vec<usize> = rest_sides.iter().map(|s| s.len() - 1).collect();
-                if lens[0] == lens[2] && lens[1] == lens[3] {
-                    let piece = *piece_base;
-                    *piece_base += 1;
-                    self.fill_coons(
-                        patch,
-                        piece,
-                        &[
-                            rest_sides[0].clone(),
-                            rest_sides[1].clone(),
-                            rest_sides[2].clone(),
-                            rest_sides[3].clone(),
-                        ],
-                        &[
-                            rest_points[0].clone(),
-                            rest_points[1].clone(),
-                            rest_points[2].clone(),
-                            rest_points[3].clone(),
-                        ],
-                        lens[0],
-                        lens[1],
-                        patch_faces,
-                    );
-                    true
-                } else {
-                    false
-                }
-            } else {
-                self.fill_ngon(
-                    patch,
-                    &rest_corners,
-                    &rest_sides,
-                    &rest_points,
-                    patch_faces,
-                    piece_base,
-                    cut_base,
-                )
-            };
-            if ok {
-                return true;
-            }
-            self.faces_out.truncate(faces_before);
+            level_corners = rest_corners;
+            level_sides = rest_sides;
+            level_points = rest_points;
         }
-        false
+        // Terminal remainder (5/6 sides): recurse once; the loop arms
+        // find the planned rotation (same first-valid choice), so this
+        // is true by construction (verdict returned defensively).
+        self.fill_ngon(
+            patch,
+            &level_corners,
+            &level_sides,
+            &level_points,
+            patch_faces,
+            piece_base,
+            cut_base,
+            capped,
+        )
     }
 
     /// Subdivided triangle fill: 4-subtri recursion while all sides
@@ -754,14 +1168,9 @@ impl<'a> Filler<'a> {
         patch: usize,
         seqs: &[Vec<Key>; 3],
         points: &[Vec<Vector3>; 3],
-        patch_faces: &[usize],
         depth: usize,
     ) {
-        let counts = [
-            seqs[0].len() - 1,
-            seqs[1].len() - 1,
-            seqs[2].len() - 1,
-        ];
+        let counts = [seqs[0].len() - 1, seqs[1].len() - 1, seqs[2].len() - 1];
         let subdividable = depth < 3
             && counts.iter().all(|&c| c >= 2 && c % 2 == 0)
             && counts.iter().any(|&c| c >= 4);
@@ -792,7 +1201,7 @@ impl<'a> Filler<'a> {
                 (0..=count)
                     .map(|i| {
                         let t = i as f64 / count.max(1) as f64;
-                        let point = self.project(patch_faces, &(a + (b - a) * t));
+                        let point = self.project(&(a + (b - a) * t));
                         let key = Key::TriEdge(patch, edge, i);
                         self.emit(key, point, patch, (t, 0.5));
                         key
@@ -822,7 +1231,6 @@ impl<'a> Filler<'a> {
                 patch,
                 &[side_a, inner_seq, side_b],
                 &[points_a, inner_pts, points_b],
-                patch_faces,
                 depth + 1,
             );
         }
@@ -835,7 +1243,6 @@ impl<'a> Filler<'a> {
                 inner_points[1].clone(),
                 inner_points[2].clone(),
             ],
-            patch_faces,
             depth + 1,
         );
     }
@@ -865,9 +1272,8 @@ impl<'a> Filler<'a> {
                 let point = (self.verts[u] + self.verts[v]) * 0.5;
                 mids[i] = self.emit(key, point, patch, (0.5, 0.5));
             }
-            let corners = [a, b, c].map(|v| {
-                self.emit(Key::FallbackVert(v), self.verts[v], patch, (0.5, 0.5))
-            });
+            let corners = [a, b, c]
+                .map(|v| self.emit(Key::FallbackVert(v), self.verts[v], patch, (0.5, 0.5)));
             self.emit_face(&[corners[0], mids[0], center, mids[2]]);
             self.emit_face(&[corners[1], mids[1], center, mids[0]]);
             self.emit_face(&[corners[2], mids[2], center, mids[1]]);
@@ -1076,6 +1482,9 @@ pub(crate) fn fill_layout(
         stats: FillStats::default(),
         degenerate_area,
         next_tri_edge: 0,
+        projection: PatchProjection::build(topology, verts, &[]),
+        proj_seen: Vec::new(),
+        proj_stamp: 1,
     };
     filler.stats.patches = layout.patches.len();
     filler.stats.clamped_arcs = clamped_arcs;
@@ -1085,6 +1494,9 @@ pub(crate) fn fill_layout(
             continue;
         }
         filler.stats.usable_patches += 1;
+        // Structured fills project onto their own patch only (the
+        // fallback never projects).
+        filler.begin_patch(&patch.faces);
         match patch.sides.len() {
             4 if !deferred[patch_id] => {
                 let mut seqs: Vec<Vec<Key>> = Vec::new();
@@ -1097,29 +1509,38 @@ pub(crate) fn fill_layout(
                 let a = seqs[0].len() - 1;
                 let b = seqs[1].len() - 1;
                 if seqs[2].len() - 1 == a && seqs[3].len() - 1 == b {
-                    filler.fill_coons(
-                        patch_id,
-                        0,
-                        &[seqs[0].clone(), seqs[1].clone(), seqs[2].clone(), seqs[3].clone()],
-                        &[
-                            points[0].clone(),
-                            points[1].clone(),
-                            points[2].clone(),
-                            points[3].clone(),
-                        ],
-                        a,
-                        b,
-                        &patch.faces,
-                    );
+                    if grid_over_cap(a, b) {
+                        filler.stats.capped_patches += 1;
+                        filler.fill_fallback(patch_id, &patch.faces);
+                    } else {
+                        filler.fill_coons(
+                            patch_id,
+                            0,
+                            &[
+                                seqs[0].clone(),
+                                seqs[1].clone(),
+                                seqs[2].clone(),
+                                seqs[3].clone(),
+                            ],
+                            &[
+                                points[0].clone(),
+                                points[1].clone(),
+                                points[2].clone(),
+                                points[3].clone(),
+                            ],
+                            a,
+                            b,
+                        );
+                    }
                 } else {
                     filler.stats.conflicted_quads += 1;
-                    fill_diagonal(&mut filler, patch_id, &patch.faces);
+                    fill_diagonal(&mut filler, patch_id);
                 }
             }
             4 => {
                 // Deferred by propagation: diagonal triangle pair.
                 filler.stats.conflicted_quads += 1;
-                fill_diagonal(&mut filler, patch_id, &patch.faces);
+                fill_diagonal(&mut filler, patch_id);
             }
             3 => {
                 let mut seqs: Vec<Vec<Key>> = Vec::new();
@@ -1133,17 +1554,16 @@ pub(crate) fn fill_layout(
                     patch_id,
                     &[seqs[0].clone(), seqs[1].clone(), seqs[2].clone()],
                     &[points[0].clone(), points[1].clone(), points[2].clone()],
-                    &patch.faces,
                     0,
                 );
             }
             2 => {
-                if !fill_digon(&mut filler, patch_id, &patch.faces) {
+                if !fill_digon(&mut filler, patch_id) {
                     filler.fill_fallback(patch_id, &patch.faces);
                 }
             }
             1 => {
-                if !fill_monogon(&mut filler, patch_id, &patch.faces) {
+                if !fill_monogon(&mut filler, patch_id) {
                     filler.fill_fallback(patch_id, &patch.faces);
                 }
             }
@@ -1160,6 +1580,7 @@ pub(crate) fn fill_layout(
                 }
                 let mut piece = 1usize;
                 let mut cut = 0usize;
+                let mut capped = false;
                 if !filler.fill_ngon(
                     patch_id,
                     &corners,
@@ -1168,7 +1589,11 @@ pub(crate) fn fill_layout(
                     &patch.faces,
                     &mut piece,
                     &mut cut,
+                    &mut capped,
                 ) {
+                    if capped {
+                        filler.stats.capped_patches += 1;
+                    }
                     filler.fill_fallback(patch_id, &patch.faces);
                 }
             }
@@ -1188,7 +1613,7 @@ pub(crate) fn fill_layout(
 /// Diagonal triangle pair for a conflicted quad patch (rare): two
 /// flat triangles over the corners. Cracked against gridded
 /// neighbors by one sagitta; reported in the stats.
-fn fill_diagonal(filler: &mut Filler, patch: usize, patch_faces: &[usize]) {
+fn fill_diagonal(filler: &mut Filler, patch: usize) {
     let corners: Vec<usize> = (0..4).map(|p| filler.side_entry_node(patch, p)).collect();
     let positions: Vec<Vector3> = corners
         .iter()
@@ -1209,13 +1634,12 @@ fn fill_diagonal(filler: &mut Filler, patch: usize, patch_faces: &[usize]) {
         filler.emit_face(&[ids[0], ids[1], ids[3]]);
         filler.emit_face(&[ids[1], ids[2], ids[3]]);
     }
-    let _ = patch_faces;
 }
 
 /// Digon (two sides) to triangle via a midpoint split of the longest
 /// side. On-grid when the side count allows (shared key, no crack);
 /// chord midpoint otherwise (T-junction, no hole).
-fn fill_digon(filler: &mut Filler, patch: usize, patch_faces: &[usize]) -> bool {
+fn fill_digon(filler: &mut Filler, patch: usize) -> bool {
     let (keys0, points0) = filler.side_sequence(patch, 0);
     let (keys1, points1) = filler.side_sequence(patch, 1);
     let len0 = points0.len() - 1;
@@ -1246,7 +1670,7 @@ fn fill_digon(filler: &mut Filler, patch: usize, patch_faces: &[usize]) -> bool 
     } else {
         // Single-segment side: chord midpoint (T-junction).
         let point = (split_points[0] + split_points[split_points.len() - 1]) * 0.5;
-        let projected = filler.project(patch_faces, &point);
+        let projected = filler.project(&point);
         (Key::SplitPoint(patch, 0, 0), projected)
     };
     // Triangle corners: entry of split side, midpoint, exit (= entry
@@ -1274,7 +1698,6 @@ fn fill_digon(filler: &mut Filler, patch: usize, patch_faces: &[usize]) -> bool 
         patch,
         &[tri_a_keys, tri_b_keys, other_keys],
         &[tri_a_points, tri_b_points, other_points],
-        patch_faces,
         0,
     );
     true
@@ -1282,7 +1705,7 @@ fn fill_digon(filler: &mut Filler, patch: usize, patch_faces: &[usize]) -> bool 
 
 /// Monogon (one loop side) to triangle via two split points at thirds
 /// (shared keys when they land on the grid).
-fn fill_monogon(filler: &mut Filler, patch: usize, patch_faces: &[usize]) -> bool {
+fn fill_monogon(filler: &mut Filler, patch: usize) -> bool {
     let (keys, points) = filler.side_sequence(patch, 0);
     let count = keys.len() - 1;
     if count < 1 {
@@ -1339,7 +1762,6 @@ fn fill_monogon(filler: &mut Filler, patch: usize, patch_faces: &[usize]) -> boo
             vec![point_a, point_b],
             vec![point_b, points[0]],
         ],
-        patch_faces,
         0,
     );
     true
@@ -1354,17 +1776,172 @@ mod tests {
         let a = Vector3::new(0.0, 0.0, 0.0);
         let b = Vector3::new(1.0, 0.0, 0.0);
         let c = Vector3::new(0.0, 1.0, 0.0);
-        let interior = closest_on_triangle(
-            &Vector3::new(0.2, 0.2, 1.0),
-            &a,
-            &b,
-            &c,
-        );
+        let interior = closest_on_triangle(&Vector3::new(0.2, 0.2, 1.0), &a, &b, &c);
         assert!((interior.x() - 0.2).abs() < 1e-9);
         assert!((interior.y() - 0.2).abs() < 1e-9);
         assert!(interior.z().abs() < 1e-9);
         let vertex = closest_on_triangle(&Vector3::new(5.0, 0.0, 0.0), &a, &b, &c);
         assert!((vertex.x() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn projection_grid_matches_brute_force_distance() {
+        // 10x10 plane grid (162 tris -> Grid arm): every query's
+        // returned distance must equal the brute-force minimum
+        // exactly (the minimum VALUE is order-free; tied points may
+        // differ, so points are not compared).
+        let n = 10usize;
+        let mut verts = Vec::new();
+        for j in 0..n {
+            for i in 0..n {
+                verts.push(Vector3::new(i as f64, j as f64, 0.0));
+            }
+        }
+        let mut tris = Vec::new();
+        for j in 0..n - 1 {
+            for i in 0..n - 1 {
+                let a = j * n + i;
+                tris.push(vec![a, a + 1, a + n]);
+                tris.push(vec![a + 1, a + n + 1, a + n]);
+            }
+        }
+        let topology = SurfaceMesh::new(&verts, &tris);
+        let faces: Vec<usize> = (0..topology.face_count()).collect();
+        let index = PatchProjection::build(&topology, &verts, &faces);
+        assert!(matches!(index, PatchProjection::Grid(_)));
+        let mut seen = vec![0u32; index.tri_count()];
+        // Deterministic query cloud: over, under, and off the grid.
+        let mut state = 0x1234_5678_9abc_def1u64;
+        let mut next = || {
+            state = state
+                .wrapping_add(0x9E37_79B9_7F4A_7C15)
+                .wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            (state >> 11) as f64 * 2.0f64.powi(-53)
+        };
+        for q in 0..50 {
+            let point = Vector3::new(next() * 12.0 - 1.5, next() * 12.0 - 1.5, next() * 4.0 - 2.0);
+            let stamp = (q + 1) as u32;
+            let got = index.closest(&point, &mut seen, stamp);
+            let got_d2 = (got - point).length_squared();
+            let mut best_d2 = f64::INFINITY;
+            for face in &faces {
+                let tri = topology.triangle(*face);
+                let candidate =
+                    closest_on_triangle(&point, &verts[tri[0]], &verts[tri[1]], &verts[tri[2]]);
+                let d2 = (candidate - point).length_squared();
+                if d2 < best_d2 {
+                    best_d2 = d2;
+                }
+            }
+            assert_eq!(
+                got_d2, best_d2,
+                "query {q}: grid distance must equal brute-force minimum"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_cap_boundaries() {
+        // (a+1) x (b+1) > 16384, saturating (never panics).
+        assert!(!grid_over_cap(127, 127));
+        assert!(grid_over_cap(128, 128));
+        assert!(grid_over_cap(0, 20_000));
+        assert!(grid_over_cap(usize::MAX, 1));
+        assert!(!grid_over_cap(0, 0));
+    }
+
+    #[test]
+    fn planner_finds_first_valid_cut() {
+        // i=0 mismatched (1 vs 3), i=1 cuts (2 == 2) with a remainder
+        // terminating in a pentagon.
+        let mut cuts = Vec::new();
+        let mut capped = false;
+        let mut budget = FILL_MAX_PLAN_NODES;
+        let terminal =
+            Filler::plan_ngon_cuts(&[1, 2, 3, 2, 2, 2, 2], &mut cuts, &mut capped, &mut budget);
+        assert!(matches!(terminal, Some(NgonTerminal::Pent)), "{terminal:?}");
+        assert_eq!(cuts, vec![1]);
+        assert!(!capped);
+    }
+
+    #[test]
+    fn planner_terminates_in_hex() {
+        // Uniform octagon: first cut at 0, hexagon terminal at 0.
+        let mut cuts = Vec::new();
+        let mut capped = false;
+        let mut budget = FILL_MAX_PLAN_NODES;
+        let terminal = Filler::plan_ngon_cuts(
+            &[3, 3, 3, 3, 3, 3, 3, 3],
+            &mut cuts,
+            &mut capped,
+            &mut budget,
+        );
+        assert!(matches!(terminal, Some(NgonTerminal::Hex)), "{terminal:?}");
+        assert_eq!(cuts, vec![0]);
+        assert!(!capped);
+    }
+
+    #[test]
+    fn planner_rejects_unplannable() {
+        // No rotation matches anywhere: None, and no cap bound.
+        let mut cuts = Vec::new();
+        let mut capped = false;
+        let mut budget = FILL_MAX_PLAN_NODES;
+        let terminal =
+            Filler::plan_ngon_cuts(&[1, 2, 3, 4, 5, 6, 7], &mut cuts, &mut capped, &mut budget);
+        assert!(terminal.is_none());
+        assert!(cuts.is_empty());
+        assert!(!capped);
+    }
+
+    #[test]
+    fn planner_honors_node_budget() {
+        // The same plannable input plans with budget and caps without.
+        let counts = [3, 3, 3, 3, 3, 3, 3, 3];
+        let mut cuts = Vec::new();
+        let mut capped = false;
+        // Two nodes plan this input (level + hex terminal); one node
+        // starves.
+        let mut budget = 1;
+        let starved = Filler::plan_ngon_cuts(&counts, &mut cuts, &mut capped, &mut budget);
+        assert!(starved.is_none());
+        assert!(capped);
+        let mut cuts = Vec::new();
+        let mut capped = false;
+        let mut budget = FILL_MAX_PLAN_NODES;
+        let planned = Filler::plan_ngon_cuts(&counts, &mut cuts, &mut capped, &mut budget);
+        assert!(planned.is_some());
+        assert!(!capped);
+    }
+
+    #[test]
+    fn pent_cut_skips_over_cap_rotation_then_succeeds() {
+        // Rotation 0 matches counts but its quad is over-cap (skipped,
+        // capped set); rotation 2 matches and fits.
+        let mut capped = false;
+        let rotation = first_pent_cut(&[2, 200, 200, 200, 200], &mut capped);
+        assert_eq!(rotation, Some(2));
+        assert!(capped);
+        // All rotations over-cap: no plan, capped.
+        let mut capped = false;
+        assert_eq!(
+            first_pent_cut(&[200, 200, 200, 200, 200], &mut capped),
+            None
+        );
+        assert!(capped);
+    }
+
+    #[test]
+    fn hex_cut_skips_over_cap_rotations() {
+        let mut capped = false;
+        assert_eq!(
+            first_hex_cut(&[200, 200, 200, 200, 200, 200], &mut capped),
+            None
+        );
+        assert!(capped);
+        let mut capped = false;
+        assert_eq!(first_hex_cut(&[3, 3, 3, 3, 3, 3], &mut capped), Some(0));
+        assert!(!capped);
     }
 
     #[test]

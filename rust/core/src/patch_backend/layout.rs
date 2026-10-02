@@ -110,7 +110,13 @@ pub(crate) fn build_layout(topology: &SurfaceMesh, traced: &ArcGraph) -> Layout 
     // Boundary loops and sides per patch.
     let mut patches: Vec<Patch> = Vec::new();
     for faces in &patch_faces {
-        patches.push(patch_from_faces(topology, faces, &patch_of_face, &blocked, &mut graph));
+        patches.push(patch_from_faces(
+            topology,
+            faces,
+            &patch_of_face,
+            &blocked,
+            &mut graph,
+        ));
     }
     Layout { patches, graph }
 }
@@ -297,11 +303,9 @@ fn patch_from_faces(
                 let a = add_boundary_node(graph, chain[0]);
                 let b = add_boundary_node(graph, chain[chain.len() - 1]);
                 let arc = graph.arcs.len();
-                graph.arcs.push(crate::patch_backend::trace::TraceArc {
-                    a,
-                    b,
-                    path: chain,
-                });
+                graph
+                    .arcs
+                    .push(crate::patch_backend::trace::TraceArc { a, b, path: chain });
                 sides.push(PatchSide { arc, forward: true });
             }
         }
@@ -373,8 +377,7 @@ mod tests {
             let angle = i as f64 * PI / 3.0;
             vertices.push(Vector3::new(angle.cos(), angle.sin(), 0.0));
         }
-        let triangles: Vec<Vec<usize>> =
-            (0..6).map(|i| vec![0, 1 + i, 1 + (i + 1) % 6]).collect();
+        let triangles: Vec<Vec<usize>> = (0..6).map(|i| vec![0, 1 + i, 1 + (i + 1) % 6]).collect();
         (vertices, triangles)
     }
 

@@ -326,9 +326,8 @@ impl PatchRemesher {
         // quiet (this back end reports its own coarse stages).
         self.report(0.0, "Patch backend: frontend resample");
         let mut frontend = AutoRemesher::new(&self.vertices, &self.triangles);
-        frontend.set_target_triangle_count(
-            self.target_triangle_count.saturating_mul(working_mult()),
-        );
+        frontend
+            .set_target_triangle_count(self.target_triangle_count.saturating_mul(working_mult()));
         frontend.set_scaling(self.scaling);
         frontend.set_model_type(self.model_type);
         frontend.set_gradient_adaptivity(self.adaptivity);
@@ -405,7 +404,11 @@ impl PatchRemesher {
             })
             .sum();
         let target_quads = (self.target_triangle_count / 2).max(1) as f64;
-        let scaling = if self.scaling > 0.0 { self.scaling } else { 1.0 };
+        let scaling = if self.scaling > 0.0 {
+            self.scaling
+        } else {
+            1.0
+        };
         let edge_scale = if total_area > 0.0 {
             scaling * (total_area / target_quads).sqrt()
         } else {
@@ -419,9 +422,11 @@ impl PatchRemesher {
         let mut total_crossings = 0usize;
         let mut total_dead_ends = 0usize;
         let mut total_patches = 0usize;
+        let mut total_usable = 0usize;
         let mut total_conflicts = 0usize;
         let mut total_triangles = 0usize;
         let mut total_clamped = 0usize;
+        let mut total_capped = 0usize;
         let mut total_fallback_faces = 0usize;
         let island_total = working_islands.len().max(1);
         for (working_index, island) in working_islands.iter().enumerate() {
@@ -500,9 +505,11 @@ impl PatchRemesher {
                 degenerate_area,
             );
             total_patches += filled.stats.patches;
+            total_usable += filled.stats.usable_patches;
             total_conflicts += filled.stats.conflicted_quads;
             total_triangles += filled.stats.triangles;
             total_clamped += filled.stats.clamped_arcs;
+            total_capped += filled.stats.capped_patches;
             total_fallback_faces += filled.stats.fallback_faces;
             let vertex_base = self.remeshed_vertices.len();
             self.remeshed_vertices.extend(filled.verts.iter().cloned());
@@ -549,15 +556,17 @@ impl PatchRemesher {
             self.triangles.len()
         ));
         self.phase_report.push(format!(
-            "Patch backend: {} working islands, {} singularities, {} crossings, {} dead ends, {} patches, {} conflicts, {} triangles, {} clamped, {} fallback faces",
+            "Patch backend: {} working islands, {} singularities, {} crossings, {} dead ends, {} patches ({} usable), {} conflicts, {} triangles, {} clamped, {} capped, {} fallback faces",
             working_islands.len(),
             total_singularities,
             total_crossings,
             total_dead_ends,
             total_patches,
+            total_usable,
             total_conflicts,
             total_triangles,
             total_clamped,
+            total_capped,
             total_fallback_faces
         ));
         self.report(1.0, "Patch backend: done");

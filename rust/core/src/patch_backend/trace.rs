@@ -144,12 +144,7 @@ fn rotate_around_axis(v: &Vector3, axis: &Vector3, angle: f64) -> Vector3 {
 /// and accumulates the signed mismatch (in units of pi/2) against each
 /// face's own field vector. The sign convention matches positive
 /// index: a valence-3 singularity (index +1/4) sums to +1.
-fn winding_sum(
-    topology: &SurfaceMesh,
-    verts: &[Vector3],
-    field: &[Vector3],
-    vertex: usize,
-) -> i32 {
+fn winding_sum(topology: &SurfaceMesh, verts: &[Vector3], field: &[Vector3], vertex: usize) -> i32 {
     let (ring, closed) = ordered_ring(topology, vertex);
     if ring.len() < 2 || !closed {
         return 0;
@@ -174,7 +169,11 @@ fn winding_sum(
         if axis_len <= 0.0 {
             return 0;
         }
-        axis = Vector3::new(axis.x() / axis_len, axis.y() / axis_len, axis.z() / axis_len);
+        axis = Vector3::new(
+            axis.x() / axis_len,
+            axis.y() / axis_len,
+            axis.z() / axis_len,
+        );
         // Orient the axis so the rotation carries n0 to n1.
         let mut angle = sin_d.atan2(Vector3::dot_product(&n0, &n1).clamp(-1.0, 1.0));
         let trial = rotate_around_axis(&n0, &axis, angle);
@@ -219,7 +218,13 @@ fn ray_count_for(
         3 => 5,
         2 => {
             let sum = winding_sum(topology, verts, field, vertex);
-            if sum > 0 { 2 } else if sum < 0 { 6 } else { 4 }
+            if sum > 0 {
+                2
+            } else if sum < 0 {
+                6
+            } else {
+                4
+            }
         }
         _ => 0,
     }
@@ -305,9 +310,7 @@ fn seed_directions(
         return Vec::new();
     }
     arms.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    (0..count)
-        .map(|i| arms[i * arms.len() / count].1)
-        .collect()
+    (0..count).map(|i| arms[i * arms.len() / count].1).collect()
 }
 
 /// The motorcycle tracer: owns the graph plus the lookup tables.
@@ -398,7 +401,10 @@ impl<'a> Tracer<'a> {
     fn register_arc(&mut self, a: usize, b: usize, path: Vec<usize>) -> usize {
         let id = self.graph.arcs.len();
         for (index, &vertex) in path.iter().enumerate() {
-            self.arc_membership.entry(vertex).or_default().push((id, index));
+            self.arc_membership
+                .entry(vertex)
+                .or_default()
+                .push((id, index));
         }
         self.graph.arcs.push(TraceArc { a, b, path });
         id
@@ -581,8 +587,7 @@ impl<'a> Tracer<'a> {
                 // occurrence into endpoints, so the loop terminates.
                 let mut crossed_any = false;
                 loop {
-                    let entries =
-                        self.arc_membership.get(&next).cloned().unwrap_or_default();
+                    let entries = self.arc_membership.get(&next).cloned().unwrap_or_default();
                     let mut progressed = false;
                     for (arc, index) in entries {
                         if self.split_arc(arc, index, next).is_some() {
@@ -792,8 +797,7 @@ mod tests {
             let angle = i as f64 * PI / 3.0;
             vertices.push(Vector3::new(angle.cos(), angle.sin(), 0.0));
         }
-        let triangles: Vec<Vec<usize>> =
-            (0..6).map(|i| vec![0, 1 + i, 1 + (i + 1) % 6]).collect();
+        let triangles: Vec<Vec<usize>> = (0..6).map(|i| vec![0, 1 + i, 1 + (i + 1) % 6]).collect();
         (vertices, triangles)
     }
 

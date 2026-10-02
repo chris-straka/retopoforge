@@ -219,17 +219,15 @@ pub(crate) fn compute_field(
     };
     let mut multipliers = adaptivity_multipliers(vertices, triangles, adaptivity);
     if !density_per_vertex.is_empty() {
-        Density::apply_to_scaling_field(
-            vertices,
-            triangles,
-            density_per_vertex,
-            &mut multipliers,
-        );
+        Density::apply_to_scaling_field(vertices, triangles, density_per_vertex, &mut multipliers);
     }
     // Budget: with renormalized multipliers SUM A_f/m_f^2 equals the
     // island area, so widths of edge_scale*m_f integrate to
     // area/edge_scale^2 quads.
-    let face_width: Vec<f64> = multipliers.iter().map(|m| edge_scale * m.max(1e-6)).collect();
+    let face_width: Vec<f64> = multipliers
+        .iter()
+        .map(|m| edge_scale * m.max(1e-6))
+        .collect();
     let mut singularities = Vec::new();
     for (v, &charge) in charges.iter().enumerate() {
         if charge != 0 {
@@ -276,18 +274,8 @@ mod tests {
     fn field_stage_runs_on_closed_mesh() {
         let (vertices, triangles) = diamond();
         let plane = SymmetryPlane::default();
-        let island = compute_field(
-            &vertices,
-            &triangles,
-            90.0,
-            &[],
-            &[],
-            &plane,
-            1.0,
-            &[],
-            0.5,
-        )
-        .expect("field must solve on a diamond");
+        let island = compute_field(&vertices, &triangles, 90.0, &[], &[], &plane, 1.0, &[], 0.5)
+            .expect("field must solve on a diamond");
         assert_eq!(island.field.len(), triangles.len());
         assert_eq!(island.charges.len(), vertices.len());
         assert_eq!(island.face_width.len(), triangles.len());
@@ -309,8 +297,6 @@ mod tests {
     #[test]
     fn empty_mesh_fails_cleanly() {
         let plane = SymmetryPlane::default();
-        assert!(
-            compute_field(&[], &[], 90.0, &[], &[], &plane, 1.0, &[], 0.5).is_none()
-        );
+        assert!(compute_field(&[], &[], 90.0, &[], &[], &plane, 1.0, &[], 0.5).is_none());
     }
 }
