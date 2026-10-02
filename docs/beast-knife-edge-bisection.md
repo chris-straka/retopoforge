@@ -71,3 +71,12 @@ Then compare stage dumps old vs new (`/tmp/stage_bisect.py`,
 `/tmp/stage_followup*.py` were the throwaway comparisons; kept in /tmp,
 not committed). The repo keeps the `RETOPO_DUMP_STAGES` research probe
 for item-7 work.
+
+## Fix (landed after the bisection)
+
+The "extraction robustness" direction shipped as the coverage check +
+deterministic retry (`docs/coverage-retry.md`, `coverage_reports()`,
+`rust/core/tests/coverage_retry.rs`): the dropped appendage now fires
+the check and recovers on the first jitter retry (8/8 seeds). The retry
+re-rolls the tiling; the fold itself is still open — see the item-7 and
+patch-backend notes in `TODO.md`.

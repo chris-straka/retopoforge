@@ -676,9 +676,95 @@ impl Default for IslandContext {
     }
 }
 
+/// Coverage retry outcome for one island, reported like a failed
+/// island. Present only when the first attempt failed coverage:
+/// `retries_made` counts the jitter retries run (1-3, stopping at the
+/// first full-coverage result); `recovered` tells whether one covered
+/// fully (else attempt 0 was kept); `initial_uncovered`/`final_uncovered`
+/// count working verts beyond the coverage width before/after.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CoverageReport {
+    pub island_index: usize,
+    pub retries_made: usize,
+    pub recovered: bool,
+    pub initial_uncovered: usize,
+    pub final_uncovered: usize,
+}
+
+/// Everything one island attempt writes (coverage-retry save/restore
+/// bundle): extractor outputs plus the preview captures and dipole
+/// count, so a retried island commits exactly one attempt's state.
+struct AttemptOutputs {
+    captured_uvs: Vec<Vec<Vector2>>,
+    captured_original_uvs: Vec<Vec<Vector2>>,
+    captured_extracted_connection_moved: Vec<u8>,
+    captured_singular_vertices: Vec<Vector3>,
+    captured_singular_vertex_indices: Vec<usize>,
+    captured_extracted_connections: Vec<(Vector3, Vector3)>,
+    captured_vertex_uvs: Vec<Vector2>,
+    remeshed_vertices: Vec<Vector3>,
+    remeshed_quads: Vec<Vec<usize>>,
+    dipoles_placed: usize,
+}
+
+impl<'a> ParameterizationThread<'a> {
+    /// Clears all attempt outputs (fresh retry start: attempts only
+    /// write their success paths, so stale data must not linger).
+    fn clear_attempt_outputs(&mut self) {
+        self.captured_uvs.clear();
+        self.captured_original_uvs.clear();
+        self.captured_extracted_connection_moved.clear();
+        self.captured_singular_vertices.clear();
+        self.captured_singular_vertex_indices.clear();
+        self.captured_extracted_connections.clear();
+        self.captured_vertex_uvs.clear();
+        self.remeshed_vertices.clear();
+        self.remeshed_quads.clear();
+        self.dipoles_placed = 0;
+    }
+
+    /// Moves all attempt outputs out (saving attempt 0 before retries).
+    fn take_attempt_outputs(&mut self) -> AttemptOutputs {
+        AttemptOutputs {
+            captured_uvs: std::mem::take(&mut self.captured_uvs),
+            captured_original_uvs: std::mem::take(&mut self.captured_original_uvs),
+            captured_extracted_connection_moved: std::mem::take(
+                &mut self.captured_extracted_connection_moved,
+            ),
+            captured_singular_vertices: std::mem::take(&mut self.captured_singular_vertices),
+            captured_singular_vertex_indices: std::mem::take(
+                &mut self.captured_singular_vertex_indices,
+            ),
+            captured_extracted_connections: std::mem::take(
+                &mut self.captured_extracted_connections,
+            ),
+            captured_vertex_uvs: std::mem::take(&mut self.captured_vertex_uvs),
+            remeshed_vertices: std::mem::take(&mut self.remeshed_vertices),
+            remeshed_quads: std::mem::take(&mut self.remeshed_quads),
+            dipoles_placed: std::mem::take(&mut self.dipoles_placed),
+        }
+    }
+
+    /// Restores a bundle taken by [`Self::take_attempt_outputs`] (all
+    /// retries failed: attempt 0 is kept).
+    fn restore_attempt_outputs(&mut self, outputs: AttemptOutputs) {
+        self.captured_uvs = outputs.captured_uvs;
+        self.captured_original_uvs = outputs.captured_original_uvs;
+        self.captured_extracted_connection_moved = outputs.captured_extracted_connection_moved;
+        self.captured_singular_vertices = outputs.captured_singular_vertices;
+        self.captured_singular_vertex_indices = outputs.captured_singular_vertex_indices;
+        self.captured_extracted_connections = outputs.captured_extracted_connections;
+        self.captured_vertex_uvs = outputs.captured_vertex_uvs;
+        self.remeshed_vertices = outputs.remeshed_vertices;
+        self.remeshed_quads = outputs.remeshed_quads;
+        self.dipoles_placed = outputs.dipoles_placed;
+    }
+}
+
 struct ParameterizationThread<'a> {
     island_index: usize,
     island: &'a IslandContext,
+    coverage: Option<CoverageReport>,
     captured_uvs: Vec<Vec<Vector2>>,
     captured_original_uvs: Vec<Vec<Vector2>>,
     captured_extracted_connection_moved: Vec<u8>,
@@ -724,6 +810,7 @@ pub struct AutoRemesher {
     progress: Arc<ProgressState>,
     phase_report: Vec<String>,
     island_output_quad_counts: Vec<usize>,
+    coverage_reports: Vec<CoverageReport>,
     island_dipole_counts: Vec<usize>,
     dipoles: DipoleConfig,
     scaling: f64,
@@ -776,6 +863,7 @@ impl AutoRemesher {
             progress: Arc::new(ProgressState::new()),
             phase_report: Vec::new(),
             island_output_quad_counts: Vec::new(),
+            coverage_reports: Vec::new(),
             island_dipole_counts: Vec::new(),
             // Product default for dipole insertion (no C++ counterpart;
             // see set_dipoles): automatic. Validated end to end on the
@@ -1024,6 +1112,14 @@ impl AutoRemesher {
     #[must_use]
     pub fn island_output_quad_counts(&self) -> &[usize] {
         &self.island_output_quad_counts
+    }
+
+    /// Coverage retry reports from the last `remesh` (island order; one
+    /// entry per island whose first attempt failed coverage, recovered
+    /// or not; empty when no retry fired).
+    #[must_use]
+    pub fn coverage_reports(&self) -> &[CoverageReport] {
+        &self.coverage_reports
     }
 
     /// Per-island dipole flips applied by the last `remesh` (island
@@ -1334,6 +1430,268 @@ impl AutoRemesher {
         }
         for c in positions.iter_mut() {
             *c = (*c / g).round() * g;
+        }
+    }
+
+    /// Coverage failure threshold (resolution-relative): an island
+    /// fails coverage when at least [`Self::COVERAGE_MIN_REGION_VERTS`]
+    /// working verts sit beyond [`Self::COVERAGE_WIDTH_MULTIPLE`] nominal
+    /// quad widths (`diag/sqrt(nquads)`) from the extracted quads.
+    /// Calibrated over the bench (10 cases: 0 verts beyond 3 widths),
+    /// 24 noisy tiny seeds (1 fires), 359 suite island-runs (1 mid-size
+    /// fixture fires) and beast@1000-native (7 dropped seeds: 67-156
+    /// verts beyond 3 widths; covered seed: 0); see
+    /// `docs/beast-knife-edge-bisection.md` and `docs/coverage-retry.md`.
+    const COVERAGE_WIDTH_MULTIPLE: f64 = 3.0;
+    /// Minimum uncovered working verts that count as a failed region
+    /// (isolated spikes never fire the retry on their own).
+    const COVERAGE_MIN_REGION_VERTS: usize = 25;
+
+    /// Coverage retry seeds (deterministic jitter variants), tried in
+    /// order; the first full-coverage result wins.
+    const COVERAGE_RETRY_SEEDS: [u64; 3] = [1, 2, 3];
+
+    /// Retry jitter amplitude, relative to the island working-mesh
+    /// diagonal. Noise-floor jitter (1e-9, the `bench/noise.py` scale)
+    /// cannot move the uv rounding that folds a dropped region (1e-6
+    /// still fails); 1e-4 recovers 7/8 native-beast seeds while the
+    /// partial fold resists; 1e-3 recovers 8/8 on the first retry with
+    /// exact-zero residuals, and the recovered outputs sit inside the
+    /// healthy tiling spread (dist_mean 0.82-1.09 vs 0.68-1.01
+    /// unretried). See `docs/coverage-retry.md`.
+    const COVERAGE_JITTER_AMPLITUDE: f64 = 1e-3;
+
+    /// Squared distance from point `p` to triangle `(a, b, c)` (Ericson
+    /// 5.1.5, f64). Total: degenerate triangles fall through to the
+    /// vertex/edge regions.
+    fn point_triangle_dist2(p: &Vector3, a: &Vector3, b: &Vector3, c: &Vector3) -> f64 {
+        let abx = b.x() - a.x();
+        let aby = b.y() - a.y();
+        let abz = b.z() - a.z();
+        let acx = c.x() - a.x();
+        let acy = c.y() - a.y();
+        let acz = c.z() - a.z();
+        let apx = p.x() - a.x();
+        let apy = p.y() - a.y();
+        let apz = p.z() - a.z();
+        let d1 = abx * apx + aby * apy + abz * apz;
+        let d2 = acx * apx + acy * apy + acz * apz;
+        if d1 <= 0.0 && d2 <= 0.0 {
+            return apx * apx + apy * apy + apz * apz;
+        }
+        let bpx = p.x() - b.x();
+        let bpy = p.y() - b.y();
+        let bpz = p.z() - b.z();
+        let d3 = abx * bpx + aby * bpy + abz * bpz;
+        let d4 = acx * bpx + acy * bpy + acz * bpz;
+        if d3 >= 0.0 && d4 <= d3 {
+            return bpx * bpx + bpy * bpy + bpz * bpz;
+        }
+        let vc = d1 * d4 - d3 * d2;
+        if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+            let v = d1 / (d1 - d3);
+            let qx = a.x() + v * abx - p.x();
+            let qy = a.y() + v * aby - p.y();
+            let qz = a.z() + v * abz - p.z();
+            return qx * qx + qy * qy + qz * qz;
+        }
+        let cpx = p.x() - c.x();
+        let cpy = p.y() - c.y();
+        let cpz = p.z() - c.z();
+        let d5 = abx * cpx + aby * cpy + abz * cpz;
+        let d6 = acx * cpx + acy * cpy + acz * cpz;
+        if d6 >= 0.0 && d5 <= d6 {
+            return cpx * cpx + cpy * cpy + cpz * cpz;
+        }
+        let vb = d5 * d2 - d1 * d6;
+        if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+            let w = d2 / (d2 - d6);
+            let qx = a.x() + w * acx - p.x();
+            let qy = a.y() + w * acy - p.y();
+            let qz = a.z() + w * acz - p.z();
+            return qx * qx + qy * qy + qz * qz;
+        }
+        let va = d3 * d6 - d5 * d4;
+        if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+            let cbx = c.x() - b.x();
+            let cby = c.y() - b.y();
+            let cbz = c.z() - b.z();
+            let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+            let qx = b.x() + w * cbx - p.x();
+            let qy = b.y() + w * cby - p.y();
+            let qz = b.z() + w * cbz - p.z();
+            return qx * qx + qy * qy + qz * qz;
+        }
+        let denom = 1.0 / (va + vb + vc);
+        let v = vb * denom;
+        let w = vc * denom;
+        let qx = a.x() + abx * v + acx * w - p.x();
+        let qy = a.y() + aby * v + acy * w - p.y();
+        let qz = a.z() + abz * v + acz * w - p.z();
+        qx * qx + qy * qy + qz * qz
+    }
+
+    /// Per-working-vertex distance to the extracted surface (quads
+    /// triangulate as fans, matching `bench/score.py`): empty quads give
+    /// infinity (total failure). Each quad triangle carries an AABB
+    /// reject so covered verts skip far triangles cheaply. Pure function
+    /// of its inputs (fixed iteration order, f64).
+    fn coverage_gaps(
+        working: &[Vector3],
+        quad_vertices: &[Vector3],
+        quads: &[Vec<usize>],
+    ) -> Vec<f64> {
+        if quads.is_empty() || quad_vertices.is_empty() {
+            return vec![f64::INFINITY; working.len()];
+        }
+        // Flatten quad fans once, with AABBs.
+        let mut tris: Vec<(usize, usize, usize, [f64; 6])> = Vec::new();
+        for q in quads {
+            for k in 1..q.len().saturating_sub(1) {
+                let (a, b, c) = (q[0], q[k], q[k + 1]);
+                if a >= quad_vertices.len() || b >= quad_vertices.len() || c >= quad_vertices.len()
+                {
+                    continue;
+                }
+                let pa = &quad_vertices[a];
+                let pb = &quad_vertices[b];
+                let pc = &quad_vertices[c];
+                tris.push((
+                    a,
+                    b,
+                    c,
+                    [
+                        pa.x().min(pb.x()).min(pc.x()),
+                        pa.y().min(pb.y()).min(pc.y()),
+                        pa.z().min(pb.z()).min(pc.z()),
+                        pa.x().max(pb.x()).max(pc.x()),
+                        pa.y().max(pb.y()).max(pc.y()),
+                        pa.z().max(pb.z()).max(pc.z()),
+                    ],
+                ));
+            }
+        }
+        if tris.is_empty() {
+            return vec![f64::INFINITY; working.len()];
+        }
+        let mut gaps = Vec::with_capacity(working.len());
+        for p in working.iter() {
+            let mut best = f64::INFINITY;
+            for (a, b, c, bb) in tris.iter() {
+                // AABB reject against the running best.
+                let dx = if p.x() < bb[0] {
+                    bb[0] - p.x()
+                } else if p.x() > bb[3] {
+                    p.x() - bb[3]
+                } else {
+                    0.0
+                };
+                let dy = if p.y() < bb[1] {
+                    bb[1] - p.y()
+                } else if p.y() > bb[4] {
+                    p.y() - bb[4]
+                } else {
+                    0.0
+                };
+                let dz = if p.z() < bb[2] {
+                    bb[2] - p.z()
+                } else if p.z() > bb[5] {
+                    p.z() - bb[5]
+                } else {
+                    0.0
+                };
+                if dx * dx + dy * dy + dz * dz >= best {
+                    continue;
+                }
+                let d2 = Self::point_triangle_dist2(
+                    p,
+                    &quad_vertices[*a],
+                    &quad_vertices[*b],
+                    &quad_vertices[*c],
+                );
+                if d2 < best {
+                    best = d2;
+                }
+            }
+            gaps.push(best.sqrt());
+        }
+        gaps
+    }
+
+    /// Bbox diagonal of `points` (0 when empty or fully degenerate);
+    /// the coverage scale plus the retry-jitter scale.
+    fn bbox_diag(points: &[Vector3]) -> f64 {
+        if points.is_empty() {
+            return 0.0;
+        }
+        let mut lo = Vector3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+        let mut hi = Vector3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for w in points.iter() {
+            lo.set_x(lo.x().min(w.x()));
+            lo.set_y(lo.y().min(w.y()));
+            lo.set_z(lo.z().min(w.z()));
+            hi.set_x(hi.x().max(w.x()));
+            hi.set_y(hi.y().max(w.y()));
+            hi.set_z(hi.z().max(w.z()));
+        }
+        (hi - lo).length()
+    }
+
+    /// Coverage verdict over per-vertex `gaps`: `(failed, uncovered)`,
+    /// where `uncovered` counts verts beyond
+    /// [`Self::COVERAGE_WIDTH_MULTIPLE`] nominal quad widths
+    /// (`diag/sqrt(nquads)`). Empty quads never fail here (the
+    /// failed-island path owns them); degenerate inputs (zero quads,
+    /// zero/NaN diag) report no failure.
+    fn coverage_failed(gaps: &[f64], diag: f64, nquads: usize) -> (bool, usize) {
+        if nquads == 0 || !(diag > 0.0) {
+            return (false, 0);
+        }
+        let unit = diag / (nquads as f64).sqrt();
+        let uncovered = gaps
+            .iter()
+            .filter(|g| **g > Self::COVERAGE_WIDTH_MULTIPLE * unit)
+            .count();
+        (uncovered >= Self::COVERAGE_MIN_REGION_VERTS, uncovered)
+    }
+
+    /// SplitMix64 (Steele et al.): deterministic cross-platform u64 stream
+    /// for retry jitter (wrapping arithmetic only).
+    fn splitmix64(state: &mut u64) -> u64 {
+        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Jitters working vertices in place for a coverage retry: per-coord
+    /// offsets uniform in `[-eps/2, eps/2)` with `eps =
+    /// COVERAGE_JITTER_AMPLITUDE * island_diag`. Keyed on position bits
+    /// (bitwise-duplicate vertices move together, preserving the weld)
+    /// and the retry seed; pure function of (positions, diag, seed), no
+    /// tables, identical on every platform (integer hash, one rounded
+    /// multiply per coord).
+    fn jitter_working_vertices(vertices: &mut [Vector3], island_diag: f64, seed: u64) {
+        let eps = Self::COVERAGE_JITTER_AMPLITUDE * island_diag;
+        if !(eps > 0.0) {
+            return;
+        }
+        for v in vertices.iter_mut() {
+            let mut state = v.x().to_bits()
+                ^ v.y().to_bits().rotate_left(21)
+                ^ v.z().to_bits().rotate_left(42)
+                ^ seed.rotate_left(13)
+                ^ 0x9E37_79B9_7F4A_7C15;
+            let mut draw = || {
+                let h = Self::splitmix64(&mut state);
+                // Top 53 bits -> exact dyadic in [0, 1).
+                (h >> 11) as f64 * 2.0f64.powi(-53)
+            };
+            let ox = (draw() - 0.5) * eps;
+            let oy = (draw() - 0.5) * eps;
+            let oz = (draw() - 0.5) * eps;
+            v.set_data(v.x() + ox, v.y() + oy, v.z() + oz);
         }
     }
 
@@ -1713,6 +2071,7 @@ impl AutoRemesher {
     /// is rejected.
     pub fn remesh(&mut self) -> bool {
         self.island_output_quad_counts.clear();
+        self.coverage_reports.clear();
         self.island_dipole_counts.clear();
         // Validate inputs before any sizing math. In particular a zero
         // target triangle count would divide by zero in
@@ -2008,6 +2367,7 @@ impl AutoRemesher {
             .map(|(i, context)| ParameterizationThread {
                 island_index: i,
                 island: context,
+                coverage: None,
                 captured_uvs: Vec::new(),
                 captured_original_uvs: Vec::new(),
                 captured_extracted_connection_moved: Vec::new(),
@@ -2028,13 +2388,10 @@ impl AutoRemesher {
         {
             let this = &*self;
             parallel_each(&mut parameterization_threads, |_, thread| {
-                let t0 = Instant::now();
-
                 let island = thread.island;
-                let vertices = &island.vertices;
                 let triangles = &island.triangles;
 
-                if vertices.is_empty() || triangles.is_empty() {
+                if island.vertices.is_empty() || triangles.is_empty() {
                     // Still retire the island, otherwise its share of the
                     // bar is never filled in and the total stalls short of
                     // the end.
@@ -2042,161 +2399,298 @@ impl AutoRemesher {
                     return;
                 }
 
-                this.update_progress(thread.island_index, ISLAND_RESAMPLE_END, None);
-                let mut parameterizer = Parameterizer::new(vertices, triangles, None);
-                if !this.quiet() {
-                    parameterizer.set_progress_handler(this.make_stage_progress(
-                        thread.island_index,
-                        ISLAND_RESAMPLE_END,
-                        ISLAND_PARAMETERIZE_END,
-                        0.0,
-                    ));
-                }
-                if island.scaling > 0.0 {
-                    parameterizer.set_scaling(island.scaling);
-                }
-                parameterizer.set_gradient_adaptivity(island.adaptivity);
-                parameterizer.set_anisotropy(island.anisotropy);
-                parameterizer.set_sharp_edge_degrees(island.sharp_edge_degrees);
-                parameterizer.set_symmetry_plane(island.symmetry_plane);
-                // Always `Some` (possibly empty, never null — the C++
-                // stores `&m_guidePolylines` unconditionally).
-                parameterizer.set_guide_polylines(Some(&this.guide_polylines));
-                parameterizer.set_sharp_polylines(Some(&this.sharp_polylines));
-                if !island.resampled_density.is_empty() {
-                    parameterizer.set_density_field(island.resampled_density.clone());
-                }
-                // Always set (the product default flows down even when it
-                // is off: the leaf default must never shadow it).
-                parameterizer.set_dipoles(this.dipoles);
-                // (No try/catch counterpart: the port signals failure
-                // through the `bool` return, so there is nothing to catch —
-                // and the C++ `Island N: parameterization failed` stderr
-                // falls under the stderr-gap memo besides.)
-                let parameterize_succeeded = parameterizer.parameterize();
-
-                let t1 = Instant::now();
-                parameterize_time_us
-                    .fetch_add(t1.duration_since(t0).as_micros() as i64, Ordering::SeqCst);
-
-                if parameterize_succeeded {
-                    thread.dipoles_placed = parameterizer.dipole_flips();
-                    this.update_progress(thread.island_index, ISLAND_PARAMETERIZE_END, None);
-                    // `take_triangle_uvs` is `Some` on every success path
-                    // (the C++ `if (uvs)` null branch is unreachable after
-                    // success: `parameterize` populates the UVs before its
-                    // single `return true`).
-                    if let Some(uvs) = parameterizer.take_triangle_uvs() {
-                        // Save a copy of UVs for the [param] preview overlay
-                        thread.captured_uvs = uvs.clone();
-                        thread.captured_original_uvs =
-                            parameterizer.original_triangle_uvs().to_vec();
-                        // Capture singular vertex positions for the [param]
-                        // preview
-                        thread.captured_singular_vertices =
-                            parameterizer.singular_vertex_positions().to_vec();
-                        thread.captured_singular_vertex_indices =
-                            parameterizer.singular_vertex_indices().to_vec();
-                        // Research probe (RETOPO_DUMP_STAGES=dir):
-                        // stage-2 singularities + stage-3 (original + rounded)
-                        // triangle uvs, parallel to the working triangles.
-                        // Research probe (kept for item-7 stage analysis); no state touched.
-                        if let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES") {
-                            let idx = thread.island_index;
-                            let sing_path = std::path::Path::new(&dir)
-                                .join(format!("stage2_singular_island{idx}.txt"));
-                            let mut sing = String::new();
-                            for (k, p) in thread
-                                .captured_singular_vertex_indices
-                                .iter()
-                                .zip(thread.captured_singular_vertices.iter())
-                            {
-                                sing.push_str(&format!("{k} {} {} {}\n", p.x(), p.y(), p.z()));
-                            }
-                            let _ = std::fs::write(sing_path, sing);
-                            let uv_path = std::path::Path::new(&dir)
-                                .join(format!("stage3_uv_island{idx}.txt"));
-                            let mut uv = String::new();
-                            for (i, t) in uvs.iter().enumerate() {
-                                let o = &thread.captured_original_uvs[i];
-                                uv.push_str(&format!(
-                                    "{i} {} {} {} {} {} {} {} {} {} {} {} {}\n",
-                                    t[0].x(),
-                                    t[0].y(),
-                                    t[1].x(),
-                                    t[1].y(),
-                                    t[2].x(),
-                                    t[2].y(),
-                                    o[0].x(),
-                                    o[0].y(),
-                                    o[1].x(),
-                                    o[1].y(),
-                                    o[2].x(),
-                                    o[2].y(),
-                                ));
-                            }
-                            let _ = std::fs::write(uv_path, uv);
+                // Coverage retry: attempt 0 runs the island as-is; when it
+                // fails coverage (a region-scale uv fold dropped part of
+                // the working mesh), retries re-run parameterize+extract
+                // over deterministically jittered vertices and the first
+                // full-coverage result wins (else attempt 0 is kept).
+                let island_diag = Self::bbox_diag(&island.vertices);
+                let mut jittered: Vec<Vector3> = Vec::new();
+                let mut saved_attempt: Option<AttemptOutputs> = None;
+                let mut coverage_fired = false;
+                let mut initial_uncovered = 0usize;
+                let mut winning_attempt = 0usize;
+                let mut retries_run = 0usize;
+                let mut final_uncovered = 0usize;
+                for attempt in 0..=Self::COVERAGE_RETRY_SEEDS.len() {
+                    if attempt > 0 {
+                        if !coverage_fired {
+                            break;
                         }
-                        let mut remesher = QuadExtractor::new(vertices, triangles, &uvs);
-                        remesher.set_original_triangle_uvs(&thread.captured_original_uvs);
-                        remesher.set_singular_vertices(&thread.captured_singular_vertex_indices);
-                        // No handler in quiet mode: the extractor's stderr
-                        // progress echoes key off handler presence.
-                        if !this.quiet() {
-                            remesher.set_progress_handler(this.make_stage_progress(
-                                thread.island_index,
-                                ISLAND_PARAMETERIZE_END,
-                                1.0,
-                                1.0,
-                            ));
-                        }
-                        // Research probe: the stage-4 uv dump needs
-                        // per-vertex uvs, a pure post-pass (geometry
-                        // identical on or off).
-                        let dump_stages = std::env::var_os("RETOPO_DUMP_STAGES").is_some();
-                        remesher.set_compute_vertex_uvs(thread.compute_vertex_uvs || dump_stages);
-                        if remesher.extract() {
-                            thread.captured_extracted_connections =
-                                remesher.extracted_connections().to_vec();
-                            thread.captured_extracted_connection_moved =
-                                remesher.extracted_connection_moved().to_vec();
-                            thread.captured_vertex_uvs = remesher.remeshed_vertex_uvs().to_vec();
-                            thread.remeshed_vertices = remesher.remeshed_vertices().to_vec();
-                            thread.remeshed_quads = remesher.remeshed_quads().to_vec();
+                        retries_run += 1;
+                        thread.clear_attempt_outputs();
+                        jittered = island.vertices.clone();
+                        Self::jitter_working_vertices(
+                            &mut jittered,
+                            island_diag,
+                            Self::COVERAGE_RETRY_SEEDS[attempt - 1],
+                        );
+                    }
+                    let t0 = Instant::now();
+                    let vertices: &[Vector3] = if attempt == 0 {
+                        &island.vertices
+                    } else {
+                        &jittered
+                    };
+
+                    this.update_progress(thread.island_index, ISLAND_RESAMPLE_END, None);
+                    let mut parameterizer = Parameterizer::new(vertices, triangles, None);
+                    if !this.quiet() {
+                        parameterizer.set_progress_handler(this.make_stage_progress(
+                            thread.island_index,
+                            ISLAND_RESAMPLE_END,
+                            ISLAND_PARAMETERIZE_END,
+                            0.0,
+                        ));
+                    }
+                    if island.scaling > 0.0 {
+                        parameterizer.set_scaling(island.scaling);
+                    }
+                    parameterizer.set_gradient_adaptivity(island.adaptivity);
+                    parameterizer.set_anisotropy(island.anisotropy);
+                    parameterizer.set_sharp_edge_degrees(island.sharp_edge_degrees);
+                    parameterizer.set_symmetry_plane(island.symmetry_plane);
+                    // Always `Some` (possibly empty, never null — the C++
+                    // stores `&m_guidePolylines` unconditionally).
+                    parameterizer.set_guide_polylines(Some(&this.guide_polylines));
+                    parameterizer.set_sharp_polylines(Some(&this.sharp_polylines));
+                    if !island.resampled_density.is_empty() {
+                        parameterizer.set_density_field(island.resampled_density.clone());
+                    }
+                    // Always set (the product default flows down even when it
+                    // is off: the leaf default must never shadow it).
+                    parameterizer.set_dipoles(this.dipoles);
+                    // (No try/catch counterpart: the port signals failure
+                    // through the `bool` return, so there is nothing to catch —
+                    // and the C++ `Island N: parameterization failed` stderr
+                    // falls under the stderr-gap memo besides.)
+                    let parameterize_succeeded = parameterizer.parameterize();
+
+                    let t1 = Instant::now();
+                    parameterize_time_us
+                        .fetch_add(t1.duration_since(t0).as_micros() as i64, Ordering::SeqCst);
+
+                    if parameterize_succeeded {
+                        thread.dipoles_placed = parameterizer.dipole_flips();
+                        this.update_progress(thread.island_index, ISLAND_PARAMETERIZE_END, None);
+                        // `take_triangle_uvs` is `Some` on every success path
+                        // (the C++ `if (uvs)` null branch is unreachable after
+                        // success: `parameterize` populates the UVs before its
+                        // single `return true`).
+                        if let Some(uvs) = parameterizer.take_triangle_uvs() {
+                            // Save a copy of UVs for the [param] preview overlay
+                            thread.captured_uvs = uvs.clone();
+                            thread.captured_original_uvs =
+                                parameterizer.original_triangle_uvs().to_vec();
+                            // Capture singular vertex positions for the [param]
+                            // preview
+                            thread.captured_singular_vertices =
+                                parameterizer.singular_vertex_positions().to_vec();
+                            thread.captured_singular_vertex_indices =
+                                parameterizer.singular_vertex_indices().to_vec();
                             // Research probe (RETOPO_DUMP_STAGES=dir):
-                            // stage-4 per-island extraction output.
+                            // stage-2 singularities + stage-3 (original + rounded)
+                            // triangle uvs, parallel to the working triangles.
                             // Research probe (kept for item-7 stage analysis); no state touched.
-                            if let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES") {
+                            // Attempt 0 only: stage dumps always show the
+                            // first attempt (use coverage.log for retries).
+                            if attempt == 0
+                                && let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES")
+                            {
                                 let idx = thread.island_index;
+                                let sing_path = std::path::Path::new(&dir)
+                                    .join(format!("stage2_singular_island{idx}.txt"));
+                                let mut sing = String::new();
+                                for (k, p) in thread
+                                    .captured_singular_vertex_indices
+                                    .iter()
+                                    .zip(thread.captured_singular_vertices.iter())
+                                {
+                                    sing.push_str(&format!("{k} {} {} {}\n", p.x(), p.y(), p.z()));
+                                }
+                                let _ = std::fs::write(sing_path, sing);
                                 let uv_path = std::path::Path::new(&dir)
-                                    .join(format!("stage4_uv_island{idx}.txt"));
+                                    .join(format!("stage3_uv_island{idx}.txt"));
                                 let mut uv = String::new();
-                                for w in remesher.remeshed_vertex_uvs().iter() {
-                                    uv.push_str(&format!("{} {}\n", w.x(), w.y()));
+                                for (i, t) in uvs.iter().enumerate() {
+                                    let o = &thread.captured_original_uvs[i];
+                                    uv.push_str(&format!(
+                                        "{i} {} {} {} {} {} {} {} {} {} {} {} {}\n",
+                                        t[0].x(),
+                                        t[0].y(),
+                                        t[1].x(),
+                                        t[1].y(),
+                                        t[2].x(),
+                                        t[2].y(),
+                                        o[0].x(),
+                                        o[0].y(),
+                                        o[1].x(),
+                                        o[1].y(),
+                                        o[2].x(),
+                                        o[2].y(),
+                                    ));
                                 }
                                 let _ = std::fs::write(uv_path, uv);
-                                let path = std::path::Path::new(&dir)
-                                    .join(format!("stage4_extract_island{idx}.obj"));
-                                let mut obj = String::new();
-                                for v in thread.remeshed_vertices.iter() {
-                                    obj.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
-                                }
-                                for q in thread.remeshed_quads.iter() {
-                                    obj.push_str("f");
-                                    for c in q.iter() {
-                                        obj.push_str(&format!(" {}", c + 1));
+                            }
+                            let mut remesher = QuadExtractor::new(vertices, triangles, &uvs);
+                            remesher.set_original_triangle_uvs(&thread.captured_original_uvs);
+                            remesher
+                                .set_singular_vertices(&thread.captured_singular_vertex_indices);
+                            // No handler in quiet mode: the extractor's stderr
+                            // progress echoes key off handler presence.
+                            if !this.quiet() {
+                                remesher.set_progress_handler(this.make_stage_progress(
+                                    thread.island_index,
+                                    ISLAND_PARAMETERIZE_END,
+                                    1.0,
+                                    1.0,
+                                ));
+                            }
+                            // Research probe: the stage-4 uv dump needs
+                            // per-vertex uvs, a pure post-pass (geometry
+                            // identical on or off).
+                            let dump_stages = std::env::var_os("RETOPO_DUMP_STAGES").is_some();
+                            remesher
+                                .set_compute_vertex_uvs(thread.compute_vertex_uvs || dump_stages);
+                            if remesher.extract() {
+                                thread.captured_extracted_connections =
+                                    remesher.extracted_connections().to_vec();
+                                thread.captured_extracted_connection_moved =
+                                    remesher.extracted_connection_moved().to_vec();
+                                thread.captured_vertex_uvs =
+                                    remesher.remeshed_vertex_uvs().to_vec();
+                                thread.remeshed_vertices = remesher.remeshed_vertices().to_vec();
+                                thread.remeshed_quads = remesher.remeshed_quads().to_vec();
+                                // Research probe (RETOPO_DUMP_STAGES=dir):
+                                // stage-4 per-island extraction output.
+                                // Research probe (kept for item-7 stage analysis); no state touched.
+                                // Attempt 0 only (see the stage-2/3 probe).
+                                if attempt == 0
+                                    && let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES")
+                                {
+                                    let idx = thread.island_index;
+                                    let uv_path = std::path::Path::new(&dir)
+                                        .join(format!("stage4_uv_island{idx}.txt"));
+                                    let mut uv = String::new();
+                                    for w in remesher.remeshed_vertex_uvs().iter() {
+                                        uv.push_str(&format!("{} {}\n", w.x(), w.y()));
                                     }
-                                    obj.push('\n');
+                                    let _ = std::fs::write(uv_path, uv);
+                                    let path = std::path::Path::new(&dir)
+                                        .join(format!("stage4_extract_island{idx}.obj"));
+                                    let mut obj = String::new();
+                                    for v in thread.remeshed_vertices.iter() {
+                                        obj.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
+                                    }
+                                    for q in thread.remeshed_quads.iter() {
+                                        obj.push_str("f");
+                                        for c in q.iter() {
+                                            obj.push_str(&format!(" {}", c + 1));
+                                        }
+                                        obj.push('\n');
+                                    }
+                                    let _ = std::fs::write(path, obj);
                                 }
-                                let _ = std::fs::write(path, obj);
                             }
                         }
                     }
+                    // Coverage verdict for this attempt (unconditional:
+                    // the retry gate runs on every island).
+                    let attempt_gaps = Self::coverage_gaps(
+                        vertices,
+                        &thread.remeshed_vertices,
+                        &thread.remeshed_quads,
+                    );
+                    let attempt_diag = Self::bbox_diag(vertices);
+                    let (attempt_failed, attempt_uncovered) = Self::coverage_failed(
+                        &attempt_gaps,
+                        attempt_diag,
+                        thread.remeshed_quads.len(),
+                    );
+                    let attempt_empty = thread.remeshed_quads.is_empty();
+                    // Research probe (RETOPO_COVERAGE_LOG=dir): one
+                    // appended line per island attempt with the
+                    // working-vertex coverage distribution (gap/diag
+                    // fractions). O_APPEND keeps parallel island workers
+                    // race-free. No state touched.
+                    if let Some(dir) = std::env::var_os("RETOPO_COVERAGE_LOG") {
+                        use std::io::Write;
+                        let path = std::path::Path::new(&dir).join("coverage.log");
+                        let diag = attempt_diag;
+                        let nquads = thread.remeshed_quads.len();
+                        let mut gaps = attempt_gaps.clone();
+                        gaps.sort_by(|a, b| a.total_cmp(b));
+                        let n = gaps.len().max(1);
+                        let at = |q: f64| gaps[((n - 1) as f64 * q).round() as usize];
+                        let over = |f: f64| {
+                            gaps.iter().filter(|g| **g > f * diag).count() as f64 / n as f64
+                        };
+                        // Resolution-relative: verts beyond 3x the nominal
+                        // quad width (diag/sqrt(nquads)).
+                        let unit = diag / (nquads.max(1) as f64).sqrt();
+                        let c3 = gaps.iter().filter(|g| **g > 3.0 * unit).count();
+                        if let Ok(mut f) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&path)
+                        {
+                            // Single write_all: one syscall stays atomic under
+                            // O_APPEND when island workers log concurrently.
+                            let line = format!(
+                                "island={} attempt={attempt} nverts={} quads={} worst={} diag={diag} frac={} p50={} p90={} p99={} f02={} f05={} f10={} c3={c3}\n",
+                                thread.island_index,
+                                vertices.len(),
+                                nquads,
+                                gaps[n - 1],
+                                gaps[n - 1] / diag,
+                                at(0.50) / diag,
+                                at(0.90) / diag,
+                                at(0.99) / diag,
+                                over(0.02),
+                                over(0.05),
+                                over(0.10),
+                            );
+                            let _ = f.write_all(line.as_bytes());
+                        }
+                    }
+                    let t2 = Instant::now();
+                    extract_time_us
+                        .fetch_add(t2.duration_since(t1).as_micros() as i64, Ordering::SeqCst);
+                    if attempt == 0 {
+                        if attempt_empty {
+                            // The failed-island path owns empty outputs:
+                            // no retry.
+                            break;
+                        }
+                        if !attempt_failed {
+                            break;
+                        }
+                        coverage_fired = true;
+                        initial_uncovered = attempt_uncovered;
+                        saved_attempt = Some(thread.take_attempt_outputs());
+                    } else if !attempt_empty && !attempt_failed {
+                        winning_attempt = attempt;
+                        final_uncovered = attempt_uncovered;
+                        break;
+                    }
+                }
+                if coverage_fired {
+                    let recovered = winning_attempt > 0;
+                    if !recovered {
+                        if let Some(saved) = saved_attempt {
+                            thread.restore_attempt_outputs(saved);
+                        }
+                        final_uncovered = initial_uncovered;
+                    }
+                    thread.coverage = Some(CoverageReport {
+                        island_index: thread.island_index,
+                        retries_made: retries_run,
+                        recovered,
+                        initial_uncovered,
+                        final_uncovered,
+                    });
                 }
                 this.update_progress(thread.island_index, 1.0, None);
-                let t2 = Instant::now();
-                extract_time_us
-                    .fetch_add(t2.duration_since(t1).as_micros() as i64, Ordering::SeqCst);
             });
         }
         let t_parallel_end = Instant::now();
@@ -2247,11 +2741,15 @@ impl AutoRemesher {
         self.remeshed_vertex_uvs.clear();
         self.island_output_quad_counts = vec![0; parameterization_threads.len()];
         self.island_dipole_counts = vec![0; parameterization_threads.len()];
+        self.coverage_reports.clear();
         let mut island_uv_spans: Vec<(usize, usize)> = Vec::new();
         for thread in &parameterization_threads {
             // Dipole counts merge for every island (placement happens in
             // parameterize(), even when extraction later yields nothing).
             self.island_dipole_counts[thread.island_index] = thread.dipoles_placed;
+            if let Some(report) = thread.coverage {
+                self.coverage_reports.push(report);
+            }
             // (The C++ null-remesher skip: `remeshed_quads` stays empty when
             // the island produced nothing, subsuming both C++ skip cases.)
             if thread.remeshed_quads.is_empty() {
@@ -2618,5 +3116,155 @@ mod snap_tests {
         let mut q = [1.5f32, 2.5, 3.5];
         AutoRemesher::snap_decimator_input(&mut q, &zero, &nan);
         assert_eq!(q, [1.5, 2.5, 3.5]);
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    fn v(x: f64, y: f64, z: f64) -> Vector3 {
+        Vector3::new(x, y, z)
+    }
+
+    fn worst_of(gaps: &[f64]) -> f64 {
+        gaps.iter().cloned().fold(0.0, f64::max)
+    }
+
+    #[test]
+    fn covered_grid_reports_zero_gap() {
+        // 2x2 working grid, one quad covering all of it.
+        let working = vec![
+            v(0.0, 0.0, 0.0),
+            v(1.0, 0.0, 0.0),
+            v(0.0, 1.0, 0.0),
+            v(1.0, 1.0, 0.0),
+        ];
+        let quads = vec![vec![0, 1, 3, 2]];
+        let gaps = AutoRemesher::coverage_gaps(&working, &working, &quads);
+        assert!(worst_of(&gaps) < 1e-12, "gaps={gaps:?}");
+    }
+
+    #[test]
+    fn missing_half_reports_exact_gap() {
+        // Working grid 2 wide, quads cover only the left half (x in
+        // [0, 1]): the x=2 column sits exactly 1.0 off the surface.
+        let working = vec![
+            v(0.0, 0.0, 0.0),
+            v(1.0, 0.0, 0.0),
+            v(2.0, 0.0, 0.0),
+            v(0.0, 1.0, 0.0),
+            v(1.0, 1.0, 0.0),
+            v(2.0, 1.0, 0.0),
+        ];
+        let quads = vec![vec![0, 1, 4, 3]];
+        let gaps = AutoRemesher::coverage_gaps(&working, &working, &quads);
+        assert!((worst_of(&gaps) - 1.0).abs() < 1e-12, "gaps={gaps:?}");
+    }
+
+    #[test]
+    fn coverage_degenerates_totally() {
+        let working = vec![v(0.0, 0.0, 0.0)];
+        // No quads at all: infinite gap (total failure).
+        assert_eq!(
+            AutoRemesher::coverage_gaps(&working, &working, &[]),
+            vec![f64::INFINITY]
+        );
+        // Degenerate quad indices (out of range): no valid triangles.
+        assert_eq!(
+            AutoRemesher::coverage_gaps(&working, &working, &[vec![7, 8, 9]]),
+            vec![f64::INFINITY]
+        );
+        // No working verts: nothing to cover.
+        let quads = vec![vec![0, 1, 2]];
+        assert!(AutoRemesher::coverage_gaps(&[], &working, &quads).is_empty());
+    }
+
+    #[test]
+    fn coverage_failed_counts_beyond_three_widths() {
+        // diag 100, 100 quads: nominal width 10, bar at 30.
+        let diag = 100.0;
+        let nquads = 100;
+        // 24 verts at 31 (over the bar) + rest covered: quiet.
+        let mut gaps = vec![0.5; 200];
+        for g in gaps.iter_mut().take(24) {
+            *g = 31.0;
+        }
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, nquads),
+            (false, 24)
+        );
+        // The 25th over-the-bar vert trips the retry.
+        gaps[24] = 31.0;
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, nquads),
+            (true, 25)
+        );
+        // Just under the bar never counts, however many.
+        let gaps = vec![29.9; 200];
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, diag, nquads),
+            (false, 0)
+        );
+        // Empty quads belong to the failed-island path, never retry.
+        assert_eq!(AutoRemesher::coverage_failed(&gaps, diag, 0), (false, 0));
+        // Degenerate scale never fires.
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, 0.0, nquads),
+            (false, 0)
+        );
+        assert_eq!(
+            AutoRemesher::coverage_failed(&gaps, f64::NAN, nquads),
+            (false, 0)
+        );
+    }
+
+    #[test]
+    fn jitter_is_deterministic_dupe_coherent_and_bounded() {
+        let mk = || vec![v(1.0, 2.0, 3.0), v(1.0, 2.0, 3.0), v(-4.0, 0.5, 9.25)];
+        let mut a = mk();
+        let mut b = mk();
+        AutoRemesher::jitter_working_vertices(&mut a, 100.0, 1);
+        AutoRemesher::jitter_working_vertices(&mut b, 100.0, 1);
+        assert_eq!(a, b);
+        // Duplicates move together (weld preserved).
+        assert_eq!(a[0], a[1]);
+        // Bounded by eps/2 = COVERAGE_JITTER_AMPLITUDE * 100 / 2.
+        let bound = AutoRemesher::COVERAGE_JITTER_AMPLITUDE * 100.0 / 2.0;
+        for (orig, j) in mk().iter().zip(a.iter()) {
+            assert!((j.x() - orig.x()).abs() <= bound + 1e-18);
+            assert!((j.y() - orig.y()).abs() <= bound + 1e-18);
+            assert!((j.z() - orig.z()).abs() <= bound + 1e-18);
+        }
+        // Seeds differ somewhere.
+        let mut c = mk();
+        AutoRemesher::jitter_working_vertices(&mut c, 100.0, 2);
+        assert_ne!(a, c);
+        // Degenerate diag: no-op, never NaN.
+        let mut d = mk();
+        AutoRemesher::jitter_working_vertices(&mut d, 0.0, 1);
+        assert_eq!(d, mk());
+    }
+
+    #[test]
+    fn coverage_gaps_reports_per_vertex_distances() {
+        // Same slider as missing_half: the covered columns pin ~0, the
+        // x=2 column sits exactly 1.0 off the covered surface.
+        let working = vec![
+            v(0.0, 0.0, 0.0),
+            v(1.0, 0.0, 0.0),
+            v(2.0, 0.0, 0.0),
+            v(0.0, 1.0, 0.0),
+            v(1.0, 1.0, 0.0),
+            v(2.0, 1.0, 0.0),
+        ];
+        let quads = vec![vec![0, 1, 4, 3]];
+        let gaps = AutoRemesher::coverage_gaps(&working, &working, &quads);
+        assert_eq!(gaps.len(), 6);
+        for i in [0, 1, 3, 4] {
+            assert!(gaps[i] < 1e-12, "gaps[{i}]={}", gaps[i]);
+        }
+        assert!((gaps[2] - 1.0).abs() < 1e-12, "gaps[2]={}", gaps[2]);
+        assert!((gaps[5] - 1.0).abs() < 1e-12, "gaps[5]={}", gaps[5]);
     }
 }

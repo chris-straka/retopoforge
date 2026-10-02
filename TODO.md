@@ -124,6 +124,21 @@ when comparing back ends.
       7/8 seeds; forensics rule out decimator fault) — flip only after
       item 7 robustifies the downstream. Native weld bit-identical
       (unit-pinned), default path byte-identical to pre-migration.
+- [x] Coverage check + deterministic retry (before item 7): every
+      island fails coverage when >= 25 working verts sit beyond 3x the
+      nominal quad width (resolution-relative; absolute bars misfire on
+      coarse-healthy outputs, see `docs/coverage-retry.md`); failure
+      re-runs the island with jitter seeds 1..3 (1e-3 diag amplitude —
+      noise-floor jitter cannot move the rounding) keeping the first
+      full-coverage result, else attempt 0; reported like a failed
+      island (`Warning:` + `coverage_reports()`). Gates: beast@1000-
+      native recovers the appendage 8/8 seeds (first retry, exact-zero
+      residuals, dist 4.8-8.2 vs 13.5-30.6), other bench cases
+      byte-identical, contract + full suite green (62 ok), bench gate
+      green, permanent `coverage_retry.rs` regression (skips without
+      the corpus; proven to fail with retries off). The retry re-rolls
+      the tiling, it does not fix the fold: beast stays a first-
+      attempt-coverage target for the patch back end.
 - [ ] Untangling stage in the current engine (Garanzha et al. 2021
       foldover-free maps; prototype on branch `exp/igm-validity`,
       `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not
@@ -152,7 +167,10 @@ when comparing back ends.
       main gate
 - [ ] Build the patch back end as a selectable extension (`--backend patch`,
       clean-room QuadWild + Bi-MDF from the papers), only after the items
-      above; the current engine stays the default
+      above; the current engine stays the default. Target: beast@1000-
+      native must cover the appendage on the FIRST attempt (no retry) —
+      the coverage retry (`docs/coverage-retry.md`) papers over a fold
+      the patch extractor should never produce.
 - [ ] Humanoid faces/hands: out of scope here (wrapforge)
 - Experiments with code: branch `exp/igm-validity` (flip census,
   rounding schedule, untangling)

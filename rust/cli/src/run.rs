@@ -16,7 +16,7 @@ use crate::mesh_io::{
 };
 use crate::progress::{ProgressState, attach_progress};
 use crate::report::{Report, print_rung_line};
-use retopo_core::auto_remesher::{AutoRemesher, ModelType};
+use retopo_core::auto_remesher::{AutoRemesher, CoverageReport, ModelType};
 use retopo_core::glb as glb_io;
 use retopo_core::mesh_separator::MeshSeparator;
 use retopo_core::vector3::Vector3;
@@ -32,8 +32,30 @@ struct RungResult {
     vertex_count: usize,
     island_count: usize,
     failed_islands: usize,
+    coverage_reports: Vec<CoverageReport>,
     elapsed_seconds: f64,
     error: String,
+}
+
+/// Coverage retry outcomes, reported like failed islands (same
+/// unconditional `Warning:` channel; batch runs prefix the file name).
+fn print_coverage_warnings(reports: &[CoverageReport], batch_name: Option<&str>) {
+    let prefix = batch_name
+        .map(|n| format!("FILE {n}: "))
+        .unwrap_or_default();
+    for r in reports {
+        if r.recovered {
+            eprintln!(
+                "Warning: {prefix}island {} failed the coverage check ({} working verts uncovered) and recovered on retry {} ({} verts uncovered)",
+                r.island_index, r.initial_uncovered, r.retries_made, r.final_uncovered
+            );
+        } else {
+            eprintln!(
+                "Warning: {prefix}island {} failed the coverage check ({} working verts uncovered); retries did not recover, kept the original",
+                r.island_index, r.initial_uncovered
+            );
+        }
+    }
 }
 
 fn count_islands_without_output(
@@ -229,6 +251,7 @@ fn remesh_loaded_mesh(
         vertices,
         remeshed_vertices,
     );
+    result.coverage_reports = remesher.coverage_reports().to_vec();
 
     let uvs = if config.emit_uvs {
         Some(remesher.remeshed_vertex_uvs())
@@ -485,6 +508,10 @@ pub(crate) fn run_multi_mode(config: &Config, batch: bool) -> i32 {
                     );
                 }
             }
+            if !result.coverage_reports.is_empty() {
+                let name = batch.then(|| file_name_of(Path::new(input_path)));
+                print_coverage_warnings(&result.coverage_reports, name.as_deref());
+            }
             print_rung_line(
                 &label,
                 &output_path,
@@ -622,6 +649,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
             input_islands.len()
         );
     }
+    print_coverage_warnings(remesher.coverage_reports(), None);
 
     let mut quad_count = 0usize;
     let mut non_quad_count = 0usize;
