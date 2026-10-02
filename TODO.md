@@ -129,11 +129,18 @@ when comparing back ends.
       `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not
       beast, and is slow (60 rounds, unconverged). Finish convergence +
       speed, then gate on scores; built into the existing pipeline, not a
-      separate back end. NOTE (item 6): beast@1000 under
-      RETOPO_DECIMATOR=native is the knife-edge repro (valid decimation
-      -> collapsed region at ~(-133,147,81), dist 30 vs 7); use it plus
-      the deformation score (item 9) to gate robustness before flipping
-      the decimator default.
+      separate back end. NOTE (bisected, see
+      `docs/beast-knife-edge-bisection.md`): beast@1000-native drops the
+      whole left appendage (x < -62, 416 working tris -> 0 quads, closed
+      mesh, dist 30 vs 7) through a NEW chain — singularity count lands
+      systematically high (120-122 vs old 98-117 spread) -> degenerate
+      layout (93 near-zero-area uvs vs <=62) -> appendage uv folds 100%
+      inside body uv (old: 53%) -> extractor traces it once onto body
+      tris. Untangling-as-prototyped (local flip barrier, fixed integers)
+      can NOT fix this (global fold, locally valid); fix directions are
+      singularity control, integer-layout feasibility, or extraction
+      robustness. Use this case + the deformation score (item 9) to gate
+      robustness before flipping the decimator default.
 - [ ] Untangling stage in the current engine (Garanzha et al. 2021
       foldover-free maps; prototype on branch `exp/igm-validity`,
       `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not

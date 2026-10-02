@@ -1575,6 +1575,21 @@ impl AutoRemesher {
         isotropic_remesher.remesh();
         *vertices = isotropic_remesher.remeshed_vertices().to_vec();
         *triangles = isotropic_remesher.remeshed_triangles().to_vec();
+        // Research probe (RETOPO_DUMP_STAGES=dir): stage-1 working mesh.
+        // Research probe (kept for item-7 stage analysis); no state
+        // touched.
+        if let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES") {
+            let path = std::path::Path::new(&dir)
+                .join(format!("stage1_working_island{_island_index}.obj"));
+            let mut obj = String::new();
+            for v in vertices.iter() {
+                obj.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
+            }
+            for t in triangles.iter() {
+                obj.push_str(&format!("f {} {} {}\n", t[0] + 1, t[1] + 1, t[2] + 1));
+            }
+            let _ = std::fs::write(path, obj);
+        }
         density_out.clear();
         if density_usable {
             // Isotropic remeshing retopologized the island: carry the mask
@@ -2082,6 +2097,46 @@ impl AutoRemesher {
                             parameterizer.singular_vertex_positions().to_vec();
                         thread.captured_singular_vertex_indices =
                             parameterizer.singular_vertex_indices().to_vec();
+                        // Research probe (RETOPO_DUMP_STAGES=dir):
+                        // stage-2 singularities + stage-3 (original + rounded)
+                        // triangle uvs, parallel to the working triangles.
+                        // Research probe (kept for item-7 stage analysis); no state touched.
+                        if let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES") {
+                            let idx = thread.island_index;
+                            let sing_path = std::path::Path::new(&dir)
+                                .join(format!("stage2_singular_island{idx}.txt"));
+                            let mut sing = String::new();
+                            for (k, p) in thread
+                                .captured_singular_vertex_indices
+                                .iter()
+                                .zip(thread.captured_singular_vertices.iter())
+                            {
+                                sing.push_str(&format!("{k} {} {} {}\n", p.x(), p.y(), p.z()));
+                            }
+                            let _ = std::fs::write(sing_path, sing);
+                            let uv_path = std::path::Path::new(&dir)
+                                .join(format!("stage3_uv_island{idx}.txt"));
+                            let mut uv = String::new();
+                            for (i, t) in uvs.iter().enumerate() {
+                                let o = &thread.captured_original_uvs[i];
+                                uv.push_str(&format!(
+                                    "{i} {} {} {} {} {} {} {} {} {} {} {} {}\n",
+                                    t[0].x(),
+                                    t[0].y(),
+                                    t[1].x(),
+                                    t[1].y(),
+                                    t[2].x(),
+                                    t[2].y(),
+                                    o[0].x(),
+                                    o[0].y(),
+                                    o[1].x(),
+                                    o[1].y(),
+                                    o[2].x(),
+                                    o[2].y(),
+                                ));
+                            }
+                            let _ = std::fs::write(uv_path, uv);
+                        }
                         let mut remesher = QuadExtractor::new(vertices, triangles, &uvs);
                         remesher.set_original_triangle_uvs(&thread.captured_original_uvs);
                         remesher.set_singular_vertices(&thread.captured_singular_vertex_indices);
@@ -2095,7 +2150,11 @@ impl AutoRemesher {
                                 1.0,
                             ));
                         }
-                        remesher.set_compute_vertex_uvs(thread.compute_vertex_uvs);
+                        // Research probe: the stage-4 uv dump needs
+                        // per-vertex uvs, a pure post-pass (geometry
+                        // identical on or off).
+                        let dump_stages = std::env::var_os("RETOPO_DUMP_STAGES").is_some();
+                        remesher.set_compute_vertex_uvs(thread.compute_vertex_uvs || dump_stages);
                         if remesher.extract() {
                             thread.captured_extracted_connections =
                                 remesher.extracted_connections().to_vec();
@@ -2104,6 +2163,33 @@ impl AutoRemesher {
                             thread.captured_vertex_uvs = remesher.remeshed_vertex_uvs().to_vec();
                             thread.remeshed_vertices = remesher.remeshed_vertices().to_vec();
                             thread.remeshed_quads = remesher.remeshed_quads().to_vec();
+                            // Research probe (RETOPO_DUMP_STAGES=dir):
+                            // stage-4 per-island extraction output.
+                            // Research probe (kept for item-7 stage analysis); no state touched.
+                            if let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES") {
+                                let idx = thread.island_index;
+                                let uv_path = std::path::Path::new(&dir)
+                                    .join(format!("stage4_uv_island{idx}.txt"));
+                                let mut uv = String::new();
+                                for w in remesher.remeshed_vertex_uvs().iter() {
+                                    uv.push_str(&format!("{} {}\n", w.x(), w.y()));
+                                }
+                                let _ = std::fs::write(uv_path, uv);
+                                let path = std::path::Path::new(&dir)
+                                    .join(format!("stage4_extract_island{idx}.obj"));
+                                let mut obj = String::new();
+                                for v in thread.remeshed_vertices.iter() {
+                                    obj.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
+                                }
+                                for q in thread.remeshed_quads.iter() {
+                                    obj.push_str("f");
+                                    for c in q.iter() {
+                                        obj.push_str(&format!(" {}", c + 1));
+                                    }
+                                    obj.push('\n');
+                                }
+                                let _ = std::fs::write(path, obj);
+                            }
                         }
                     }
                 }

@@ -666,6 +666,24 @@ impl<'a> Parameterizer<'a> {
         }
         drop(simplifier);
 
+        // Research probe (RETOPO_DUMP_STAGES=dir): stage-2 per-face cross
+        // field (post-simplification), parallel to the working triangles.
+        // Research probe (kept for item-7 stage analysis); no state touched. The parameterizer
+        // has no island index, so dumps are sequence-numbered in
+        // completion order (exact for single-island runs; multi-island
+        // runs join offline via the face-count header).
+        if let Some(dir) = std::env::var_os("RETOPO_DUMP_STAGES") {
+            static DUMP_SEQ: std::sync::atomic::AtomicUsize =
+                std::sync::atomic::AtomicUsize::new(0);
+            let n = DUMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let path = std::path::Path::new(&dir).join(format!("stage2_field_{n}.txt"));
+            let mut out = format!("# faces={}\n", field.len());
+            for (i, f) in field.iter().enumerate() {
+                out.push_str(&format!("{i} {} {} {}\n", f.x(), f.y(), f.z()));
+            }
+            let _ = std::fs::write(path, out);
+        }
+
         //faceScalingField = computeConformalScaling(...); (commented out in
         // the C++; see the omission note above.)
 
