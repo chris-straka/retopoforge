@@ -135,8 +135,10 @@ when comparing back ends.
       bench/baseline.json + bench/deform_baseline.json (macOS);
       bench/baseline-linux.json regenerated from Linux CI (release run
       37056241932, 2026-10-02 — post-flip, 9/10 cases match macOS
-      exactly, only dragon/tiny differs); deform linux baseline in
-      flight via a scratch CI run. Coverage gap noted: input-side extremity
+      exactly, only dragon/tiny differs); deform linux baseline
+      generated the same way (scratch CI run 37057109502, 8 seeds x 12
+      cases, seed0 matches the bench log exactly). Coverage gap noted:
+      input-side extremity
       drops upstream of the working mesh are invisible to the
       working->output check (armadillo fingertip-class misses).
 - [x] Coverage check + deterministic retry (before item 7): every

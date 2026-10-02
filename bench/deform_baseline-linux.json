@@ -1,0 +1,1063 @@
+{
+  "cases": {
+    "armadillo.obj@1000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 51,
+            "min": 30,
+            "seed0": 51
+          },
+          "region_tris": {
+            "max": 101,
+            "min": 80,
+            "seed0": 100
+          },
+          "region_verts": {
+            "max": 72,
+            "min": 60,
+            "seed0": 72
+          },
+          "selfint_posed": {
+            "max": 1,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 1,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 1.123596,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.515675,
+            "min": 1.258499,
+            "seed0": 1.444342
+          },
+          "volume_loss_pct": {
+            "max": 131.945515,
+            "min": 104.864542,
+            "seed0": 128.592875
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 41,
+            "min": 20,
+            "seed0": 34
+          },
+          "region_tris": {
+            "max": 101,
+            "min": 80,
+            "seed0": 100
+          },
+          "region_verts": {
+            "max": 72,
+            "min": 60,
+            "seed0": 72
+          },
+          "selfint_posed": {
+            "max": 1,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 1,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.106801,
+            "min": 1.080436,
+            "seed0": 1.094511
+          },
+          "volume_loss_pct": {
+            "max": 85.569137,
+            "min": 67.200931,
+            "seed0": 83.253554
+          }
+        }
+      }
+    },
+    "armadillo.obj@5000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 241,
+            "min": 222,
+            "seed0": 222
+          },
+          "region_tris": {
+            "max": 730,
+            "min": 708,
+            "seed0": 708
+          },
+          "region_verts": {
+            "max": 428,
+            "min": 418,
+            "seed0": 418
+          },
+          "selfint_posed": {
+            "max": 27,
+            "min": 23,
+            "seed0": 23
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.315519,
+            "min": 1.311648,
+            "seed0": 1.315519
+          },
+          "volume_loss_pct": {
+            "max": 73.285318,
+            "min": 72.703612,
+            "seed0": 73.145905
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 91,
+            "min": 89,
+            "seed0": 89
+          },
+          "region_tris": {
+            "max": 730,
+            "min": 708,
+            "seed0": 708
+          },
+          "region_verts": {
+            "max": 428,
+            "min": 418,
+            "seed0": 418
+          },
+          "selfint_posed": {
+            "max": 70,
+            "min": 59,
+            "seed0": 62
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.200144,
+            "min": 1.196544,
+            "seed0": 1.196979
+          },
+          "volume_loss_pct": {
+            "max": 47.491798,
+            "min": 47.081267,
+            "seed0": 47.351501
+          }
+        }
+      }
+    },
+    "beast.obj@1000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 111,
+            "min": 63,
+            "seed0": 75
+          },
+          "region_tris": {
+            "max": 554,
+            "min": 413,
+            "seed0": 554
+          },
+          "region_verts": {
+            "max": 317,
+            "min": 245,
+            "seed0": 314
+          },
+          "selfint_posed": {
+            "max": 105,
+            "min": 35,
+            "seed0": 84
+          },
+          "selfint_rest": {
+            "max": 66,
+            "min": 0,
+            "seed0": 42
+          },
+          "stretch_over2_pct": {
+            "max": 20.216606,
+            "min": 1.173709,
+            "seed0": 20.216606
+          },
+          "stretch_p95": {
+            "max": 2.32918,
+            "min": 1.533195,
+            "seed0": 2.274021
+          },
+          "volume_loss_pct": {
+            "max": 73.830129,
+            "min": 63.586285,
+            "seed0": 66.044066
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 44,
+            "min": 24,
+            "seed0": 30
+          },
+          "region_tris": {
+            "max": 554,
+            "min": 413,
+            "seed0": 554
+          },
+          "region_verts": {
+            "max": 317,
+            "min": 245,
+            "seed0": 314
+          },
+          "selfint_posed": {
+            "max": 120,
+            "min": 57,
+            "seed0": 112
+          },
+          "selfint_rest": {
+            "max": 66,
+            "min": 0,
+            "seed0": 42
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.823664,
+            "min": 1.342451,
+            "seed0": 1.789588
+          },
+          "volume_loss_pct": {
+            "max": 47.336542,
+            "min": 40.668899,
+            "seed0": 42.285975
+          }
+        }
+      }
+    },
+    "beast.obj@5000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 717,
+            "min": 711,
+            "seed0": 717
+          },
+          "region_tris": {
+            "max": 4540,
+            "min": 4419,
+            "seed0": 4540
+          },
+          "region_verts": {
+            "max": 2371,
+            "min": 2310,
+            "seed0": 2371
+          },
+          "selfint_posed": {
+            "max": 357,
+            "min": 298,
+            "seed0": 322
+          },
+          "selfint_rest": {
+            "max": 103,
+            "min": 65,
+            "seed0": 73
+          },
+          "stretch_over2_pct": {
+            "max": 8.870785,
+            "min": 8.154122,
+            "seed0": 8.788546
+          },
+          "stretch_p95": {
+            "max": 2.181062,
+            "min": 2.140526,
+            "seed0": 2.170801
+          },
+          "volume_loss_pct": {
+            "max": 64.311362,
+            "min": 63.982864,
+            "seed0": 64.164635
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 301,
+            "min": 299,
+            "seed0": 301
+          },
+          "region_tris": {
+            "max": 4540,
+            "min": 4419,
+            "seed0": 4540
+          },
+          "region_verts": {
+            "max": 2371,
+            "min": 2310,
+            "seed0": 2371
+          },
+          "selfint_posed": {
+            "max": 499,
+            "min": 448,
+            "seed0": 455
+          },
+          "selfint_rest": {
+            "max": 103,
+            "min": 65,
+            "seed0": 73
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.729171,
+            "min": 1.706091,
+            "seed0": 1.725362
+          },
+          "volume_loss_pct": {
+            "max": 41.691072,
+            "min": 41.466696,
+            "seed0": 41.597774
+          }
+        }
+      }
+    },
+    "fandisk.obj@1000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 321,
+            "min": 263,
+            "seed0": 263
+          },
+          "region_tris": {
+            "max": 1262,
+            "min": 1075,
+            "seed0": 1093
+          },
+          "region_verts": {
+            "max": 697,
+            "min": 604,
+            "seed0": 615
+          },
+          "selfint_posed": {
+            "max": 64,
+            "min": 18,
+            "seed0": 24
+          },
+          "selfint_rest": {
+            "max": 6,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 16.0451,
+            "min": 11.121157,
+            "seed0": 13.632205
+          },
+          "stretch_p95": {
+            "max": 3.130224,
+            "min": 2.830825,
+            "seed0": 3.01807
+          },
+          "volume_loss_pct": {
+            "max": 54.971888,
+            "min": 49.213129,
+            "seed0": 52.2876
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 259,
+            "min": 191,
+            "seed0": 191
+          },
+          "region_tris": {
+            "max": 1262,
+            "min": 1075,
+            "seed0": 1093
+          },
+          "region_verts": {
+            "max": 697,
+            "min": 604,
+            "seed0": 615
+          },
+          "selfint_posed": {
+            "max": 56,
+            "min": 20,
+            "seed0": 20
+          },
+          "selfint_rest": {
+            "max": 6,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 11.795317,
+            "min": 7.414105,
+            "seed0": 10.064044
+          },
+          "stretch_p95": {
+            "max": 2.369582,
+            "min": 2.211409,
+            "seed0": 2.296757
+          },
+          "volume_loss_pct": {
+            "max": 35.269771,
+            "min": 31.399723,
+            "seed0": 33.647858
+          }
+        }
+      }
+    },
+    "fandisk.obj@5000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 1220,
+            "min": 1086,
+            "seed0": 1215
+          },
+          "region_tris": {
+            "max": 4600,
+            "min": 4124,
+            "seed0": 4372
+          },
+          "region_verts": {
+            "max": 2418,
+            "min": 2179,
+            "seed0": 2301
+          },
+          "selfint_posed": {
+            "max": 181,
+            "min": 153,
+            "seed0": 181
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 18.716814,
+            "min": 17.31473,
+            "seed0": 17.31473
+          },
+          "stretch_p95": {
+            "max": 3.281481,
+            "min": 3.189051,
+            "seed0": 3.189051
+          },
+          "volume_loss_pct": {
+            "max": 52.218217,
+            "min": 49.362693,
+            "seed0": 51.337495
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 913,
+            "min": 781,
+            "seed0": 899
+          },
+          "region_tris": {
+            "max": 4600,
+            "min": 4124,
+            "seed0": 4372
+          },
+          "region_verts": {
+            "max": 2418,
+            "min": 2179,
+            "seed0": 2301
+          },
+          "selfint_posed": {
+            "max": 285,
+            "min": 204,
+            "seed0": 285
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 14.867257,
+            "min": 13.494968,
+            "seed0": 13.494968
+          },
+          "stretch_p95": {
+            "max": 2.443412,
+            "min": 2.40139,
+            "seed0": 2.40139
+          },
+          "volume_loss_pct": {
+            "max": 33.62662,
+            "min": 31.697834,
+            "seed0": 33.014691
+          }
+        }
+      }
+    },
+    "nefertiti.obj@1000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 32,
+            "min": 30,
+            "seed0": 30
+          },
+          "region_tris": {
+            "max": 340,
+            "min": 308,
+            "seed0": 340
+          },
+          "region_verts": {
+            "max": 211,
+            "min": 195,
+            "seed0": 211
+          },
+          "selfint_posed": {
+            "max": 15,
+            "min": 13,
+            "seed0": 13
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 21.470588,
+            "min": 18.831169,
+            "seed0": 21.470588
+          },
+          "stretch_p95": {
+            "max": 2.312649,
+            "min": 2.245594,
+            "seed0": 2.312649
+          },
+          "volume_loss_pct": {
+            "max": 7.147712,
+            "min": 3.930136,
+            "seed0": 3.930136
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 340,
+            "min": 308,
+            "seed0": 340
+          },
+          "region_verts": {
+            "max": 211,
+            "min": 195,
+            "seed0": 211
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.294118,
+            "min": 0.0,
+            "seed0": 0.294118
+          },
+          "stretch_p95": {
+            "max": 1.832402,
+            "min": 1.795152,
+            "seed0": 1.832402
+          },
+          "volume_loss_pct": {
+            "max": 3.716632,
+            "min": 1.748887,
+            "seed0": 1.748887
+          }
+        }
+      }
+    },
+    "nefertiti.obj@5000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 259,
+            "min": 210,
+            "seed0": 235
+          },
+          "region_tris": {
+            "max": 2498,
+            "min": 2328,
+            "seed0": 2418
+          },
+          "region_verts": {
+            "max": 1327,
+            "min": 1242,
+            "seed0": 1289
+          },
+          "selfint_posed": {
+            "max": 66,
+            "min": 51,
+            "seed0": 63
+          },
+          "selfint_rest": {
+            "max": 5,
+            "min": 0,
+            "seed0": 1
+          },
+          "stretch_over2_pct": {
+            "max": 28.246485,
+            "min": 25.171821,
+            "seed0": 28.246485
+          },
+          "stretch_p95": {
+            "max": 2.415053,
+            "min": 2.391456,
+            "seed0": 2.403091
+          },
+          "volume_loss_pct": {
+            "max": 2.779901,
+            "min": 2.084399,
+            "seed0": 2.084399
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 8,
+            "min": 1,
+            "seed0": 1
+          },
+          "region_tris": {
+            "max": 2498,
+            "min": 2328,
+            "seed0": 2418
+          },
+          "region_verts": {
+            "max": 1327,
+            "min": 1242,
+            "seed0": 1289
+          },
+          "selfint_posed": {
+            "max": 33,
+            "min": 0,
+            "seed0": 8
+          },
+          "selfint_rest": {
+            "max": 5,
+            "min": 0,
+            "seed0": 1
+          },
+          "stretch_over2_pct": {
+            "max": 0.202758,
+            "min": 0.0,
+            "seed0": 0.124069
+          },
+          "stretch_p95": {
+            "max": 1.884596,
+            "min": 1.871659,
+            "seed0": 1.88027
+          },
+          "volume_loss_pct": {
+            "max": 1.676157,
+            "min": 1.179254,
+            "seed0": 1.179254
+          }
+        }
+      }
+    },
+    "tube@1000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 264,
+            "min": 222,
+            "seed0": 228
+          },
+          "region_verts": {
+            "max": 154,
+            "min": 131,
+            "seed0": 136
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.575588,
+            "min": 1.56554,
+            "seed0": 1.56554
+          },
+          "volume_loss_pct": {
+            "max": 2.564938,
+            "min": -0.181625,
+            "seed0": -0.181625
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 264,
+            "min": 222,
+            "seed0": 228
+          },
+          "region_verts": {
+            "max": 154,
+            "min": 131,
+            "seed0": 136
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.365161,
+            "min": 1.359076,
+            "seed0": 1.359076
+          },
+          "volume_loss_pct": {
+            "max": 1.162438,
+            "min": -0.877501,
+            "seed0": -0.877501
+          }
+        }
+      }
+    },
+    "tube@5000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 912,
+            "min": 792,
+            "seed0": 792
+          },
+          "region_verts": {
+            "max": 494,
+            "min": 432,
+            "seed0": 432
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.59339,
+            "min": 1.582097,
+            "seed0": 1.589516
+          },
+          "volume_loss_pct": {
+            "max": 0.800477,
+            "min": 0.620941,
+            "seed0": 0.71285
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 912,
+            "min": 792,
+            "seed0": 792
+          },
+          "region_verts": {
+            "max": 494,
+            "min": 432,
+            "seed0": 432
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.371204,
+            "min": 1.367823,
+            "seed0": 1.371204
+          },
+          "volume_loss_pct": {
+            "max": 0.343813,
+            "min": 0.248925,
+            "seed0": 0.300727
+          }
+        }
+      }
+    },
+    "xyzrgb_dragon.obj@1000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 166,
+            "min": 129,
+            "seed0": 166
+          },
+          "region_verts": {
+            "max": 109,
+            "min": 86,
+            "seed0": 109
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 7.228916,
+            "min": 1.550388,
+            "seed0": 7.228916
+          },
+          "stretch_p95": {
+            "max": 2.241959,
+            "min": 1.946401,
+            "seed0": 2.241959
+          },
+          "volume_loss_pct": {
+            "max": -9.004309,
+            "min": -17.819142,
+            "seed0": -17.819142
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 166,
+            "min": 129,
+            "seed0": 166
+          },
+          "region_verts": {
+            "max": 109,
+            "min": 86,
+            "seed0": 109
+          },
+          "selfint_posed": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "selfint_rest": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "stretch_over2_pct": {
+            "max": 0.0,
+            "min": 0.0,
+            "seed0": 0.0
+          },
+          "stretch_p95": {
+            "max": 1.878606,
+            "min": 1.585502,
+            "seed0": 1.878606
+          },
+          "volume_loss_pct": {
+            "max": -7.146968,
+            "min": -12.870667,
+            "seed0": -12.870667
+          }
+        }
+      }
+    },
+    "xyzrgb_dragon.obj@5000": {
+      "poses": {
+        "elbow135": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 1321,
+            "min": 1120,
+            "seed0": 1120
+          },
+          "region_verts": {
+            "max": 743,
+            "min": 631,
+            "seed0": 631
+          },
+          "selfint_posed": {
+            "max": 3,
+            "min": 0,
+            "seed0": 3
+          },
+          "selfint_rest": {
+            "max": 3,
+            "min": 0,
+            "seed0": 3
+          },
+          "stretch_over2_pct": {
+            "max": 22.374429,
+            "min": 16.160714,
+            "seed0": 16.160714
+          },
+          "stretch_p95": {
+            "max": 2.545619,
+            "min": 2.469474,
+            "seed0": 2.545619
+          },
+          "volume_loss_pct": {
+            "max": -31.991323,
+            "min": -40.593619,
+            "seed0": -31.991327
+          }
+        },
+        "elbow90": {
+          "flips": {
+            "max": 0,
+            "min": 0,
+            "seed0": 0
+          },
+          "region_tris": {
+            "max": 1321,
+            "min": 1120,
+            "seed0": 1120
+          },
+          "region_verts": {
+            "max": 743,
+            "min": 631,
+            "seed0": 631
+          },
+          "selfint_posed": {
+            "max": 3,
+            "min": 0,
+            "seed0": 3
+          },
+          "selfint_rest": {
+            "max": 3,
+            "min": 0,
+            "seed0": 3
+          },
+          "stretch_over2_pct": {
+            "max": 5.714286,
+            "min": 5.071915,
+            "seed0": 5.714286
+          },
+          "stretch_p95": {
+            "max": 2.025788,
+            "min": 2.001696,
+            "seed0": 2.025788
+          },
+          "volume_loss_pct": {
+            "max": -21.457005,
+            "min": -26.929963,
+            "seed0": -21.457008
+          }
+        }
+      }
+    }
+  },
+  "jitter": 1e-09,
+  "note": "Deformation gate baseline: per case per pose per metric, seed0/min/max over the calibration seed spread. Per-platform: regenerate on each platform, never mix (see bench/run.py baselines).",
+  "seeds": 8
+}

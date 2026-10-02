@@ -108,11 +108,13 @@ corpus, seed 0), `bench/deform.py --seeds 8` for distributions,
 comparisons), `bench/deform.py --write-baseline` to (re)generate.
 
 **Baselines are per-platform**, like `bench/baseline.json` (never
-mix). `bench/deform_baseline.json` ships for macOS; Linux CI warns
-that deform goes uncompared until its baseline exists:
+mix). `bench/deform_baseline.json` ships for macOS and
+`bench/deform_baseline-linux.json` for Linux (generated on Linux CI,
+scratch run 37057109502 — seed0 matches the bench log to 6 decimals).
+To regenerate either, run this on the target platform:
 
 ```bash
-bench/deform.py --write-baseline bench/deform_baseline-linux.json
+bench/deform.py --write-baseline bench/deform_baseline[-linux].json
 ```
 
 **Measured scores** (macOS arm64, 8-seed calibration; seed0 / spread
