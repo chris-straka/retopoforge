@@ -67,8 +67,13 @@ Owner's map of all projects and the cross-project order:
 the noise floor), plus `bench/matched.py` against `bench/quadwild.py`
 when comparing back ends.
 
-- [ ] Remove remaining triangles/pentagons (~1-2% of faces on real AI
-      characters: 186 of ~14k on the owner's character)
+- [x] Remove remaining triangles/pentagons: final `cleanup_residual_routes`
+      pass (pentagon-start route collapses into sinks, generalized from
+      `cleanup_triangles`). Owner's character 203->64 non-quads (-68%),
+      beast 49->10, fandisk/nefertiti/armadillo residuals roughly halved;
+      oracles re-pinned via UPDATE_QUADEXT/UPDATE_ARDIFF (30 + 52 cases,
+      every rewrite reduces non-quads). Loop-locked loners remain (no
+      straight route to a sink; need defect migration, not more routes).
 - [ ] Normalize input scale by a power of two on load (quality collapses
       below ~0.01-unit models; `PositionKey` truncates at 1e-5 absolute)
 - [ ] Rounding: `solve_iteration` fixes every integer in one shot

@@ -1507,6 +1507,9 @@ impl<'a> QuadExtractor<'a> {
         self.split_high_valence_triangle_fans();
         self.report(0.99, "Collapsing three valence edge pairs");
         self.collapse_three_valence_edge_pairs();
+        // No progress event (the engine oracle pins the sequence): a fast
+        // tail sweep, silent unless defects were actually removed.
+        self.cleanup_residual_routes();
         self.report(1.0, "");
 
         // Pure post-pass over the final positions: reads m_remeshedVertices,
@@ -6046,6 +6049,20 @@ impl<'a> QuadExtractor<'a> {
     }
 
     fn cleanup_triangles(&mut self) {
+        self.cleanup_routes(false);
+    }
+
+    /// Final sweep for defects the pair-wise passes leave behind: isolated
+    /// pentagons (and triangles with fresh routes after the later passes)
+    /// collapse through a quad strip into a sink, exactly like the
+    /// mid-pipeline triangle cleanup, except a pentagon start shrinks to
+    /// a quad instead of dissolving. Deliberately emits no progress
+    /// events: the engine oracle pins the progress sequence exactly.
+    fn cleanup_residual_routes(&mut self) {
+        self.cleanup_routes(true);
+    }
+
+    fn cleanup_routes(&mut self, pentagon_starts: bool) {
         if self.remeshed_vertices.is_empty() || self.remeshed_polygons.is_empty() {
             return;
         }
@@ -6060,10 +6077,13 @@ impl<'a> QuadExtractor<'a> {
         // because each pair of side edges merges together with its rung.
         // Collapsing one rung at a time instead lets the surviving
         // vertex take part in the next collapse as well, which grows a
-        // fan of slivers around a single point
+        // fan of slivers around a single point. A pentagon start works
+        // the same way, except the start face gives up one side (5 -> 4)
+        // instead of dissolving.
         let mut rejected_edges = BTreeSet::new();
         let mut collapsed_vertices = BTreeSet::new();
         let mut collapse_count = 0;
+        let mut pentagon_count = 0;
         loop {
             // Sorted-vector rebuild (identical keys/values/order to the
             // `BTreeMap` build, a handful of allocs instead of 100k+).
@@ -6072,13 +6092,18 @@ impl<'a> QuadExtractor<'a> {
             let mut route: Vec<(usize, usize)> = Vec::new();
             let mut route_faces = BTreeSet::new();
             let mut route_sink = NO_FACE;
+            let mut route_start = NO_FACE;
+            let mut route_start_len = 0;
             for start_face in 0..self.remeshed_polygons.len() {
-                let triangle = &self.remeshed_polygons[start_face];
-                if 3 != triangle.len() || Self::has_repeated_vertex(triangle) {
+                let starter = &self.remeshed_polygons[start_face];
+                let starter_len = starter.len();
+                if (3 != starter_len && !(pentagon_starts && 5 == starter_len))
+                    || Self::has_repeated_vertex(starter)
+                {
                     continue;
                 }
-                for i in 0..3 {
-                    let start_edge = Self::edge_of(triangle[i], triangle[(i + 1) % 3]);
+                for i in 0..starter_len {
+                    let start_edge = Self::edge_of(starter[i], starter[(i + 1) % starter_len]);
                     if rejected_edges.contains(&start_edge) {
                         continue;
                     }
@@ -6098,6 +6123,8 @@ impl<'a> QuadExtractor<'a> {
                         route = candidate_route;
                         route_faces = candidate_faces;
                         route_sink = candidate_sink;
+                        route_start = start_face;
+                        route_start_len = starter_len;
                     }
                 }
             }
@@ -6142,8 +6169,12 @@ impl<'a> QuadExtractor<'a> {
                 // The strip faces and a triangle sink are meant to
                 // disappear, everything else has to come out of the
                 // collapse with the shape it went in with, apart from
-                // the sink which gives up exactly one side
-                let dissolving = route_faces.contains(&face_index)
+                // the sink which gives up exactly one side. A pentagon
+                // start is the exception to the strip rule: it gives up
+                // one side instead of dissolving.
+                let start_dissolves = 3 == route_start_len;
+                let dissolving = (route_faces.contains(&face_index)
+                    && (face_index != route_start || start_dissolves))
                     || (face_index == route_sink && 3 == face.len());
                 *slot = (candidate, touched, dissolving);
             });
@@ -6160,7 +6191,9 @@ impl<'a> QuadExtractor<'a> {
                     }
                     continue;
                 }
-                let expected_size = if face_index == route_sink {
+                let expected_size = if face_index == route_start && 5 == route_start_len {
+                    route_start_len - 1
+                } else if face_index == route_sink {
                     face.len() - 1
                 } else {
                     face.len()
@@ -6233,6 +6266,9 @@ impl<'a> QuadExtractor<'a> {
             }
             self.remeshed_polygons = rewritten;
             collapse_count += 1;
+            if 5 == route_start_len {
+                pentagon_count += 1;
+            }
         }
 
         if 0 == collapse_count {
@@ -6241,7 +6277,13 @@ impl<'a> QuadExtractor<'a> {
 
         let compacted = self.compact_vertices(&collapsed_vertices);
 
-        self.diagnose(|| format!("Cleanup triangle faces:{collapse_count}\n"));
+        if pentagon_starts {
+            self.diagnose(|| {
+                format!("Cleanup residual routes:{collapse_count} (pentagons:{pentagon_count})\n")
+            });
+        } else {
+            self.diagnose(|| format!("Cleanup triangle faces:{collapse_count}\n"));
+        }
         self.rebuild_half_edges();
 
         // The rungs met halfway, pull the closed up strips back onto the

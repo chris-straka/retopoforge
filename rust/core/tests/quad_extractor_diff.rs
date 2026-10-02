@@ -433,3 +433,140 @@ fn diff_replay() {
         failures.len()
     );
 }
+
+// Intended-behavior regen: the C++ reference is deleted, so when the
+// extractor IMPROVES (fewer non-quads, never more), the frozen C++
+// expectations for the changed cases are re-pinned to the new output:
+//
+//   UPDATE_QUADEXT=1 cargo test --release -p retopo_core --test quad_extractor_diff regen_expect
+//
+// Only cases whose REMESH/QUADS/RUV counts changed are rewritten (a
+// firing cleanup pass always shrinks counts; value-only drift is never
+// re-pinned, it fails as usual). Review the per-case census below and
+// the fixture diff, then re-run the suite green.
+#[test]
+fn regen_expect() {
+    if std::env::var_os("UPDATE_QUADEXT").is_none() {
+        return;
+    }
+    let text = std::fs::read_to_string(FIXTURE).unwrap();
+    let cases = parse_cases(&text);
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let mut rewritten = 0;
+    for case in &cases {
+        let mut extractor = QuadExtractor::new(&case.vertices, &case.triangles, &case.uvs);
+        extractor.set_compute_vertex_uvs(case.compute_uvs);
+        if let Some(orig) = &case.orig {
+            extractor.set_original_triangle_uvs(orig);
+        }
+        if !case.singular.is_empty() {
+            extractor.set_singular_vertices(&case.singular);
+        }
+        let _ = extractor.extract();
+        let verts = extractor.remeshed_vertices();
+        let quads = extractor.remeshed_quads();
+        let ruv = extractor.remeshed_vertex_uvs();
+        if verts.len() == case.remesh.len()
+            && quads.len() == case.quads.len()
+            && ruv.len() == case.ruv.len()
+        {
+            continue;
+        }
+        let old_nq = case.quads.iter().filter(|f| f.len() != 4).count();
+        let new_nq = quads.iter().filter(|f| f.len() != 4).count();
+        println!(
+            "case {}: verts {}->{} faces {}->{} ruv {}->{} nonquads {old_nq}->{new_nq}",
+            case.index,
+            case.remesh.len(),
+            verts.len(),
+            case.quads.len(),
+            quads.len(),
+            case.ruv.len(),
+            ruv.len(),
+        );
+        assert!(
+            new_nq <= old_nq,
+            "case {}: regen would ADD non-quads ({old_nq}->{new_nq}), refusing",
+            case.index
+        );
+        // Re-found per case: earlier splices shift line numbers.
+        let start = find_case_start(&lines, case.index);
+        replace_section(&mut lines, start, "REMESH", &format_remesh(verts));
+        replace_section(&mut lines, start, "QUADS", &format_quads(quads));
+        replace_section(&mut lines, start, "RUV", &format_ruv(ruv));
+        rewritten += 1;
+    }
+    // `lines()` strips terminators; the fixture ends with exactly one.
+    std::fs::write(FIXTURE, lines.join("\n") + "\n").unwrap();
+    println!(
+        "regen: rewrote {rewritten}/{} cases; re-run the suite",
+        cases.len()
+    );
+}
+
+/// Exact "CASE {index}" line (exact match, so "CASE 2" never matches
+/// "CASE 20").
+fn find_case_start(lines: &[String], index: usize) -> usize {
+    let want = format!("CASE {index}");
+    lines
+        .iter()
+        .position(|line| *line == want)
+        .unwrap_or_else(|| panic!("regen: CASE {index} not found"))
+}
+
+/// Replace the `HEADER n` line plus its n payload lines, searching
+/// forward from the case start (never past the next case start).
+fn replace_section(lines: &mut Vec<String>, start: usize, header: &str, fresh: &[String]) {
+    let mut at = None;
+    for i in start..lines.len() {
+        if i != start && lines[i].starts_with("CASE ") {
+            break;
+        }
+        if let Some(rest) = lines[i].strip_prefix(header)
+            && let Some(count) = rest.strip_prefix(' ')
+            && let Ok(n) = count.split(' ').next().unwrap().parse::<usize>()
+        {
+            at = Some((i, n));
+            break;
+        }
+    }
+    let (i, n) = at.unwrap_or_else(|| panic!("regen: {header} section not found"));
+    assert_eq!(
+        fresh[0]
+            .split(' ')
+            .nth(1)
+            .unwrap()
+            .parse::<usize>()
+            .unwrap(),
+        fresh.len() - 1
+    );
+    lines.splice(i..i + 1 + n, fresh.iter().cloned());
+}
+
+fn format_remesh(verts: &[Vector3]) -> Vec<String> {
+    let mut out = vec![format!("REMESH {}", verts.len())];
+    for v in verts {
+        out.push(format!("v {} {} {}", v.x(), v.y(), v.z()));
+    }
+    out
+}
+
+fn format_quads(quads: &[Vec<usize>]) -> Vec<String> {
+    let mut out = vec![format!("QUADS {}", quads.len())];
+    for q in quads {
+        out.push(format!(
+            "q {} {}",
+            q.len(),
+            q.iter().map(usize::to_string).collect::<Vec<_>>().join(" ")
+        ));
+    }
+    out
+}
+
+fn format_ruv(ruv: &[Vector2]) -> Vec<String> {
+    let mut out = vec![format!("RUV {}", ruv.len())];
+    for u in ruv {
+        out.push(format!("u {} {}", u.x(), u.y()));
+    }
+    out
+}

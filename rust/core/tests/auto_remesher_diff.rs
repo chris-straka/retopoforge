@@ -30,10 +30,15 @@ use retopo_core::auto_remesher::{AutoRemesher, AutoRemesherProgressHandler, Mode
 use retopo_core::quad_parameterizer::DipoleConfig;
 use retopo_core::vector2::Vector2;
 use retopo_core::vector3::Vector3;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 
 const FIXTURE: &str = include_str!("../../../tests/fixtures/autoremesher_diff.txt");
+const FIXTURE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/autoremesher_diff.txt"
+);
 const TOL: f64 = 1e-6;
 
 struct Cur {
@@ -198,6 +203,41 @@ fn differential_replay() {
     let mut saw_decimated = false;
     let mut saw_sym_active = false;
     let mut saw_multi_island = false;
+    // Intended-behavior regen (UPDATE_ARDIFF=1): the C++ reference is
+    // deleted, so when the engine IMPROVES (fewer non-quads, never
+    // more), the frozen RV/RQ/RUV/ISL lines of changed CASE/ECX cases
+    // are re-pinned to the new output (EPX stays report-only and is
+    // never rewritten). Only count changes are re-pinned; value-only
+    // drift keeps failing as usual. Review the per-case census and the
+    // fixture diff, then re-run the suite green.
+    let regen = std::env::var_os("UPDATE_ARDIFF").is_some();
+    let mut regen_lines: Vec<String> = Vec::new();
+    let mut regen_map: HashMap<(String, i64), [usize; 4]> = HashMap::new();
+    if regen {
+        let disk = std::fs::read_to_string(FIXTURE_PATH).unwrap();
+        regen_lines = disk.lines().map(str::to_string).collect();
+        let mut key: Option<(String, i64)> = None;
+        let mut i = 0;
+        while i < regen_lines.len() {
+            let line = &regen_lines[i];
+            if line.starts_with("CASE ") || line.starts_with("ECX ") || line.starts_with("EPX ") {
+                let toks: Vec<&str> = line.split(' ').collect();
+                key = Some((toks[0].to_string(), toks[1].parse().unwrap()));
+            } else if *line == "RES 1" {
+                assert!(
+                    regen_lines[i + 1].starts_with("RV ")
+                        && regen_lines[i + 2].starts_with("RQ ")
+                        && regen_lines[i + 3].starts_with("RUV ")
+                        && regen_lines[i + 4].starts_with("ISL "),
+                    "regen: expected RV/RQ/RUV/ISL after RES 1"
+                );
+                regen_map.insert(key.clone().unwrap(), [i + 1, i + 2, i + 3, i + 4]);
+            }
+            i += 1;
+        }
+    }
+    let mut regen_edits: Vec<(usize, String)> = Vec::new();
+    let mut regen_cases = 0;
     loop {
         let tag = c.word();
         if tag == "CASES" {
@@ -679,6 +719,36 @@ fn differential_replay() {
             mismatches.push(format!("{case}: RUV nonempty with uvs off"));
         }
         let got_isl = remesher.island_output_quad_counts();
+        if regen && strict {
+            let key = (tag.clone(), id);
+            let idx = regen_map[&key];
+            let counts_changed = got_rv.len() != exp_rv.len()
+                || got_rq.len() != exp_rq.len()
+                || got_ruv.len() != exp_ruv.len()
+                || got_isl != exp_isl.as_slice();
+            if counts_changed {
+                let old_nq = exp_rq.iter().filter(|r| r.len() != 4).count();
+                let new_nq = got_rq.iter().filter(|r| r.len() != 4).count();
+                eprintln!(
+                    "{case}: verts {}->{} faces {}->{} ruv {}->{} isl {exp_isl:?}->{got_isl:?} nonquads {old_nq}->{new_nq}",
+                    exp_rv.len(),
+                    got_rv.len(),
+                    exp_rq.len(),
+                    got_rq.len(),
+                    exp_ruv.len(),
+                    got_ruv.len(),
+                );
+                assert!(
+                    new_nq <= old_nq,
+                    "{case}: regen would ADD non-quads ({old_nq}->{new_nq}), refusing"
+                );
+                regen_edits.push((idx[0], fmt_rv(got_rv)));
+                regen_edits.push((idx[1], fmt_rq(got_rq)));
+                regen_edits.push((idx[2], fmt_ruv(got_ruv)));
+                regen_edits.push((idx[3], fmt_isl(got_isl)));
+                regen_cases += 1;
+            }
+        }
         if got_isl.len() != exp_isl.len() {
             mismatches.push(format!(
                 "{case}: ISL length skew (rust={} cpp={})",
@@ -1014,12 +1084,54 @@ fn differential_replay() {
         "epx cases: {}, both-ok: {}, value-agree: {}, max diff: {:.3e} at {}",
         stats.cases, stats.both_ok, stats.value_agree, stats.max_diff, stats.max_diff_at
     );
+    if regen {
+        for (i, line) in regen_edits {
+            regen_lines[i] = line;
+        }
+        std::fs::write(FIXTURE_PATH, regen_lines.join("\n") + "\n").unwrap();
+        eprintln!("regen: rewrote {regen_cases} cases; re-run the suite green");
+    }
     assert!(
         mismatches.is_empty(),
         "{} structural/value mismatches:\n{}",
         mismatches.len(),
         mismatches.join("\n")
     );
+}
+
+fn fmt_rv(rv: &[Vector3]) -> String {
+    let mut s = format!("RV {}", rv.len());
+    for v in rv {
+        s.push_str(&format!(" {} {} {}", v.x(), v.y(), v.z()));
+    }
+    s
+}
+
+fn fmt_rq(rq: &[Vec<usize>]) -> String {
+    let mut s = format!("RQ {}", rq.len());
+    for row in rq {
+        s.push_str(&format!(" {}", row.len()));
+        for v in row {
+            s.push_str(&format!(" {v}"));
+        }
+    }
+    s
+}
+
+fn fmt_ruv(ruv: &[Vector2]) -> String {
+    let mut s = format!("RUV {}", ruv.len());
+    for u in ruv {
+        s.push_str(&format!(" {} {}", u.x(), u.y()));
+    }
+    s
+}
+
+fn fmt_isl(isl: &[usize]) -> String {
+    let mut s = format!("ISL {}", isl.len());
+    for n in isl {
+        s.push_str(&format!(" {n}"));
+    }
+    s
 }
 
 /// Skips one case's output sections (ok-skew path: keeps the tokenizer in
