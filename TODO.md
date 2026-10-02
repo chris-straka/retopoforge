@@ -473,10 +473,14 @@ and QtAwesome deleted as dead code before the removal.
       Oracles: 5 quadparam + 32 parameterizer demotions, 45-case
       ardiff re-pin (zero SHARPS=0 changers), case-58 coverage pin
       retired, new `box-cage` CLI regression (fails pre-fix).
-- [ ] Case-156 C++ heap-OOB read on DENSITY-3 inputs (found by port
+- [x] Case-156 C++ heap-OOB read on DENSITY-3 inputs (found by port
       forensics, engine bisection): C++ values derive from UB —
       EPX-by-UB in the oracle, never match; exclude the input class in
-      main-lane e2e. No C++ fix (being replaced).
+      main-lane e2e. No C++ fix (being replaced). MOOT 2026-10-01:
+      main-lane e2e was the retired C++ differential (`e2e_diff.rs`,
+      deleted with the C++ tree); the Rust-only contract has no C++
+      comparison to exclude anything from. Verdict doc keeps the
+      historical record.
 - [x] Merge-five-faces path divergence (found by e2e forensics;
       verdict PORT BUG, fixed on `lane/merge-five`): was NOT a path
       divergence — the Rust merge always ran (trace: pentagons 5:2→0
