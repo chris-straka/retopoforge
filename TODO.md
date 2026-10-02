@@ -162,7 +162,15 @@ when comparing back ends.
       singularity control, integer-layout feasibility, or extraction
       robustness. Use this case + the deformation score (item 9) to gate
       robustness before flipping the decimator default.
-- [ ] Joint loops: rigforge landmarks -> guide rings via `--guides`
+- [x] Joint loops: rigforge landmarks -> guide rings via `--guides`
+      (`bench/rings.py` + `bench/test_rings.py`, 20 checks): biped
+      z-slices (torso loop dropped at 3+ loops) + quadruped per-leg
+      transverse planes from real detector schema; rings byte-
+      deterministic, CLI-accepted, scores hold (tube + twisted tube +
+      rigforge synthetic quadruped with real detector landmarks: rings
+      land exactly on leg mids). Frame caveat in the docstring (Blender-
+      world vs file axes); bench corpus has no detector-compatible
+      subject (beast fails the signature loud).
 - [x] Deformation score in bench (rig + pose + joint distortion) as the
       main gate (`bench/deform.py` + `bench/deform_baseline.json`, wired
       into `bench/run.py --check`; see `docs/deformation-test.md`)
