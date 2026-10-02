@@ -94,6 +94,7 @@ use crate::symmetry::{Symmetry, SymmetryPlane};
 use crate::vector2::Vector2;
 use crate::vector3::Vector3;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -567,9 +568,264 @@ impl ProgressState {
     }
 }
 
+/// Output-side proximity index for the input-side verdict: a
+/// uniform grid over the fanned output quads, answering covered-or-not
+/// within a squared bar with early exit (input-side coverage runs over
+/// up to 150k input verts, where the `coverage_gaps` full scan is
+/// seconds per attempt). Small or degenerate outputs take the `Scan`
+/// arm instead: when the mean fan edge collapses (h -> 0 on
+/// zero-area/repeated-corner tris), ring expansion would walk ~bar/h
+/// ~= 1e12 empty rings per query — that hung `differential_replay`
+/// before the fallback existed. Both arms test the same predicate
+/// (`point_triangle_dist2 <= bar2` over the same fan), so Grid === Scan
+/// === brute force; the grid is an accelerator, not a second verdict.
+enum CoverageIndex<'v> {
+    Grid(CoverageGrid<'v>),
+    Scan {
+        verts: &'v [Vector3],
+        tris: Vec<(usize, usize, usize)>,
+    },
+}
+
+/// Fan-tri counts below this scan faster than a grid can index (no
+/// build cost, no degenerate-hang risk).
+const COVERAGE_SCAN_TRIS: usize = 256;
+
+/// Ring bound the grid arm guarantees: build routes to `Scan` unless
+/// `h > bar / COVERAGE_MAX_RINGS`, so ring exit fires at `r < 64` and
+/// every query terminates after a bounded shell walk.
+const COVERAGE_MAX_RINGS: f64 = 64.0;
+
+/// Absolute cell cap for grid build; beyond it the output is
+/// degenerate at grid scale (giant tris over a collapsed index) and
+/// the caller scans instead, staying exact.
+const COVERAGE_MAX_CELLS: usize = 1_000_000;
+
+impl<'v> CoverageIndex<'v> {
+    /// Fan-triangulates `quads` (out-of-range corners skipped, never
+    /// trusted — same rule as `coverage_gaps`) and indexes the fan.
+    /// `None` = no valid fan triangle: every vert uncovered (the
+    /// existing INFINITY verdict for an empty extraction).
+    fn build(verts: &'v [Vector3], quads: &[Vec<usize>], bar: f64) -> Option<Self> {
+        let (tris, total) = Self::fan(verts, quads);
+        if tris.is_empty() {
+            return None;
+        }
+        if tris.len() >= COVERAGE_SCAN_TRIS {
+            let h = 2.0 * total / tris.len() as f64;
+            // Degenerate guard (also catches h <= 0 and NaN): without
+            // it an all-repeated-corner output pins h at ~0 and ring
+            // exit needs bar/h ~= 1e12+ iterations per query.
+            if h > bar / COVERAGE_MAX_RINGS {
+                if let Some(grid) = CoverageGrid::build(verts, tris, h) {
+                    return Some(Self::Grid(grid));
+                }
+                // Cell-cap bail: re-fan for the scan (O(quads), on a
+                // path that then does O(verts x tris) scan work).
+                return Some(Self::Scan {
+                    verts,
+                    tris: Self::fan(verts, quads).0,
+                });
+            }
+        }
+        Some(Self::Scan { verts, tris })
+    }
+
+    /// Fan triangulation + summed first-edge lengths (the grid cell
+    /// size derives from the mean).
+    fn fan(verts: &[Vector3], quads: &[Vec<usize>]) -> (Vec<(usize, usize, usize)>, f64) {
+        let mut tris = Vec::new();
+        let mut total = 0.0;
+        for q in quads {
+            for k in 1..q.len().saturating_sub(1) {
+                let (a, b, c) = (q[0], q[k], q[k + 1]);
+                if a < verts.len() && b < verts.len() && c < verts.len() {
+                    total += (verts[b] - verts[a]).length();
+                    tris.push((a, b, c));
+                }
+            }
+        }
+        (tris, total)
+    }
+
+    /// Whether any output triangle passes within `bar2` (squared) of
+    /// `p`. Deterministic: fan order (scan) or fixed ring order (grid),
+    /// order-free boolean reduction.
+    fn covered_within(&self, p: &Vector3, bar2: f64, seen: &mut [u32], stamp: u32) -> bool {
+        match self {
+            Self::Grid(grid) => grid.covered_within(p, bar2, seen, stamp),
+            Self::Scan { verts, tris } => tris.iter().any(|&(a, b, c)| {
+                AutoRemesher::point_triangle_dist2(p, &verts[a], &verts[b], &verts[c]) <= bar2
+            }),
+        }
+    }
+
+    fn tri_count(&self) -> usize {
+        match self {
+            Self::Grid(grid) => grid.tris.len(),
+            Self::Scan { tris, .. } => tris.len(),
+        }
+    }
+}
+
+struct CoverageGrid<'v> {
+    verts: &'v [Vector3],
+    tris: Vec<(usize, usize, usize)>,
+    cells: HashMap<[i64; 3], Vec<usize>>,
+    h: f64,
+}
+
+impl<'v> CoverageGrid<'v> {
+    /// Indexes pre-fanned `tris` with cell size `h` (`None` when the
+    /// index would exceed `COVERAGE_MAX_CELLS`: the caller scans
+    /// instead). Per-tri spans are tri-local, so with the caller's
+    /// `h > bar/64` guarantee the ranges below are bounded and this
+    /// always terminates.
+    fn build(verts: &'v [Vector3], tris: Vec<(usize, usize, usize)>, h: f64) -> Option<Self> {
+        let mut cells: HashMap<[i64; 3], Vec<usize>> = HashMap::new();
+        for (t, &(a, b, c)) in tris.iter().enumerate() {
+            if cells.len() > COVERAGE_MAX_CELLS {
+                return None;
+            }
+            let (pa, pb, pc) = (&verts[a], &verts[b], &verts[c]);
+            let lo = [
+                (pa.x().min(pb.x()).min(pc.x()) / h).floor() as i64,
+                (pa.y().min(pb.y()).min(pc.y()) / h).floor() as i64,
+                (pa.z().min(pb.z()).min(pc.z()) / h).floor() as i64,
+            ];
+            let hi = [
+                (pa.x().max(pb.x()).max(pc.x()) / h).floor() as i64,
+                (pa.y().max(pb.y()).max(pc.y()) / h).floor() as i64,
+                (pa.z().max(pb.z()).max(pc.z()) / h).floor() as i64,
+            ];
+            for i in lo[0]..=hi[0] {
+                for j in lo[1]..=hi[1] {
+                    for k in lo[2]..=hi[2] {
+                        cells.entry([i, j, k]).or_default().push(t);
+                    }
+                }
+            }
+        }
+        Some(Self {
+            verts,
+            tris,
+            cells,
+            h,
+        })
+    }
+
+    /// Tests one cell's tris against `bar2` (stamp-deduped, no
+    /// per-query allocation); true on the first tri within range.
+    fn test_cell(
+        &self,
+        p: &Vector3,
+        key: [i64; 3],
+        bar2: f64,
+        seen: &mut [u32],
+        stamp: u32,
+    ) -> bool {
+        let Some(list) = self.cells.get(&key) else {
+            return false;
+        };
+        for &t in list.iter() {
+            if seen[t] == stamp {
+                continue;
+            }
+            seen[t] = stamp;
+            let (a, b, c) = self.tris[t];
+            if AutoRemesher::point_triangle_dist2(p, &self.verts[a], &self.verts[b], &self.verts[c])
+                <= bar2
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether any indexed triangle passes within `bar2` (squared) of
+    /// `p`. Ring expansion mirrors `bench/score.py`'s `TriangleGrid`:
+    /// after ring `r` with no hit, remaining cells sit beyond `r*h`
+    /// from the query, so `(r*h)^2 >= bar2` proves uncovered. Pure
+    /// function of its inputs (fixed shell order, order-free boolean
+    /// reduction; the map is only looked up, never iterated).
+    /// `seen`/`stamp` dedupe triangle tests across the rings of one
+    /// query (stamp values only compared for equality).
+    fn covered_within(&self, p: &Vector3, bar2: f64, seen: &mut [u32], stamp: u32) -> bool {
+        let c = [
+            (p.x() / self.h).floor() as i64,
+            (p.y() / self.h).floor() as i64,
+            (p.z() / self.h).floor() as i64,
+        ];
+        // Wrapping: a query past ~9e18 cells saturates its base key;
+        // neighbors then alias arbitrary cells, but every tested tri is
+        // still measured exactly, so a `true` stays sound and the ring
+        // exit below still terminates the walk.
+        let cell = |dx: i64, dy: i64, dz: i64| {
+            [
+                c[0].wrapping_add(dx),
+                c[1].wrapping_add(dy),
+                c[2].wrapping_add(dz),
+            ]
+        };
+        let mut r: i64 = 0;
+        loop {
+            // Chebyshev shell == r, each cell once: full z-faces, then
+            // the x/y face strips over the open z-interval (r == 0
+            // visits the center cell once; at r > 0 the y strips run
+            // the open x-interval so shared edges meet once).
+            if r == 0 {
+                if self.test_cell(p, c, bar2, seen, stamp) {
+                    return true;
+                }
+            } else {
+                for &dz in &[-r, r] {
+                    for dx in -r..=r {
+                        for dy in -r..=r {
+                            if self.test_cell(p, cell(dx, dy, dz), bar2, seen, stamp) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                for dz in -(r - 1)..=(r - 1) {
+                    for d in -r..=r {
+                        if self.test_cell(p, cell(r, d, dz), bar2, seen, stamp)
+                            || self.test_cell(p, cell(-r, d, dz), bar2, seen, stamp)
+                        {
+                            return true;
+                        }
+                    }
+                    for d in -(r - 1)..=(r - 1) {
+                        if self.test_cell(p, cell(d, r, dz), bar2, seen, stamp)
+                            || self.test_cell(p, cell(d, -r, dz), bar2, seen, stamp)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Remaining rings sit beyond r*h from the query: a bar
+            // inside that proves uncovered (score.py's exit rule).
+            // Terminates: build guarantees h > bar/64, so this fires
+            // at r < 64 after a bounded shell walk.
+            if (r as f64 * self.h).powi(2) >= bar2 {
+                return false;
+            }
+            r += 1;
+        }
+    }
+}
+
 struct IslandContext {
     vertices: Vec<Vector3>,
     triangles: Vec<Vec<usize>>,
+    // Pre-resample input island (snapshot before `resample` decimates
+    // in place): the input side of the coverage verdict compares the
+    // extracted quads against these, catching extremities the working
+    // mesh keeps only as stretched-triangle surface (sparse working
+    // verts the working-side check cannot see).
+    input_vertices: Vec<Vector3>,
+    input_triangles: Vec<Vec<usize>>,
     voxel_size: f64,
     scaling: f64,
     adaptivity: f64,
@@ -594,6 +850,8 @@ impl Default for IslandContext {
         Self {
             vertices: Vec::new(),
             triangles: Vec::new(),
+            input_vertices: Vec::new(),
+            input_triangles: Vec::new(),
             voxel_size: 0.0,
             scaling: 0.0,
             adaptivity: 0.0,
@@ -611,8 +869,16 @@ impl Default for IslandContext {
 /// island. Present only when the first attempt failed coverage:
 /// `retries_made` counts the jitter retries run (1-3, stopping at the
 /// first full-coverage result); `recovered` tells whether one covered
-/// fully (else attempt 0 was kept); `initial_uncovered`/`final_uncovered`
-/// count working verts beyond the coverage width before/after.
+/// fully (else the fallback attempt was kept);
+/// `initial_uncovered`/`final_uncovered`
+/// count verts beyond the coverage width before/after on the firing
+/// side: working-mesh verts normally, ORIGINAL input verts when
+/// `input_side` is set (the input side fires only, see
+/// `input_coverage_failed`). `kept_attempt` is the committed attempt:
+/// the full-coverage winner when `recovered`, else the earliest
+/// working-quiet attempt (attempt 0 when it passed working-side) so
+/// the input side can never make working-side coverage worse than
+/// unretried.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CoverageReport {
     pub island_index: usize,
@@ -620,6 +886,8 @@ pub struct CoverageReport {
     pub recovered: bool,
     pub initial_uncovered: usize,
     pub final_uncovered: usize,
+    pub input_side: bool,
+    pub kept_attempt: usize,
 }
 
 /// Everything one island attempt writes (coverage-retry save/restore
@@ -676,8 +944,25 @@ impl<'a> ParameterizationThread<'a> {
         }
     }
 
-    /// Restores a bundle taken by [`Self::take_attempt_outputs`] (all
-    /// retries failed: attempt 0 is kept).
+    /// Clones the current outputs into a bundle (working-quiet
+    /// fallback: the loop continues past it seeking full coverage).
+    fn clone_attempt_outputs(&self) -> AttemptOutputs {
+        AttemptOutputs {
+            captured_uvs: self.captured_uvs.clone(),
+            captured_original_uvs: self.captured_original_uvs.clone(),
+            captured_extracted_connection_moved: self.captured_extracted_connection_moved.clone(),
+            captured_singular_vertices: self.captured_singular_vertices.clone(),
+            captured_singular_vertex_indices: self.captured_singular_vertex_indices.clone(),
+            captured_extracted_connections: self.captured_extracted_connections.clone(),
+            captured_vertex_uvs: self.captured_vertex_uvs.clone(),
+            remeshed_vertices: self.remeshed_vertices.clone(),
+            remeshed_quads: self.remeshed_quads.clone(),
+            dipoles_placed: self.dipoles_placed,
+        }
+    }
+
+    /// Restores a bundle taken by [`Self::take_attempt_outputs`] (no
+    /// full-coverage winner: the fallback attempt is kept).
     fn restore_attempt_outputs(&mut self, outputs: AttemptOutputs) {
         self.captured_uvs = outputs.captured_uvs;
         self.captured_original_uvs = outputs.captured_original_uvs;
@@ -1571,6 +1856,81 @@ impl AutoRemesher {
         best
     }
 
+    /// Largest connected set of `beyond` verts over `triangles`
+    /// (boolean twin of `largest_uncovered_patch`, which keys off gap
+    /// values; kept separate so neither call path changes shape).
+    fn connected_patch_size(beyond: &[bool], triangles: &[Vec<usize>], nverts: usize) -> usize {
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nverts];
+        for t in triangles.iter() {
+            if t.len() == 3 && t[0] < nverts && t[1] < nverts && t[2] < nverts {
+                for e in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                    adj[e.0].push(e.1);
+                    adj[e.1].push(e.0);
+                }
+            }
+        }
+        let mut seen = vec![false; nverts];
+        let mut best = 0usize;
+        for i in 0..beyond.len().min(nverts) {
+            if seen[i] || !beyond[i] {
+                continue;
+            }
+            let mut stack = vec![i];
+            seen[i] = true;
+            let mut size = 0usize;
+            while let Some(u) = stack.pop() {
+                size += 1;
+                for &nb in adj[u].iter() {
+                    if nb < beyond.len() && !seen[nb] && beyond[nb] {
+                        seen[nb] = true;
+                        stack.push(nb);
+                    }
+                }
+            }
+            best = best.max(size);
+        }
+        best
+    }
+
+    /// Input-side coverage verdict: `(failed, uncovered, patch)`
+    /// over the island's ORIGINAL input verts vs the extracted quads.
+    /// Same 3-width bar as working-side, but connectivity-only (no
+    /// anywhere count floor): input noise legitimately strands
+    /// isolated verts beyond the bar (dragon: 123 singletons at every
+    /// bar), while genuine drops are connected. Calibrated bench-quiet
+    /// at seed 0 (worst healthy: dragon scatter; armadillo
+    /// fingertip-class sits just inside at 0.93x — a downstream
+    /// fidelity miss, not a drop). Quiet on empty quads (the
+    /// failed-island path owns them).
+    fn input_coverage_failed(
+        input_vertices: &[Vector3],
+        input_triangles: &[Vec<usize>],
+        quad_vertices: &[Vector3],
+        quads: &[Vec<usize>],
+        diag: f64,
+    ) -> (bool, usize, usize) {
+        if quads.is_empty() || !(diag > 0.0) {
+            return (false, 0, 0);
+        }
+        let unit = diag / (quads.len() as f64).sqrt();
+        let bar = Self::COVERAGE_WIDTH_MULTIPLE * unit;
+        let Some(index) = CoverageIndex::build(quad_vertices, quads, bar) else {
+            return (true, input_vertices.len(), input_vertices.len());
+        };
+        let mut seen = vec![0u32; index.tri_count()];
+        let mut beyond = vec![false; input_vertices.len()];
+        let mut stamp: u32 = 1;
+        for (i, p) in input_vertices.iter().enumerate() {
+            stamp = stamp.wrapping_add(1).max(1);
+            if !index.covered_within(p, bar * bar, &mut seen, stamp) {
+                beyond[i] = true;
+            }
+        }
+        let uncovered = beyond.iter().filter(|b| **b).count();
+        let patch = Self::connected_patch_size(&beyond, input_triangles, input_vertices.len());
+        (patch >= Self::COVERAGE_MIN_PATCH_VERTS, uncovered, patch)
+    }
+
     /// SplitMix64 (Steele et al.): deterministic cross-platform u64 stream
     /// for retry jitter (wrapping arithmetic only).
     fn splitmix64(state: &mut u64) -> u64 {
@@ -2130,6 +2490,10 @@ impl AutoRemesher {
                     // empty and run the unmodified pipeline.
                     context.density = Density::normalize_field(&context.density);
                 }
+                // Snapshot the input island before `resample` mutates
+                // `vertices`/`triangles` in place (input-side coverage).
+                context.input_vertices = context.vertices.clone();
+                context.input_triangles = context.triangles.clone();
 
                 context.scaling = this.scaling;
                 context.voxel_size = this.voxel_size;
@@ -2328,6 +2692,14 @@ impl AutoRemesher {
                 let mut winning_attempt = 0usize;
                 let mut retries_run = 0usize;
                 let mut final_uncovered = 0usize;
+                // Report side, fixed by attempt 0: input-side counts
+                // only when working-side passed and input-side fired.
+                let mut report_input_side = false;
+                // Fallback chain when no retry covers fully: the
+                // earliest working-quiet attempt, so the input side
+                // can never downgrade working-side coverage.
+                let mut attempt0_working_quiet = false;
+                let mut quiet_fallback: Option<(usize, AttemptOutputs, usize)> = None;
                 for attempt in 0..=Self::COVERAGE_RETRY_SEEDS.len() {
                     if attempt > 0 {
                         if !coverage_fired {
@@ -2527,13 +2899,36 @@ impl AutoRemesher {
                         &thread.remeshed_quads,
                     );
                     let attempt_diag = Self::bbox_diag(&island.vertices);
-                    let (attempt_failed, attempt_uncovered) = Self::coverage_failed(
+                    let (working_failed, working_uncovered) = Self::coverage_failed(
                         &attempt_gaps,
                         attempt_diag,
                         thread.remeshed_quads.len(),
                         triangles,
                         island.vertices.len(),
                     );
+                    // Input side: original input verts vs the same
+                    // output (catches extremities the working mesh
+                    // keeps only as stretched-triangle surface). Same
+                    // island bar; quiet on empty quads like above.
+                    // Skipped when working-side already failed (the
+                    // attempt retries regardless, and the report side
+                    // is working) unless the research probe is set, so
+                    // its log lines stay complete.
+                    let probe_log = std::env::var_os("RETOPO_COVERAGE_LOG").is_some();
+                    let (input_failed, input_uncovered, input_patch) =
+                        if !working_failed || probe_log {
+                            Self::input_coverage_failed(
+                                &island.input_vertices,
+                                &island.input_triangles,
+                                &thread.remeshed_vertices,
+                                &thread.remeshed_quads,
+                                attempt_diag,
+                            )
+                        } else {
+                            (false, 0, 0)
+                        };
+                    let attempt_failed = working_failed || input_failed;
+                    let attempt_input_side = !working_failed && input_failed;
                     let attempt_empty = thread.remeshed_quads.is_empty();
                     // Research probe (RETOPO_COVERAGE_LOG=dir): one
                     // appended line per island attempt with the
@@ -2574,7 +2969,7 @@ impl AutoRemesher {
                             // Single write_all: one syscall stays atomic under
                             // O_APPEND when island workers log concurrently.
                             let line = format!(
-                                "island={} attempt={attempt} nverts={} quads={} worst={} diag={diag} frac={} p50={} p90={} p99={} f02={} f05={} f10={} c3={c3} p3n={p3n}\n",
+                                "island={} attempt={attempt} nverts={} quads={} worst={} diag={diag} frac={} p50={} p90={} p99={} f02={} f05={} f10={} c3={c3} p3n={p3n} ic3={input_uncovered} ip3n={input_patch}\n",
                                 thread.island_index,
                                 vertices.len(),
                                 nquads,
@@ -2603,21 +2998,55 @@ impl AutoRemesher {
                             break;
                         }
                         coverage_fired = true;
-                        initial_uncovered = attempt_uncovered;
+                        report_input_side = attempt_input_side;
+                        attempt0_working_quiet = !working_failed;
+                        initial_uncovered = if attempt_input_side {
+                            input_uncovered
+                        } else {
+                            working_uncovered
+                        };
                         saved_attempt = Some(thread.take_attempt_outputs());
                     } else if !attempt_empty && !attempt_failed {
                         winning_attempt = attempt;
-                        final_uncovered = attempt_uncovered;
+                        final_uncovered = if report_input_side {
+                            input_uncovered
+                        } else {
+                            working_uncovered
+                        };
                         break;
+                    } else if !attempt_empty && !working_failed && quiet_fallback.is_none() {
+                        // First working-quiet retry: fallback if no
+                        // later attempt covers fully (the loop keeps
+                        // seeking a both-quiet winner past this).
+                        quiet_fallback =
+                            Some((attempt, thread.clone_attempt_outputs(), working_uncovered));
                     }
                 }
                 if coverage_fired {
                     let recovered = winning_attempt > 0;
+                    let mut kept_attempt = winning_attempt;
                     if !recovered {
-                        if let Some(saved) = saved_attempt {
-                            thread.restore_attempt_outputs(saved);
+                        // Earliest working-quiet attempt: attempt 0
+                        // when it passed working-side, else the first
+                        // quiet retry, else attempt 0 (pre-input-side
+                        // behavior exactly when nothing is quiet).
+                        if attempt0_working_quiet {
+                            if let Some(saved) = saved_attempt {
+                                thread.restore_attempt_outputs(saved);
+                            }
+                            final_uncovered = initial_uncovered;
+                        } else if let Some((idx, outputs, w_unc)) = quiet_fallback {
+                            thread.restore_attempt_outputs(outputs);
+                            kept_attempt = idx;
+                            // Report side is working here (attempt 0
+                            // failed it), counted on the kept retry.
+                            final_uncovered = w_unc;
+                        } else {
+                            if let Some(saved) = saved_attempt {
+                                thread.restore_attempt_outputs(saved);
+                            }
+                            final_uncovered = initial_uncovered;
                         }
-                        final_uncovered = initial_uncovered;
                     }
                     thread.coverage = Some(CoverageReport {
                         island_index: thread.island_index,
@@ -2625,6 +3054,8 @@ impl AutoRemesher {
                         recovered,
                         initial_uncovered,
                         final_uncovered,
+                        input_side: report_input_side,
+                        kept_attempt,
                     });
                 }
                 this.update_progress(thread.island_index, 1.0, None);
@@ -3335,6 +3766,221 @@ mod coverage_tests {
                     "protrusion {protrusion}: short nub stays quiet (uncovered={uncovered})"
                 );
             }
+        }
+    }
+
+    /// Dense-claw variant (6 wall rings x 8 around + tip cap, 56
+    /// claw verts): stranding the claw clears the 10-patch bar by a
+    /// wide margin, where the 16-vert `body_with_claw` claw cannot.
+    fn body_with_dense_claw() -> (Vec<Vector3>, Vec<Vec<usize>>) {
+        let mut verts = Vec::new();
+        for (z, h) in [(-1.5, 1.5), (1.5, 1.5)] {
+            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                verts.push(v(sx * h, sy * h, z));
+            }
+        }
+        let sides = 8usize;
+        let rings = 6usize;
+        let base = verts.len();
+        for r in 0..=rings {
+            let z = 1.5 + 6.0 * r as f64 / rings as f64;
+            for s in 0..sides {
+                let a = 2.0 * std::f64::consts::PI * s as f64 / sides as f64;
+                verts.push(v(0.25 * a.cos(), 0.25 * a.sin(), z));
+            }
+        }
+        let tip = verts.len();
+        verts.push(v(0.0, 0.0, 7.5));
+        let mut tris: Vec<Vec<usize>> = vec![vec![0, 2, 1], vec![0, 3, 2]];
+        for e in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+            tris.push(vec![e.0, 4 + e.1, 4 + e.0]);
+            tris.push(vec![e.0, e.1, 4 + e.1]);
+            tris.push(vec![4 + e.0, 4 + e.1, base + e.1]);
+            tris.push(vec![4 + e.0, base + e.1, base + e.0]);
+        }
+        for r in 0..rings {
+            for s in 0..sides {
+                let a0 = base + r * sides + s;
+                let a1 = base + r * sides + (s + 1) % sides;
+                let b0 = base + (r + 1) * sides + s;
+                let b1 = base + (r + 1) * sides + (s + 1) % sides;
+                tris.push(vec![a0, b1, b0]);
+                tris.push(vec![a0, a1, b1]);
+            }
+        }
+        for s in 0..sides {
+            let a0 = base + rings * sides + s;
+            let a1 = base + rings * sides + (s + 1) % sides;
+            tris.push(vec![a0, a1, tip]);
+        }
+        (verts, tris)
+    }
+
+    /// Index/brute-force agreement: `input_coverage_failed`
+    /// (`CoverageIndex`: grid or scan + early exit) must match a
+    /// direct `coverage_gaps` + patch verdict on the same inputs —
+    /// the index is an accelerator, not a second verdict. Checked on
+    /// the real output (quiet) and the clipped output (fires,
+    /// connected claw patch).
+    #[test]
+    fn input_side_matches_brute_force() {
+        let (vertices, triangles) = body_with_dense_claw();
+        let mut r = AutoRemesher::new(&vertices, &triangles);
+        r.set_target_triangle_count(1200);
+        r.set_quiet(true);
+        assert!(r.remesh());
+        let qv = r.remeshed_vertices().to_vec();
+        let quads = r.remeshed_quads().to_vec();
+        let clipped: Vec<Vec<usize>> = quads
+            .iter()
+            .filter(|q| !q.iter().any(|&i| qv[i].z() > 1.4))
+            .cloned()
+            .collect();
+        assert!(
+            !clipped.is_empty() && clipped.len() < quads.len(),
+            "clip must remove some but not all quads"
+        );
+        for (tag, qs) in [("real", &quads), ("clipped", &clipped)] {
+            assert_input_side_matches_brute_force(tag, &vertices, &triangles, &qv, qs);
+        }
+        // The clipped claw is a genuine connected input-side drop.
+        let diag = AutoRemesher::bbox_diag(&vertices);
+        let (failed, _, patch) =
+            AutoRemesher::input_coverage_failed(&vertices, &triangles, &qv, &clipped, diag);
+        assert!(
+            failed && patch >= AutoRemesher::COVERAGE_MIN_PATCH_VERTS,
+            "clipped claw must trip input-side (patch={patch})"
+        );
+        let (quiet, _, _) =
+            AutoRemesher::input_coverage_failed(&vertices, &triangles, &qv, &quads, diag);
+        assert!(!quiet, "real output stays input-quiet");
+    }
+
+    /// Asserts `input_coverage_failed` agrees with brute force
+    /// (`coverage_gaps` + patch rule) exactly; returns the verdict.
+    fn assert_input_side_matches_brute_force(
+        tag: &str,
+        vertices: &[Vector3],
+        triangles: &[Vec<usize>],
+        qv: &[Vector3],
+        qs: &[Vec<usize>],
+    ) -> (bool, usize, usize) {
+        let diag = AutoRemesher::bbox_diag(vertices);
+        let got = AutoRemesher::input_coverage_failed(vertices, triangles, qv, qs, diag);
+        // Brute force: exact gaps, same bar, same patch rule.
+        let unit = diag / (qs.len() as f64).sqrt();
+        let bar = AutoRemesher::COVERAGE_WIDTH_MULTIPLE * unit;
+        let gaps = AutoRemesher::coverage_gaps(vertices, qv, qs);
+        let exp_uncovered = gaps.iter().filter(|g| **g > bar).count();
+        let exp_patch =
+            AutoRemesher::largest_uncovered_patch(&gaps, triangles, vertices.len(), bar);
+        assert_eq!(
+            got.1, exp_uncovered,
+            "{tag}: uncovered count skew (index vs brute force)"
+        );
+        assert_eq!(got.2, exp_patch, "{tag}: patch size skew");
+        assert_eq!(
+            got.0,
+            exp_patch >= AutoRemesher::COVERAGE_MIN_PATCH_VERTS,
+            "{tag}: verdict skew"
+        );
+        got
+    }
+
+    /// n x n input grid over [-1, 1]^2: verts, input tris, and the grid
+    /// cells as output quads (2 fan tris each).
+    fn plane_grid(n: usize) -> (Vec<Vector3>, Vec<Vec<usize>>, Vec<Vec<usize>>) {
+        let mut verts = Vec::new();
+        for j in 0..n {
+            for i in 0..n {
+                verts.push(v(
+                    -1.0 + 2.0 * i as f64 / (n - 1) as f64,
+                    -1.0 + 2.0 * j as f64 / (n - 1) as f64,
+                    0.0,
+                ));
+            }
+        }
+        let mut tris = Vec::new();
+        let mut quads = Vec::new();
+        for j in 0..n - 1 {
+            for i in 0..n - 1 {
+                let a = j * n + i;
+                tris.push(vec![a, a + 1, a + n]);
+                tris.push(vec![a + 1, a + n + 1, a + n]);
+                quads.push(vec![a, a + 1, a + n + 1, a + n]);
+            }
+        }
+        (verts, tris, quads)
+    }
+
+    /// Degenerate-output routing: 300 all-repeated-corner quads (every
+    /// fan first-edge zero, so h collapses) must route to `Scan` and
+    /// agree with brute force. Pre-`CoverageIndex` this input hung the
+    /// suite: h pinned near 0 needs bar/h ~= 1e12+ ring iterations per
+    /// uncovered query (the `differential_replay` hang); the test
+    /// returning at all is the regression proof.
+    #[test]
+    fn degenerate_output_scans_and_matches_brute_force() {
+        let (vertices, triangles, _) = plane_grid(6);
+        // [v0,v0,v0,v1] fans into (v0,v0,v0) + (v0,v0,v1): both fan
+        // tris zero first-edge, so h == 0 at 600 fan tris (count alone
+        // would grid — this pins the h-guard, not the count floor).
+        let quads = vec![vec![0, 0, 0, 1]; 300];
+        let diag = AutoRemesher::bbox_diag(&vertices);
+        let unit = diag / (quads.len() as f64).sqrt();
+        let bar = AutoRemesher::COVERAGE_WIDTH_MULTIPLE * unit;
+        assert!(
+            matches!(
+                CoverageIndex::build(&vertices, &quads, bar),
+                Some(CoverageIndex::Scan { .. })
+            ),
+            "collapsed h must route to Scan even at 600 fan tris"
+        );
+        assert_input_side_matches_brute_force(
+            "degenerate",
+            &vertices,
+            &triangles,
+            &vertices,
+            &quads,
+        );
+    }
+
+    /// Grid-arm agreement: a healthy output above `COVERAGE_SCAN_TRIS`
+    /// routes to `Grid` and matches brute force on quiet (full grid)
+    /// and firing (dropped half) outputs — the shell walk + ring exit
+    /// are an accelerator, not a second verdict.
+    #[test]
+    fn grid_path_matches_brute_force() {
+        let n = 20usize;
+        let (vertices, triangles, quads) = plane_grid(n);
+        // Drop the right half of the cells (kept: 171 quads = 342
+        // fan tris, still Grid): input columns past ~7 cells from the
+        // kept edge sit beyond the bar as one connected patch.
+        let half: Vec<Vec<usize>> = quads
+            .iter()
+            .enumerate()
+            .filter(|(c, _)| c % (n - 1) < n / 2 - 1)
+            .map(|(_, q)| q.clone())
+            .collect();
+        assert!(half.len() * 2 >= COVERAGE_SCAN_TRIS);
+        for (tag, qs) in [("full-grid", &quads), ("half-grid", &half)] {
+            let diag = AutoRemesher::bbox_diag(&vertices);
+            let unit = diag / (qs.len() as f64).sqrt();
+            let bar = AutoRemesher::COVERAGE_WIDTH_MULTIPLE * unit;
+            assert!(
+                matches!(
+                    CoverageIndex::build(&vertices, qs, bar),
+                    Some(CoverageIndex::Grid(_))
+                ),
+                "{tag}: healthy 256+ tri output must route to Grid"
+            );
+            let (failed, _, _) =
+                assert_input_side_matches_brute_force(tag, &vertices, &triangles, &vertices, qs);
+            assert_eq!(
+                failed,
+                tag == "half-grid",
+                "{tag}: full grid quiet, dropped half fires"
+            );
         }
     }
 }

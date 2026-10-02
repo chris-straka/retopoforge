@@ -40,10 +40,14 @@ fn load_cli_like(filename: &Path) -> Option<(Vec<Vector3>, Vec<Vec<usize>>)> {
     Some((vertices, triangles))
 }
 
-/// Mirrors the CLI bench invocation (defaults + `--target-quads 1000`).
-fn remesh_like_cli(vertices: &[Vector3], triangles: &[Vec<usize>]) -> AutoRemesher {
+/// Mirrors the CLI bench invocation (defaults + `--target-quads`).
+fn remesh_like_cli(
+    vertices: &[Vector3],
+    triangles: &[Vec<usize>],
+    target_quads: usize,
+) -> AutoRemesher {
     let mut remesher = AutoRemesher::new(vertices, triangles);
-    remesher.set_target_triangle_count(2 * 1000);
+    remesher.set_target_triangle_count(2 * target_quads);
     remesher.set_symmetry_enabled(false);
     remesher.set_scaling(1.0);
     remesher.set_model_type(ModelType::Organic);
@@ -65,7 +69,7 @@ fn beast_native_1000_recovers_appendage() {
     // Native is the only decimator since the item-6 flip, so this
     // exercises the default path with no env switch.
     let (vertices, triangles) = load_cli_like(Path::new(BEAST)).expect("beast.obj loads");
-    let mut remesher = remesh_like_cli(&vertices, &triangles);
+    let mut remesher = remesh_like_cli(&vertices, &triangles, 1000);
     assert!(remesher.remesh(), "remesh succeeds");
 
     // The retry must have fired exactly once and recovered.
@@ -133,6 +137,112 @@ fn beast_native_1000_recovers_appendage() {
         median < 1e-6,
         "recovered output embeds in the unjittered working mesh (median output-to-working distance = {median:.2e})"
     );
+}
+
+/// Thin-claw input-side fixture: 3x3x3 body with a dense 0.25-wide,
+/// 6-tall claw (16 around x 24 rings + tip cap). At 50 target quads
+/// decimation thins the claw past what the working-side check can see
+/// (few working verts, all inside the bar), while 49 connected input
+/// verts strand beyond it — the input side fires (and only it) and a
+/// jitter re-tiling re-passes the bar. Recovery here is bar-relative,
+/// not geometric: the 0.25-wide claw sits below what 50 quads can
+/// resolve, so the retry wins by re-tiling inside a coarser bar rather
+/// than by covering the tip (no max-z ground truth is asserted — the
+/// bar verdict is the contract). No corpus needed (procedural).
+fn thin_claw_obj() -> String {
+    let mut out = String::new();
+    let mut v = |x: f64, y: f64, z: f64| {
+        out.push_str(&format!("v {x} {y} {z}\n"));
+    };
+    for (z, h) in [(-1.5, 1.5), (1.5, 1.5)] {
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            v(sx * h, sy * h, z);
+        }
+    }
+    let sides = 16usize;
+    let rings = 24usize;
+    let base = 8usize;
+    for r in 0..=rings {
+        let z = 1.5 + 6.0 * r as f64 / rings as f64;
+        for s in 0..sides {
+            let a = 2.0 * std::f64::consts::PI * s as f64 / sides as f64;
+            v(0.125 * a.cos(), 0.125 * a.sin(), z);
+        }
+    }
+    let tip = base + (rings + 1) * sides;
+    v(0.0, 0.0, 7.5);
+    let mut f = |a: usize, b: usize, c: usize| {
+        out.push_str(&format!("f {} {} {}\n", a + 1, b + 1, c + 1));
+    };
+    f(0, 2, 1);
+    f(0, 3, 2);
+    for (a0, b0) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+        f(a0, 4 + b0, 4 + a0);
+        f(a0, b0, 4 + b0);
+        f(4 + a0, 4 + b0, base + b0);
+        f(4 + a0, base + b0, base + a0);
+    }
+    for r in 0..rings {
+        for s in 0..sides {
+            let a0 = base + r * sides + s;
+            let a1 = base + r * sides + (s + 1) % sides;
+            let b0 = base + (r + 1) * sides + s;
+            let b1 = base + (r + 1) * sides + (s + 1) % sides;
+            f(a0, b1, b0);
+            f(a0, a1, b1);
+        }
+    }
+    for s in 0..sides {
+        f(
+            base + rings * sides + s,
+            base + rings * sides + (s + 1) % sides,
+            tip,
+        );
+    }
+    out
+}
+
+#[test]
+fn thin_claw_fires_input_side_and_recovers() {
+    let path = std::env::temp_dir().join(format!(
+        "retopo_input_claw_{}_{}.obj",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    ));
+    std::fs::write(&path, thin_claw_obj()).expect("claw obj writes");
+    let loaded = load_cli_like(&path);
+    let _ = std::fs::remove_file(&path);
+    let (vertices, triangles) = loaded.expect("claw obj loads");
+    let mut remesher = remesh_like_cli(&vertices, &triangles, 50);
+    assert!(remesher.remesh(), "remesh succeeds");
+    let reports = remesher.coverage_reports();
+    assert_eq!(
+        reports.len(),
+        1,
+        "one island fires the coverage retry, got {} reports",
+        reports.len()
+    );
+    let r = reports[0];
+    assert!(
+        r.input_side,
+        "the input side (not working-side) must fire: {r:?}"
+    );
+    assert!(
+        r.recovered,
+        "retry recovers the claw (initially {} input verts uncovered)",
+        r.initial_uncovered
+    );
+    assert_eq!(r.retries_made, 2, "recovery lands on retry 2: {r:?}");
+    assert_eq!(r.initial_uncovered, 49, "attempt 0 strands 49: {r:?}");
+    assert_eq!(r.final_uncovered, 0, "exact-zero residuals: {r:?}");
+    // The attempt-0 drop is genuine (working-side quiet is implied by
+    // `input_side`, which is set only when working-side passed): the
+    // bar verdict is the contract, so no geometric ground truth beyond
+    // the report pins (see the fixture doc on bar-relative recovery).
+    assert!(!remesher.remeshed_quads().is_empty());
 }
 
 /// Distance from point `p` to triangle `(a, b, c)` (Ericson 5.1.5,

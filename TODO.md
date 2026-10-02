@@ -151,7 +151,18 @@ when comparing back ends.
       (extractor embeds unjittered; median output-to-working 2.2e-15,
       pinned); per-region patch bar (>= 10 connected beyond 3 widths)
       for thin drops the floor misses (claw fixture; suite grid case +
-      CLI grid goldens legitimately recover and re-baseline). The retry
+      CLI grid goldens legitimately recover and re-baseline). Input-side
+      verdict added (original input verts vs output, same 3-width bar,
+      connectivity-only — dragon scatter forbids a count floor; side
+      pinned in `CoverageReport.input_side`): catches extremities the
+      working mesh keeps only as stretched-triangle surface
+      (thin-claw e2e fixture fires input-side-only and re-passes;
+      `CoverageIndex` grid/scan === brute force pinned, with
+      termination guards — scan unless h > bar/64 — after a
+      collapsed-h output hung the suite). Fallback chain: first
+      both-quiet wins, else earliest working-quiet (`kept_attempt`) so
+      input-side never downgrades working coverage (armadillo noise
+      seeds keep pre-input-side winners byte-identically). The retry
       re-rolls the tiling, it does not fix the fold: beast stays a
       first-attempt-coverage target for the patch back end.
 - [x] Untangling stage in the current engine: score-gated NO —

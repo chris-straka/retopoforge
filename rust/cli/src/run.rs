@@ -144,15 +144,25 @@ fn print_coverage_warnings(reports: &[CoverageReport], batch_name: Option<&str>)
         .map(|n| format!("FILE {n}: "))
         .unwrap_or_default();
     for r in reports {
+        let side = if r.input_side {
+            "input verts"
+        } else {
+            "working verts"
+        };
         if r.recovered {
             eprintln!(
-                "Warning: {prefix}island {} failed the coverage check ({} working verts uncovered) and recovered on retry {} ({} verts uncovered)",
+                "Warning: {prefix}island {} failed the coverage check ({} {side} uncovered) and recovered on retry {} ({} verts uncovered)",
                 r.island_index, r.initial_uncovered, r.retries_made, r.final_uncovered
+            );
+        } else if r.kept_attempt == 0 {
+            eprintln!(
+                "Warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, kept the original",
+                r.island_index, r.initial_uncovered
             );
         } else {
             eprintln!(
-                "Warning: {prefix}island {} failed the coverage check ({} working verts uncovered); retries did not recover, kept the original",
-                r.island_index, r.initial_uncovered
+                "Warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, kept attempt {} (working-side cover; input side still short)",
+                r.island_index, r.initial_uncovered, r.kept_attempt
             );
         }
     }

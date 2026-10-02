@@ -18,12 +18,34 @@ holds >= 10 verts (`COVERAGE_MIN_PATCH_VERTS`) — catches thin
 dropped features the count floor misses (a 16-vert claw tip with
 only 16 beyond the bar trips it; the 25-floor stays quiet)
 
+The verdict has a second side: the ORIGINAL input verts vs the same
+output (`input_coverage_failed`). Same 3-width bar, but
+connectivity-only — no anywhere count floor: input noise
+legitimately strands isolated verts beyond the bar (dragon: 123
+singletons at every bar), while genuine drops are connected. The
+input side catches extremities the working mesh keeps only as
+stretched-triangle surface (sparse working verts the working-side
+check cannot see); it runs through `CoverageIndex` (grid over 150k
+input verts at ms-scale, exact linear scan under 256 fan tris) and
+is skipped when working-side already failed (the attempt retries
+regardless) unless `RETOPO_COVERAGE_LOG` is set. The firing side is
+pinned in `CoverageReport.input_side` (`input verts` vs `working
+verts` in the `Warning:` line). Termination guards: build routes to
+scan unless `h > bar/64` (ring exit then fires at `r < 64`), and
+grid build bails to scan past 1M cells — a repeated-corner output
+collapses h toward 0, which hung `differential_replay` (25+ min)
+before the guard; both arms test the same predicate, so Grid ===
+Scan === brute force, pinned by the routing + agreement lib tests.
+
 On failure the island re-runs parameterize+extract over deterministically
 jittered vertices (seeds 1..3, SplitMix64 pattern keyed on position bits
 so weld-duplicates move together, amplitude 1e-3 of the island diagonal)
-and keeps the **first full-coverage result**. When no retry covers fully,
-attempt 0 is kept (never a partial retry). Empty outputs never retry
-(the failed-island path owns them). Outcomes surface via
+and keeps the **first full-coverage result** (both sides quiet). When no
+retry covers fully, the earliest working-quiet attempt is kept
+(`kept_attempt`; attempt 0 when it passed working-side) — the input
+side can upgrade the winner but never downgrade working-side coverage
+below unretried. Empty outputs never retry (the failed-island path
+owns them). Outcomes surface via
 `AutoRemesher::coverage_reports()` and a `Warning:` stderr line in the
 failed-island style.
 
@@ -124,6 +146,33 @@ byte-stable; the diff test pins the exact report (island 2, 3
 retries, unrecovered, 69/69) and fails loudly if any other case ever
 fires. Islands 0/1 of the same case (frac 0.60/0.31, c3 = 0) show the
 25-vert floor correctly quieting scattered spikes on tiny islands.
+
+## Input-side calibration (thin-claw fixture)
+
+Seed-0 input-side probe (input verts vs output, 3-width bar): bench
+worst-healthy is dragon scatter (123/391 beyond, all isolated
+singletons at 3w — hence connectivity-only); armadillo's fingertip
+miss sits at 0.93x (sub-bar downstream fidelity, not a drop — the
+working mesh covers it as stretched-triangle surface 1.3u away).
+Beast/nefertiti/fandisk worst 0.3-0.45x. Nothing fires at seed 0;
+on noise seeds armadillo@1000 tilings strand real input patches and
+the verdict fires (working-side first where both fail).
+
+`thin_claw_fires_input_side_and_recovers` (`coverage_retry.rs`,
+procedural, no corpus): dense 0.25-wide claw at 50 quads — decimation
+thins it past working-side visibility while 49 connected input verts
+strand; input-side-only fire, retry 2 re-passes with zero residuals.
+Recovery at 50 quads is bar-relative (the claw sits below resolving
+power), documented in the test. Index-vs-brute-force agreement is
+pinned by `input_side_matches_brute_force`, with the Grid/Scan
+routing pinned by `grid_path_matches_brute_force` and
+`degenerate_output_scans_and_matches_brute_force`.
+
+Fallback-chain proof: without the earliest-working-quiet rule the
+input side vetoes working-side winners (armadillo@1000 seeds 1/2/5/7
+kept attempt 0 with 13 working verts out); with it those seeds keep
+their pre-input-side winners byte-identically while reporting the
+input shortfall (`kept attempt N (working-side cover; ...)`).
 
 ## Notes for later work
 
