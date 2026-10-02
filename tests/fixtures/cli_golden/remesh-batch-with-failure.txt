@@ -9,7 +9,7 @@ out/a.obj quads=30 nonquads=2 verts=35
 out/b.obj quads=66 nonquads=0 verts=70
 FILE a.obj: target-quads=100 output=CASE/out/a.obj quads=30 non-quads=2 vertices=35 time=T seconds
 FILE b.obj: target-quads=100 output=CASE/out/b.obj quads=66 non-quads=0 vertices=70 time=T seconds
-FILE c.glb: target-quads=100 output=CASE/out/c.glb quads=60 non-quads=0 vertices=62 time=T seconds
+FILE c.glb: target-quads=100 output=CASE/out/c.glb quads=69 non-quads=0 vertices=71 time=T seconds
 Target quads: 100
   Quads: 30
   Non-quads: 2
@@ -19,9 +19,9 @@ Target quads: 100
   Non-quads: 0
   Vertices: 70
 Target quads: 100
-  Quads: 60
+  Quads: 69
   Non-quads: 0
-  Vertices: 62
+  Vertices: 71
 diagnostics:
 Error: failed to load CASE/shared/indir/bad.obj
 FILE bad.obj: FAILED to load CASE/shared/indir/bad.obj

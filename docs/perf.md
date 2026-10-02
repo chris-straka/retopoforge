@@ -156,3 +156,15 @@ is now 22.3 s (C++: 22.7 s); dragon-5k 7.9 s -> 1.8 s. All changes
 are bit-exact (bitwise-identical outputs on 10 bench cases, strict
 run-to-run determinism incl. stderr sequences) and stay green on
 `bench/run.py --check` plus the full `cargo test` suite.
+
+## Order-emulation removal (2026-10-01)
+
+The C++ reference is gone, so the libc++ order emulation (`CxxSet` /
+`CxxMap`, ~860 lines) was deleted; every extractor container is now
+`BTreeMap` / `BTreeSet` (deterministic sorted order). Dragon-50k:
+25.6 s wall before and after (median of 3, same machine), peak RSS
+unchanged within run-to-run wobble (~1.8-2.3 GiB either way —
+environmental, verified by A/B). Quality is order-neutral: beast /
+armadillo noise.py distributions overlap on every metric (several lean
+slightly better under sorted order). Oracles re-baselined (order-only
+re-tiling, totals neutral).

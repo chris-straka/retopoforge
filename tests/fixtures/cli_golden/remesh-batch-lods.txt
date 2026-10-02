@@ -8,22 +8,22 @@ out/c_lod0.glb present
 out/c_lod1.glb present
 report: present
 counts:
-out/a_lod0.obj quads=24 nonquads=2 verts=30
-out/a_lod1.obj quads=8 nonquads=0 verts=12
+out/a_lod0.obj quads=25 nonquads=2 verts=32
+out/a_lod1.obj quads=8 nonquads=2 verts=13
 out/b_lod0.obj quads=120 nonquads=0 verts=124
-FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=24 non-quads=2 vertices=30 time=T seconds
-FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=8 non-quads=0 vertices=12 time=T seconds
+FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=25 non-quads=2 vertices=32 time=T seconds
+FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=8 non-quads=2 vertices=13 time=T seconds
 FILE b.obj LOD 0: target-quads=150 output=CASE/out/b_lod0.obj quads=120 non-quads=0 vertices=124 time=T seconds
 FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=67 non-quads=0 vertices=69 time=T seconds
 FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=45 non-quads=0 vertices=47 time=T seconds
 Target quads: 150
-  Quads: 24
+  Quads: 25
   Non-quads: 2
-  Vertices: 30
+  Vertices: 32
 Target quads: 80
   Quads: 8
-  Non-quads: 0
-  Vertices: 12
+  Non-quads: 2
+  Vertices: 13
 Target quads: 150
   Quads: 120
   Non-quads: 0

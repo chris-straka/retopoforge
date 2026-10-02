@@ -1,9 +1,8 @@
-// Timing mirror for the autoremesher engine: regenerates the bit-identical
-// 64x64 analytic grid the C++ autoremesher_diff_dump tool times
-// (z = 0.1 * sin(i) * cos(j); same libm calls, same order) and runs the
-// same target-2000 default-settings remesh() call. Structural facts (ok,
-// quad/vert counts, checksum within 1e-6) must match the C++ T ar lines;
-// only the elapsed ms are compared across sides. Run release:
+// Timing mirror for the autoremesher engine: regenerates the 64x64
+// analytic grid (z = 0.1 * sin(i) * cos(j)) and runs the same
+// target-2000 default-settings remesh() call 3x. Structural facts (ok,
+// quad/vert counts, checksum within 1e-6) are pinned (determinism
+// tripwire); the elapsed ms are the measurement. Run release:
 // cargo test --release -p retopo_core --test auto_remesher_timing
 use retopo_core::auto_remesher::AutoRemesher;
 use retopo_core::vector3::Vector3;
@@ -68,20 +67,19 @@ fn timing_remesh() {
         let quads = remesher.remeshed_quads().len();
         let verts = remesher.remeshed_vertices().len();
         assert_eq!(quads, 694, "timing quad count");
-        assert_eq!(verts, 744, "timing vert count");
+        assert_eq!(verts, 745, "timing vert count");
         let mut checksum = 0.0;
         for v in remesher.remeshed_vertices() {
             checksum += v.x() + v.y() + v.z();
         }
-        // C++ T ar checksum for the same mesh (see the committed
-        // fixture): proves both sides remeshed the same system.
-        // Scale-aware 1e-6, like the oracle values (absorbs the ~1e-11
-        // run-to-run threading wobble on the C++ side with wide margin).
-        const CPP_CHECKSUM: f64 = 47836.741478766766;
-        let tol = 1e-6 * CPP_CHECKSUM.abs().max(1.0);
+        // Pinned checksum for the same mesh: proves repeated runs
+        // remesh the identical system (determinism tripwire).
+        // Scale-aware 1e-6, like the oracle values.
+        const PINNED_CHECKSUM: f64 = 47965.0223020472913;
+        let tol = 1e-6 * PINNED_CHECKSUM.abs().max(1.0);
         assert!(
-            (checksum - CPP_CHECKSUM).abs() <= tol,
-            "checksum diverged: rust={checksum:.17e} cpp={CPP_CHECKSUM:.17e}"
+            (checksum - PINNED_CHECKSUM).abs() <= tol,
+            "checksum diverged: rust={checksum:.17e} pinned={PINNED_CHECKSUM:.17e}"
         );
         eprintln!(
             "T rust sample={sample} ms={ms:.3} quads={quads} verts={verts} checksum={checksum:.17e}"

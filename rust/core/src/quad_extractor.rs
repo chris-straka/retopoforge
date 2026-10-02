@@ -7,14 +7,14 @@
 //! Deliberate restructures (all behavior-preserving, each marked at the
 //! site with `// Restructure:`):
 //!
-//! - `std::unordered_map/set` iteration order is libc++ `__hash_table`
-//!   order, which no stock Rust map reproduces — and the greedy passes
-//!   observe it (collapse survivors, face discovery, neighbor sums), so
-//!   sorted iteration diverges structurally. Every unordered container here
-//!   is a `CxxSet`/`CxxMap` (exact order emulation, proved by the
-//!   `cxx_hash_oracle` unit test against the fixture's CXXHASH section).
-//!   Containers mirroring `std::map`/`std::set` stay
-//!   [`BTreeMap`]/[`BTreeSet`] (same sorted order as the C++).
+//! - The port once emulated libc++ `__hash_table` iteration order
+//!   (`CxxSet`/`CxxMap`) because the greedy passes observe it (collapse
+//!   survivors, face discovery, neighbor sums). The C++ reference is
+//!   gone, so every container here is now [`BTreeMap`]/[`BTreeSet`]:
+//!   deterministic sorted order, same one the `std::map`/`std::set`
+//!   mirrors always used. Switching orders re-tiles meshes (re-baselined
+//!   oracles), but order is arbitrary either way — the noise harness
+//!   shows hash order was never load-bearing for quality.
 //! - C++ erases from maps/sets while iterating (`simplifyGraph`,
 //!   `smoothAroundVertices`) and default-inserts on `operator[]` reads;
 //!   Rust collects keys first, then mutates, and reads through `get` with
@@ -70,7 +70,7 @@ use crate::progress::ProgressHandler;
 use crate::vector2::Vector2;
 use crate::vector3::Vector3;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -124,904 +124,6 @@ fn fma_first(p: f64, b: f64, q: f64, d: f64) -> f64 {
 #[inline]
 fn fma_first_sub(p: f64, b: f64, q: f64, d: f64) -> f64 {
     p.mul_add(b, q * -d)
-}
-
-// ---------------------------------------------------------------------------
-// Inline emulation of libc++ `unordered_set<size_t>` / `unordered_map<size_t, V>`
-// iteration order. Every container below that mirrors a C++ unordered container
-// is a [`CxxSet`]/[`CxxMap`]; containers mirroring `std::map`/`std::set` stay
-// [`BTreeMap`]/[`BTreeSet`].
-//
-// Why: the extractor's greedy passes (collapse survivor selection, face
-// discovery order in `extract_mesh`, neighbor summation order in
-// `smooth_and_project`, first-come-wins tiling) observe unordered iteration
-// order, so sorted iteration diverges structurally from the C++ (83/227
-// fixture cases diverge before `extract_mesh` even runs). The emulation
-// reproduces libc++ `__hash_table` order bit-for-bit; see `cxx_hash_oracle`
-// below, proved against the CXXHASH + NEXTPRIME fixture sections.
-//
-// Rules (from brew LLVM 23 `__hash_table`, each cited; all keys here are
-// `size_t`, hashed by identity — `__scalar_hash<size_t, 1>`):
-//
-// - A table is a node list (iteration order) plus a bucket count. New keys
-//   go immediately before their bucket chain's first node, or at the list
-//   front when the chain is empty (`__emplace_unique`: "insert_after
-//   __bucket_list_[__chash], or __first_node if bucket is null").
-// - Bucket index is `__constrain_hash`: mask when the count is a power of
-//   two, modulo otherwise.
-// - A rehash regroups in place: nodes met out of chain order are spliced to
-//   the front of their chain (`__do_rehash`, unique-keys path). It triggers
-//   on insert when `size + 1 > buckets * max_load` (load factor 1, never
-//   changed) with the new count `next_prime(max(2 * buckets + 1, size + 1))`
-//   (`2` for a fresh table). Erase never rehashes.
-// - Erase unlinks (`remove`); survivors keep order. `clear` keeps the bucket
-//   count. Copies preserve list order and the count (`__copy_construct`),
-//   EXCEPT copies of empty tables, which come out fresh (`bc == 0`): the
-//   copy ctor early-returns before allocating buckets when size is 0.
-// - `std::__next_prime` is the true smallest-prime-`>=`-n function (probed
-//   densely to 300000 plus tail values; the dylib throws past the last
-//   representable prime, which needs a 2^63-element table and is
-//   unreachable — the mirror saturates there, documented at the site).
-//
-// Bounds: float/int exactness below 2^24 elements (`size + 1 > bc * 1.0f`
-// in the C++). Production tables hold 100k+ entries (cross-point graphs),
-// so every op is O(1) (O(n) regroup on growth); the `HashMap` lookups are
-// never iterated, keeping their order unobservable. `u64`/`usize` are
-// interchangeable below (LP64, like `PositionKey`).
-//
-// Deliberately missing `insert`/`entry` on [`CxxMap`]: `BTreeMap::insert`
-// overwrites while C++ `insert` keeps the old value, so every map write
-// site names its C++ counterpart explicitly (`insert_new` keeps,
-// `set`/`get_or_default` overwrite-or-insert; `set` is currently only
-// reached by the container oracle tests).
-// ---------------------------------------------------------------------------
-
-/// `std::__constrain_hash`, literal (the `bc == 0` arm yields `h`, exactly
-/// like the C++; unreachable here — every caller rehashes from 0 first).
-#[inline]
-fn cxx_constrain_hash(hash: usize, buckets: usize) -> usize {
-    if buckets & buckets.wrapping_sub(1) == 0 {
-        hash & buckets.wrapping_sub(1)
-    } else if hash < buckets {
-        hash
-    } else {
-        hash % buckets
-    }
-}
-
-/// `std::__is_hash_power2`, literal.
-#[inline]
-fn cxx_is_hash_pow2(buckets: usize) -> bool {
-    buckets > 2 && buckets & (buckets - 1) == 0
-}
-
-/// Smallest prime `>= n` (`std::__next_prime`, probed; `next_prime(0) == 0`
-/// is a dylib quirk the mirror keeps). Primality is deterministic
-/// Miller-Rabin (7-base set, exact for all `u64`).
-fn cxx_next_prime(n: usize) -> usize {
-    if n == 0 {
-        return 0;
-    }
-    if n <= 2 {
-        return 2;
-    }
-    // `n + 1` cannot overflow: `usize::MAX` is odd, so an even `n` here is
-    // at most `MAX - 1`.
-    let mut candidate = if n.is_multiple_of(2) { n + 1 } else { n };
-    loop {
-        if cxx_is_prime(candidate as u64) {
-            return candidate;
-        }
-        // Past the last representable prime the C++ throws `overflow_error`;
-        // that needs a table with ~2^63 elements, so saturate instead.
-        candidate = candidate.saturating_add(2);
-        if candidate == usize::MAX {
-            return usize::MAX;
-        }
-    }
-}
-
-/// Deterministic Miller-Rabin for `u64` (bases 2, 325, 9375, 28178, 450775,
-/// 9780504, 1795265022 — exact over the full range).
-fn cxx_is_prime(n: u64) -> bool {
-    // Trial division first: exact, and fast for the small counts tables use.
-    const SMALL: [u64; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
-    for p in SMALL {
-        if n == p {
-            return true;
-        }
-        if n.is_multiple_of(p) {
-            return false;
-        }
-    }
-    let mut d = n - 1;
-    let mut r = 0u32;
-    while d.is_multiple_of(2) {
-        d /= 2;
-        r += 1;
-    }
-    const BASES: [u64; 7] = [2, 325, 9375, 28178, 450775, 9780504, 1795265022];
-    'bases: for a in BASES {
-        let a = a % n;
-        if a == 0 {
-            continue;
-        }
-        let mut x = cxx_mod_pow(a, d, n);
-        if x == 1 || x == n - 1 {
-            continue;
-        }
-        for _ in 1..r {
-            x = ((x as u128 * x as u128) % n as u128) as u64;
-            if x == n - 1 {
-                continue 'bases;
-            }
-        }
-        return false;
-    }
-    true
-}
-
-fn cxx_mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
-    let mut result = 1u64;
-    base %= modulus;
-    while exp > 0 {
-        if exp % 2 == 1 {
-            result = ((result as u128 * base as u128) % modulus as u128) as u64;
-        }
-        base = ((base as u128 * base as u128) % modulus as u128) as u64;
-        exp /= 2;
-    }
-    result
-}
-
-// NOTE: the previous `cxx_regroup` / `cxx_maybe_rehash` splice loop now lives
-// inside `CxxTable` as the O(n) closed-form `regroup`, the verbatim trigger
-// `grow_rehash_if_needed`, and the O(1) chain-head lookup in `insert_fresh`
-// (same libc++ order, O(1) updates).
-
-/// Empty-list marker for [`CxxSlot`] links (no table here reaches 2^32
-/// entries, let alone `usize::MAX`).
-const NO_SLOT: usize = usize::MAX;
-
-/// Fixed-seed integer hasher for [`CxxTable`]'s key lookup (never
-/// iterated, so the hash order is unobservable): one rotate-add-multiply
-/// per `usize` instead of SipHash's rounds. Keys are mesh indices, never
-/// adversarial, so a non-cryptographic mixer is safe.
-#[derive(Clone, Copy, Debug, Default)]
-struct CxxHashBuilder;
-
-#[derive(Clone, Debug)]
-struct CxxHasher {
-    hash: u64,
-}
-
-impl std::hash::Hasher for CxxHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        // Only `write_usize` runs (keys are `usize`); fold bytes so the
-        // impl stays total.
-        for chunk in bytes.chunks(8) {
-            let mut word = [0u8; 8];
-            word[..chunk.len()].copy_from_slice(chunk);
-            self.write_u64(u64::from_ne_bytes(word));
-        }
-    }
-
-    fn write_usize(&mut self, value: usize) {
-        self.write_u64(value as u64);
-    }
-
-    fn write_u64(&mut self, value: u64) {
-        const ROTATE: u32 = 5;
-        const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
-        self.hash = (self.hash.rotate_left(ROTATE).wrapping_add(value)).wrapping_mul(SEED);
-    }
-
-    fn finish(&self) -> u64 {
-        self.hash
-    }
-}
-
-impl std::hash::BuildHasher for CxxHashBuilder {
-    type Hasher = CxxHasher;
-
-    fn build_hasher(&self) -> CxxHasher {
-        CxxHasher { hash: 0 }
-    }
-}
-
-/// One node of a [`CxxTable`]'s iteration list. Slots are append-only and
-/// recycled through the table's free list; a live slot's index never
-/// changes, so inserts and erases never shift any lookup.
-#[derive(Clone, Debug)]
-struct CxxSlot<V> {
-    key: usize,
-    /// `Some` on live slots; `None` on free-list slots (the value is
-    /// dropped at erase time so dead buffers are freed).
-    value: Option<V>,
-    prev: usize,
-    next: usize,
-}
-
-/// Exact-order libc++ `__hash_table` emulation with O(1) updates.
-///
-/// Iteration order, bucket-count evolution, and every method's return value
-/// are identical to the previous `Vec` + `BTreeMap` emulation (proved by
-/// the CXXHASH fixture oracle and the randomized old-vs-new differential
-/// test); only the asymptotics changed, because production tables hold
-/// 100k+ entries (cross-point graphs), not the hundreds the old code was
-/// shaped for:
-/// - node list: index-linked slots instead of a `Vec` that memmoves on
-///   every insert/erase;
-/// - membership: `HashMap` key->slot with a fixed-seed integer hasher
-///   instead of a `BTreeMap` whose values all shift on every insert/erase
-///   (never iterated, so its order is unobservable);
-/// - chain heads: a `Vec` indexed by chain (chains are dense in
-///   `[0, buckets)`) instead of an O(n) scan per insert;
-/// - rehash regroup: the O(n) closed form instead of O(n^2) splicing (see
-///   [`CxxTable::regroup`]).
-#[derive(Debug)]
-struct CxxTable<V> {
-    slots: Vec<CxxSlot<V>>,
-    free: Vec<usize>,
-    head: usize,
-    index: HashMap<usize, usize, CxxHashBuilder>,
-    /// First slot per chain (`len == buckets`; `None` for empty chains).
-    chain_head: Vec<Option<usize>>,
-    buckets: usize,
-}
-
-impl<V: Clone> Clone for CxxTable<V> {
-    /// Copy ctor (the old `CxxSet::clone` rule): a copy of an EMPTY table
-    /// is fresh (`buckets == 0`); non-empty tables keep list order and the
-    /// count.
-    fn clone(&self) -> Self {
-        if self.index.is_empty() {
-            Self::new()
-        } else {
-            Self {
-                slots: self.slots.clone(),
-                free: self.free.clone(),
-                head: self.head,
-                index: self.index.clone(),
-                chain_head: self.chain_head.clone(),
-                buckets: self.buckets,
-            }
-        }
-    }
-}
-
-impl<V> Default for CxxTable<V> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<V> CxxTable<V> {
-    fn new() -> Self {
-        Self {
-            slots: Vec::new(),
-            free: Vec::new(),
-            head: NO_SLOT,
-            index: HashMap::with_hasher(CxxHashBuilder),
-            chain_head: Vec::new(),
-            buckets: 0,
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.index.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.index.is_empty()
-    }
-
-    /// Bucket count (test-only inspection).
-    #[cfg(test)]
-    fn buckets(&self) -> usize {
-        self.buckets
-    }
-
-    fn contains_key(&self, key: &usize) -> bool {
-        self.index.contains_key(key)
-    }
-
-    /// The value of a live slot (every slot named by `index` is live).
-    fn live_value(&self, slot: usize) -> &V {
-        self.slots[slot]
-            .value
-            .as_ref()
-            .expect("indexed slot holds a value")
-    }
-
-    /// Mutable form of [`CxxTable::live_value`].
-    fn live_value_mut(&mut self, slot: usize) -> &mut V {
-        self.slots[slot]
-            .value
-            .as_mut()
-            .expect("indexed slot holds a value")
-    }
-
-    fn get(&self, key: &usize) -> Option<&V> {
-        self.index.get(key).map(|slot| self.live_value(*slot))
-    }
-
-    fn get_mut(&mut self, key: &usize) -> Option<&mut V> {
-        let slot = *self.index.get(key)?;
-        Some(self.live_value_mut(slot))
-    }
-
-    /// Links a detached slot at the list front.
-    fn link_front(&mut self, slot: usize) {
-        let old_head = self.head;
-        self.slots[slot].prev = NO_SLOT;
-        self.slots[slot].next = old_head;
-        if old_head != NO_SLOT {
-            self.slots[old_head].prev = slot;
-        }
-        self.head = slot;
-    }
-
-    /// Links a detached slot immediately before `at`.
-    fn link_before(&mut self, slot: usize, at: usize) {
-        let prev = self.slots[at].prev;
-        self.slots[slot].prev = prev;
-        self.slots[slot].next = at;
-        self.slots[at].prev = slot;
-        if prev != NO_SLOT {
-            self.slots[prev].next = slot;
-        } else {
-            self.head = slot;
-        }
-    }
-
-    /// Detaches a linked slot (neighbors/head fixed; the slot's own links
-    /// go stale — `alloc_slot` overwrites them on reuse).
-    fn unlink(&mut self, slot: usize) {
-        let prev = self.slots[slot].prev;
-        let next = self.slots[slot].next;
-        if prev != NO_SLOT {
-            self.slots[prev].next = next;
-        } else {
-            self.head = next;
-        }
-        if next != NO_SLOT {
-            self.slots[next].prev = prev;
-        }
-    }
-
-    /// Takes a slot for a fresh key (recycled or appended); the slot comes
-    /// back detached with its key/value stored.
-    fn alloc_slot(&mut self, key: usize, value: V) -> usize {
-        let slot = self.free.pop().unwrap_or_else(|| {
-            self.slots.push(CxxSlot {
-                key: 0,
-                value: None,
-                prev: NO_SLOT,
-                next: NO_SLOT,
-            });
-            self.slots.len() - 1
-        });
-        self.slots[slot] = CxxSlot {
-            key,
-            value: Some(value),
-            prev: NO_SLOT,
-            next: NO_SLOT,
-        };
-        slot
-    }
-
-    /// Grow step: the `size + 1 > bc * max_load` trigger plus
-    /// `__rehash_unique(max(2 * bc + !is_pow2(bc), size + 1))`, verbatim
-    /// from the previous `cxx_maybe_rehash` (the C++ float spell agrees
-    /// below 2^24 elements).
-    fn grow_rehash_if_needed(&mut self) {
-        if self.index.len() + 1 > self.buckets {
-            let arg = (2 * self.buckets + usize::from(!cxx_is_hash_pow2(self.buckets)))
-                .max(self.index.len() + 1);
-            let grown = if arg == 1 {
-                2
-            } else if arg & (arg - 1) != 0 {
-                cxx_next_prime(arg)
-            } else {
-                arg
-            };
-            debug_assert!(grown > self.buckets);
-            self.buckets = grown;
-            // Size the chain-head table before regrouping (even for an
-            // empty table, whose regroup is a no-op): every chain the new
-            // inserts touch must index validly.
-            self.chain_head.clear();
-            self.chain_head.resize(grown, None);
-            self.regroup();
-        }
-    }
-
-    /// `__do_rehash` unique-keys path in O(n): regroups the list in place
-    /// under the new bucket count.
-    ///
-    /// Closed form of the previous splice loop (proved equivalent by the
-    /// randomized old-vs-new differential test): one walk in iteration
-    /// order tracks `prev` (the chain of the last appended arrival) and
-    /// each chain's run. An arrival appends to its run when its chain
-    /// equals `prev` or the chain is new (updating `prev`); a returning
-    /// chain's arrival prepends instead (the splice arm, which leaves
-    /// `prev` untouched). Runs keep creation order; each run holds its
-    /// prepended arrivals reversed, then its appended arrivals in order.
-    /// Slots are relaid out in the regrouped order (iteration stays cache
-    /// friendly) and both lookups rebuilt.
-    fn regroup(&mut self) {
-        if self.index.is_empty() {
-            return;
-        }
-        // Pass 1: classify arrivals, count runs. Chains are dense in
-        // `[0, buckets)`, so a Vec table replaces hashing; at regroup
-        // time `buckets <= len` (the trigger fired), bounding the table.
-        struct Run {
-            rank: usize,
-            prepended: usize,
-            appended: usize,
-        }
-        let mut runs: Vec<Option<Run>> = Vec::new();
-        runs.resize_with(self.buckets, || None);
-        let mut chain_order: Vec<usize> = Vec::new();
-        let mut prev: Option<usize> = None;
-        let mut cursor = self.head;
-        while cursor != NO_SLOT {
-            let chain = cxx_constrain_hash(self.slots[cursor].key, self.buckets);
-            cursor = self.slots[cursor].next;
-            let fresh = runs[chain].is_none();
-            let run = runs[chain].get_or_insert_with(|| {
-                let rank = chain_order.len();
-                chain_order.push(chain);
-                Run {
-                    rank,
-                    prepended: 0,
-                    appended: 0,
-                }
-            });
-            if fresh || Some(chain) == prev {
-                run.appended += 1;
-                prev = Some(chain);
-            } else {
-                run.prepended += 1;
-            }
-        }
-        // Pass 2: lay out segments (runs in creation order) and place
-        // every slot with per-run cursors — the prepend cursor runs down
-        // from its sub-segment end (arrivals land reversed), the append
-        // cursor runs up from its sub-segment start.
-        let mut base_of_rank = vec![0usize; chain_order.len()];
-        let mut base = 0;
-        for (rank, chain) in chain_order.iter().enumerate() {
-            base_of_rank[rank] = base;
-            let run = runs[*chain].as_ref().expect("counted chain has a run");
-            base += run.prepended + run.appended;
-        }
-        debug_assert_eq!(base, self.index.len());
-        let mut cursors: Vec<(usize, usize)> = chain_order
-            .iter()
-            .enumerate()
-            .map(|(rank, chain)| {
-                let run = runs[*chain].as_ref().expect("counted chain has a run");
-                (
-                    base_of_rank[rank] + run.prepended,
-                    base_of_rank[rank] + run.prepended,
-                )
-            })
-            .collect();
-        let mut final_order = vec![NO_SLOT; self.index.len()];
-        let mut seen = vec![false; chain_order.len()];
-        let mut prev: Option<usize> = None;
-        let mut cursor = self.head;
-        while cursor != NO_SLOT {
-            let slot = cursor;
-            let chain = cxx_constrain_hash(self.slots[slot].key, self.buckets);
-            cursor = self.slots[slot].next;
-            let rank = runs[chain].as_ref().expect("placed chain was counted").rank;
-            // Same rule and walk as pass 1, so the classification agrees.
-            if !seen[rank] || Some(chain) == prev {
-                seen[rank] = true;
-                prev = Some(chain);
-                let at = cursors[rank].1;
-                cursors[rank].1 += 1;
-                final_order[at] = slot;
-            } else {
-                cursors[rank].0 -= 1;
-                let at = cursors[rank].0;
-                final_order[at] = slot;
-            }
-        }
-        debug_assert!(final_order.iter().all(|slot| *slot != NO_SLOT));
-        // Pass 3: relay out slots in regrouped order, rebuild lookups.
-        let mut new_slots: Vec<CxxSlot<V>> = Vec::with_capacity(final_order.len());
-        for (new_idx, old_slot) in final_order.iter().enumerate() {
-            let node = &mut self.slots[*old_slot];
-            new_slots.push(CxxSlot {
-                key: node.key,
-                value: Some(node.value.take().expect("regroup walks live slots")),
-                prev: if new_idx == 0 { NO_SLOT } else { new_idx - 1 },
-                next: if new_idx + 1 == final_order.len() {
-                    NO_SLOT
-                } else {
-                    new_idx + 1
-                },
-            });
-        }
-        self.slots = new_slots;
-        self.free.clear();
-        self.head = 0;
-        self.index.clear();
-        for (new_idx, node) in self.slots.iter().enumerate() {
-            self.index.insert(node.key, new_idx);
-        }
-        for (rank, chain) in chain_order.iter().enumerate() {
-            self.chain_head[*chain] = Some(base_of_rank[rank]);
-        }
-    }
-
-    /// Fresh-key insert with the C++ order effects (rehash, then
-    /// front-of-chain placement). The key must be absent. Returns the slot
-    /// the key landed on.
-    fn insert_fresh(&mut self, key: usize, value: V) -> usize {
-        debug_assert!(!self.index.contains_key(&key));
-        self.grow_rehash_if_needed();
-        let chain = cxx_constrain_hash(key, self.buckets);
-        let slot = self.alloc_slot(key, value);
-        if let Some(head_slot) = self.chain_head[chain] {
-            self.link_before(slot, head_slot);
-        } else {
-            self.link_front(slot);
-        }
-        self.chain_head[chain] = Some(slot);
-        self.index.insert(key, slot);
-        slot
-    }
-
-    /// C++ `insert`/`emplace`: keeps the old value (returns `false`) when
-    /// the key is present.
-    fn insert_new(&mut self, key: usize, value: V) -> bool {
-        if self.index.contains_key(&key) {
-            return false;
-        }
-        self.insert_fresh(key, value);
-        true
-    }
-
-    /// C++ `operator[] = value`: overwrites when present (no order change),
-    /// inserts (with the same order effects) when absent.
-    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
-    fn set(&mut self, key: usize, value: V) {
-        if let Some(&slot) = self.index.get(&key) {
-            self.slots[slot].value = Some(value);
-            return;
-        }
-        self.insert_fresh(key, value);
-    }
-
-    /// C++ `operator[]` for read-mutate: default-inserts on absence.
-    fn get_or_default(&mut self, key: usize) -> &mut V
-    where
-        V: Default,
-    {
-        if !self.index.contains_key(&key) {
-            self.insert_fresh(key, V::default());
-        }
-        let slot = self.index[&key];
-        self.live_value_mut(slot)
-    }
-
-    fn remove(&mut self, key: &usize) -> Option<V> {
-        let slot = self.index.remove(key)?;
-        let chain = cxx_constrain_hash(*key, self.buckets);
-        let next = self.slots[slot].next;
-        self.unlink(slot);
-        // Runs stay contiguous across unlink, so when the erased node led
-        // its chain the successor (iff it shares the chain) is the new
-        // head; otherwise the chain just lost its only node.
-        if self.chain_head[chain] == Some(slot) {
-            let next_shares =
-                next != NO_SLOT && cxx_constrain_hash(self.slots[next].key, self.buckets) == chain;
-            self.chain_head[chain] = if next_shares { Some(next) } else { None };
-        }
-        let value = self.slots[slot].value.take();
-        self.free.push(slot);
-        value
-    }
-
-    /// `clear`: empties the table but keeps the bucket count.
-    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
-    fn clear(&mut self) {
-        self.slots.clear();
-        self.free.clear();
-        self.head = NO_SLOT;
-        self.index.clear();
-        self.chain_head.fill(None);
-    }
-
-    /// First key in list order (`nextMap.begin()`), or `None` when empty.
-    fn first_key(&self) -> Option<&usize> {
-        if self.head == NO_SLOT {
-            None
-        } else {
-            Some(&self.slots[self.head].key)
-        }
-    }
-}
-
-/// Borrowed keys in list order.
-struct CxxSetIter<'a> {
-    slots: &'a [CxxSlot<()>],
-    cursor: usize,
-    remaining: usize,
-}
-
-impl<'a> Iterator for CxxSetIter<'a> {
-    type Item = &'a usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 || self.cursor == NO_SLOT {
-            return None;
-        }
-        let node = &self.slots[self.cursor];
-        self.cursor = node.next;
-        self.remaining -= 1;
-        Some(&node.key)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
-    }
-}
-
-impl<'a> ExactSizeIterator for CxxSetIter<'a> {}
-
-/// Borrowed `(key, value)` pairs in list order.
-struct CxxMapIter<'a, V> {
-    slots: &'a [CxxSlot<V>],
-    cursor: usize,
-    remaining: usize,
-}
-
-impl<'a, V> Iterator for CxxMapIter<'a, V> {
-    type Item = (&'a usize, &'a V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 || self.cursor == NO_SLOT {
-            return None;
-        }
-        let node = &self.slots[self.cursor];
-        self.cursor = node.next;
-        self.remaining -= 1;
-        Some((
-            &node.key,
-            node.value.as_ref().expect("listed slot holds a value"),
-        ))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
-    }
-}
-
-impl<'a, V> ExactSizeIterator for CxxMapIter<'a, V> {}
-
-/// Emulated `std::unordered_set<size_t>` (see [`CxxTable`]): iteration
-/// yields list order, like the C++ iterators.
-#[derive(Clone, Debug, Default)]
-struct CxxSet {
-    table: CxxTable<()>,
-}
-
-impl CxxSet {
-    fn new() -> Self {
-        Self {
-            table: CxxTable::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.table.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.table.is_empty()
-    }
-
-    fn contains(&self, key: &usize) -> bool {
-        self.table.contains_key(key)
-    }
-
-    /// C++ `insert`: no-op (returns `false`) when the key is present.
-    fn insert(&mut self, key: usize) -> bool {
-        self.table.insert_new(key, ())
-    }
-
-    fn remove(&mut self, key: &usize) -> bool {
-        self.table.remove(key).is_some()
-    }
-
-    /// `clear`: empties the table but keeps the bucket count.
-    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
-    fn clear(&mut self) {
-        self.table.clear();
-    }
-
-    fn iter(&self) -> CxxSetIter<'_> {
-        CxxSetIter {
-            slots: &self.table.slots,
-            cursor: self.table.head,
-            remaining: self.table.len(),
-        }
-    }
-
-    /// Iteration order as a vector (test-only inspection).
-    #[cfg(test)]
-    fn order_vec(&self) -> Vec<usize> {
-        self.iter().copied().collect()
-    }
-
-    /// Bucket count (test-only inspection).
-    #[cfg(test)]
-    fn buckets(&self) -> usize {
-        self.table.buckets()
-    }
-}
-
-impl<'a> IntoIterator for &'a CxxSet {
-    type Item = &'a usize;
-    type IntoIter = CxxSetIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl FromIterator<usize> for CxxSet {
-    /// Range/iterator insert: sequential per-element inserts in order.
-    fn from_iter<I: IntoIterator<Item = usize>>(iter: I) -> Self {
-        let mut set = Self::new();
-        set.extend(iter);
-        set
-    }
-}
-
-impl<const N: usize> From<[usize; N]> for CxxSet {
-    fn from(values: [usize; N]) -> Self {
-        values.into_iter().collect()
-    }
-}
-
-impl Extend<usize> for CxxSet {
-    fn extend<I: IntoIterator<Item = usize>>(&mut self, iter: I) {
-        for key in iter {
-            self.insert(key);
-        }
-    }
-}
-
-/// Emulated `std::unordered_map<size_t, V>` (see [`CxxTable`]).
-/// There is deliberately no `insert` or `entry` (see the section note);
-/// every write names its C++ counterpart.
-#[derive(Clone, Debug, Default)]
-struct CxxMap<V> {
-    table: CxxTable<V>,
-}
-
-impl<V> CxxMap<V> {
-    fn new() -> Self {
-        Self {
-            table: CxxTable::new(),
-        }
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
-    fn len(&self) -> usize {
-        self.table.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.table.is_empty()
-    }
-
-    fn contains_key(&self, key: &usize) -> bool {
-        self.table.contains_key(key)
-    }
-
-    fn get(&self, key: &usize) -> Option<&V> {
-        self.table.get(key)
-    }
-
-    fn get_mut(&mut self, key: &usize) -> Option<&mut V> {
-        self.table.get_mut(key)
-    }
-
-    /// C++ `insert`/`emplace`: keeps the old value (returns `false`) when
-    /// the key is present.
-    fn insert_new(&mut self, key: usize, value: V) -> bool {
-        self.table.insert_new(key, value)
-    }
-
-    /// C++ `operator[] = value`: overwrites when present, inserts (with the
-    /// same order effects) when absent.
-    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
-    fn set(&mut self, key: usize, value: V) {
-        self.table.set(key, value)
-    }
-
-    /// C++ `operator[]` for read-mutate: default-inserts on absence.
-    fn get_or_default(&mut self, key: usize) -> &mut V
-    where
-        V: Default,
-    {
-        self.table.get_or_default(key)
-    }
-
-    fn remove(&mut self, key: &usize) -> Option<V> {
-        self.table.remove(key)
-    }
-
-    /// `clear`: empties the table but keeps the bucket count.
-    #[cfg_attr(not(test), allow(dead_code))] // container oracle tests
-    fn clear(&mut self) {
-        self.table.clear()
-    }
-
-    fn iter(&self) -> CxxMapIter<'_, V> {
-        CxxMapIter {
-            slots: &self.table.slots,
-            cursor: self.table.head,
-            remaining: self.table.len(),
-        }
-    }
-
-    /// First key in list order (`nextMap.begin()`), or `None` when empty.
-    fn first_key(&self) -> Option<&usize> {
-        self.table.first_key()
-    }
-
-    /// Iteration order as a vector (test-only inspection).
-    #[cfg(test)]
-    fn order_vec(&self) -> Vec<(usize, V)>
-    where
-        V: Clone,
-    {
-        self.iter()
-            .map(|(key, value)| (*key, value.clone()))
-            .collect()
-    }
-
-    /// Bucket count (test-only inspection).
-    #[cfg(test)]
-    fn buckets(&self) -> usize {
-        self.table.buckets()
-    }
-}
-
-impl<'a, V> IntoIterator for &'a CxxMap<V> {
-    type Item = (&'a usize, &'a V);
-    type IntoIter = CxxMapIter<'a, V>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<V> FromIterator<(usize, V)> for CxxMap<V> {
-    /// Range/iterator insert: sequential per-element inserts in order.
-    fn from_iter<I: IntoIterator<Item = (usize, V)>>(iter: I) -> Self {
-        let mut map = Self::new();
-        map.extend(iter);
-        map
-    }
-}
-
-impl<V> Extend<(usize, V)> for CxxMap<V> {
-    fn extend<I: IntoIterator<Item = (usize, V)>>(&mut self, iter: I) {
-        for (key, value) in iter {
-            self.insert_new(key, value);
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1393,7 +495,7 @@ impl<'a> QuadExtractor<'a> {
 
         self.report(0.21, "Extracting edges");
         self.diagnose(|| "Extract edges...\n".to_string());
-        let mut edge_connect_map: CxxMap<CxxSet> = CxxMap::new();
+        let mut edge_connect_map: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
         Self::extract_edges(&connections, &mut edge_connect_map);
         if Self::collapse_short_edges(&mut cross_points, &mut edge_connect_map) {
             Self::simplify_graph(&mut edge_connect_map);
@@ -1523,24 +625,22 @@ impl<'a> QuadExtractor<'a> {
 
     fn extract_edges(
         connections: &BTreeSet<(usize, usize)>,
-        edge_connect_map: &mut CxxMap<CxxSet>,
+        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
     ) {
         for (first, second) in connections {
-            edge_connect_map.get_or_default(*first).insert(*second);
-            edge_connect_map.get_or_default(*second).insert(*first);
+            edge_connect_map.entry(*first).or_default().insert(*second);
+            edge_connect_map.entry(*second).or_default().insert(*first);
         }
         Self::simplify_graph(edge_connect_map);
     }
 
-    fn simplify_graph(graph: &mut CxxMap<CxxSet>) {
+    fn simplify_graph(graph: &mut BTreeMap<usize, BTreeSet<usize>>) {
         loop {
-            let mut delay_pairs: CxxMap<(usize, usize)> = CxxMap::new();
+            let mut delay_pairs: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
             // Restructure: the C++ erases vertices while iterating the map.
-            // Erasure only unlinks (libc++ `remove` keeps survivors in
-            // order), and rewiring happens after the scan, so scanning a
-            // snapshot and erasing as the scan goes visits the same
-            // vertices with the same neighbor pairs in the same emulated
-            // order as the C++ visit-and-erase.
+            // Erasure keeps survivors in order, and rewiring happens after
+            // the scan, so scanning a snapshot and erasing as the scan
+            // goes visits the same vertices with the same neighbor pairs.
             let mut snapshot = Vec::new();
             for (vertex, neighbors) in graph.iter() {
                 if neighbors.len() != 2 {
@@ -1559,9 +659,9 @@ impl<'a> QuadExtractor<'a> {
                 {
                     continue;
                 }
-                // C++ `insert`: each vertex is visited (hence scheduled) at
-                // most once per round, so keep-old and overwrite agree.
-                delay_pairs.insert_new(vertex, (first_neighbor, second_neighbor));
+                // Each vertex is visited (hence scheduled) at most once per
+                // round, so this insert never overwrites.
+                delay_pairs.insert(vertex, (first_neighbor, second_neighbor));
                 graph.remove(&vertex);
             }
             if delay_pairs.is_empty() {
@@ -1572,15 +672,14 @@ impl<'a> QuadExtractor<'a> {
                     neighbors.remove(vertex);
                     neighbors.insert(*second);
                 } else {
-                    // C++ `operator[]` then erase (no-op on the fresh set)
-                    // then insert: the key is absent, so build it directly.
-                    graph.insert_new(*first, CxxSet::from([*second]));
+                    // The key is absent, so build its set directly.
+                    graph.insert(*first, BTreeSet::from([*second]));
                 }
                 if let Some(neighbors) = graph.get_mut(second) {
                     neighbors.remove(vertex);
                     neighbors.insert(*first);
                 } else {
-                    graph.insert_new(*second, CxxSet::from([*first]));
+                    graph.insert(*second, BTreeSet::from([*first]));
                 }
             }
         }
@@ -1588,7 +687,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn remove_single_endpoints(
         _cross_points: &mut [Vector3],
-        edge_connect_map: &mut CxxMap<CxxSet>,
+        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
     ) -> bool {
         let mut removed = false;
         let mut endpoints = Vec::new();
@@ -1623,7 +722,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn collapse_triangles(
         cross_points: &mut [Vector3],
-        edge_connect_map: &mut CxxMap<CxxSet>,
+        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
     ) -> bool {
         let mut triangles = BTreeSet::new();
         for (level0, neighbors) in edge_connect_map.iter() {
@@ -1691,7 +790,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn collapse_short_edges(
         cross_points: &mut [Vector3],
-        edge_connect_map: &mut CxxMap<CxxSet>,
+        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
     ) -> bool {
         let mut total_length = 0.0;
         let mut edge_count = 0;
@@ -1725,7 +824,7 @@ impl<'a> QuadExtractor<'a> {
 
     fn collapse_edge(
         cross_points: &mut [Vector3],
-        edge_connect_map: &mut CxxMap<CxxSet>,
+        edge_connect_map: &mut BTreeMap<usize, BTreeSet<usize>>,
         edge: (usize, usize),
     ) {
         let has_forward = edge_connect_map
@@ -1750,12 +849,21 @@ impl<'a> QuadExtractor<'a> {
             if *neighbor == edge.1 {
                 continue;
             }
-            edge_connect_map.get_or_default(edge.1).insert(*neighbor);
-            edge_connect_map.get_or_default(*neighbor).insert(edge.1);
-            edge_connect_map.get_or_default(*neighbor).remove(&edge.0);
+            edge_connect_map
+                .entry(edge.1)
+                .or_default()
+                .insert(*neighbor);
+            edge_connect_map
+                .entry(*neighbor)
+                .or_default()
+                .insert(edge.1);
+            edge_connect_map
+                .entry(*neighbor)
+                .or_default()
+                .remove(&edge.0);
         }
         edge_connect_map.remove(&edge.0);
-        edge_connect_map.get_or_default(edge.1).remove(&edge.0);
+        edge_connect_map.entry(edge.1).or_default().remove(&edge.0);
         let second_empty = edge_connect_map
             .get(&edge.1)
             .is_some_and(|set| set.is_empty());
@@ -1781,7 +889,11 @@ impl<'a> QuadExtractor<'a> {
         normals.normalized()
     }
 
-    fn ring_side(points: &[Vector3], triangle_normals: &CxxMap<Vector3>, corners: &[usize]) -> i32 {
+    fn ring_side(
+        points: &[Vector3],
+        triangle_normals: &BTreeMap<usize, Vector3>,
+        corners: &[usize],
+    ) -> i32 {
         let ring_normal = Self::ring_face_normal(points, corners);
         let mut original_normal = Vector3::default();
         for it in corners {
@@ -1807,7 +919,7 @@ impl<'a> QuadExtractor<'a> {
     /// record the face, its corners (both windings) and its halfedges.
     fn try_add_face(
         points: &[Vector3],
-        triangle_normals: &CxxMap<Vector3>,
+        triangle_normals: &BTreeMap<usize, Vector3>,
         corners: &mut BTreeSet<(usize, usize, usize)>,
         half_edges: &mut BTreeSet<(usize, usize)>,
         quads: &mut Vec<Vec<usize>>,
@@ -1891,11 +1003,10 @@ impl<'a> QuadExtractor<'a> {
         &mut self,
         points: Vec<Vector3>,
         point_source_triangles: Vec<usize>,
-        edge_connect_map: CxxMap<CxxSet>,
+        edge_connect_map: BTreeMap<usize, BTreeSet<usize>>,
     ) {
-        // Never iterated (insert + `operator[]` reads only), but kept
-        // emulated like every C++ unordered container.
-        let mut triangle_normals: CxxMap<Vector3> = CxxMap::new();
+        // Never iterated (insert + reads only).
+        let mut triangle_normals: BTreeMap<usize, Vector3> = BTreeMap::new();
         for (point_index, source) in point_source_triangles.iter().enumerate() {
             let triangle_vertices = &self.triangles[*source];
             let triangle_normal = Vector3::normal(
@@ -1903,8 +1014,8 @@ impl<'a> QuadExtractor<'a> {
                 &self.vertices[triangle_vertices[1]],
                 &self.vertices[triangle_vertices[2]],
             );
-            // C++ `insert` over fresh `point_index` keys.
-            triangle_normals.insert_new(point_index, triangle_normal);
+            // Fresh `point_index` keys: this insert never overwrites.
+            triangle_normals.insert(point_index, triangle_normal);
         }
 
         let mut corners = BTreeSet::new();
@@ -2412,7 +1523,7 @@ impl<'a> QuadExtractor<'a> {
         cross_points: &mut Vec<Vector3>,
         source_triangles: &mut Vec<usize>,
         connections: &mut BTreeSet<(usize, usize)>,
-        branches_of_point: &mut CxxMap<CxxSet>,
+        branches_of_point: &mut BTreeMap<usize, BTreeSet<usize>>,
         crossing_position: Vector3,
         crossing_edge: (usize, usize),
     ) -> usize {
@@ -2436,19 +1547,23 @@ impl<'a> QuadExtractor<'a> {
         // C++ `operator[]` + erase (both endpoints are present: the branch
         // map tracks `connections` exactly).
         branches_of_point
-            .get_or_default(edge_first)
+            .entry(edge_first)
+            .or_default()
             .remove(&edge_second);
         branches_of_point
-            .get_or_default(edge_second)
+            .entry(edge_second)
+            .or_default()
             .remove(&edge_first);
         for endpoint in [edge_first, edge_second] {
             connections.insert((endpoint, new_point_index));
             connection_infos.insert(Self::edge_of(endpoint, new_point_index), info);
             branches_of_point
-                .get_or_default(endpoint)
+                .entry(endpoint)
+                .or_default()
                 .insert(new_point_index);
             branches_of_point
-                .get_or_default(new_point_index)
+                .entry(new_point_index)
+                .or_default()
                 .insert(endpoint);
         }
         new_point_index
@@ -2460,7 +1575,7 @@ impl<'a> QuadExtractor<'a> {
         added_connections: &mut BTreeSet<(usize, usize)>,
         connections: &mut BTreeSet<(usize, usize)>,
         source_triangles: &[usize],
-        branches_of_point: &mut CxxMap<CxxSet>,
+        branches_of_point: &mut BTreeMap<usize, BTreeSet<usize>>,
         from_point_index: usize,
         to_point_index: usize,
     ) -> bool {
@@ -2482,10 +1597,12 @@ impl<'a> QuadExtractor<'a> {
         );
         added_connections.insert(edge);
         branches_of_point
-            .get_or_default(from_point_index)
+            .entry(from_point_index)
+            .or_default()
             .insert(to_point_index);
         branches_of_point
-            .get_or_default(to_point_index)
+            .entry(to_point_index)
+            .or_default()
             .insert(from_point_index);
         true
     }
@@ -2493,9 +1610,9 @@ impl<'a> QuadExtractor<'a> {
     #[allow(clippy::too_many_arguments)]
     fn find_node_ahead(
         cross_points: &[Vector3],
-        branches_of_point: &CxxMap<CxxSet>,
+        branches_of_point: &BTreeMap<usize, BTreeSet<usize>>,
         local_edges: &BTreeMap<(usize, usize), ConnectionInfo>,
-        behind_points: &CxxSet,
+        behind_points: &BTreeSet<usize>,
         nearby_radius: f64,
         ahead_cosine_threshold: f64,
         position: Vector3,
@@ -2535,7 +1652,7 @@ impl<'a> QuadExtractor<'a> {
         triangles: &[Vec<usize>],
         cross_points: &[Vector3],
         local_edges: &BTreeMap<(usize, usize), ConnectionInfo>,
-        behind_points: &CxxSet,
+        behind_points: &BTreeSet<usize>,
         parallel_cosine_threshold: f64,
         tolerance: f64,
         position: Vector3,
@@ -2636,17 +1753,18 @@ impl<'a> QuadExtractor<'a> {
                 .or_insert(i);
         }
 
-        let mut branches_of_point: CxxMap<CxxSet> = CxxMap::new();
+        let mut branches_of_point: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
         for (first, second) in connections.iter() {
-            branches_of_point.get_or_default(*first).insert(*second);
-            branches_of_point.get_or_default(*second).insert(*first);
+            branches_of_point.entry(*first).or_default().insert(*second);
+            branches_of_point.entry(*second).or_default().insert(*first);
         }
 
-        let mut triangles_around_vertex: CxxMap<Vec<usize>> = CxxMap::new();
+        let mut triangles_around_vertex: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for (triangle_index, triangle) in self.triangles.iter().enumerate() {
             for vertex_index in triangle {
                 triangles_around_vertex
-                    .get_or_default(*vertex_index)
+                    .entry(*vertex_index)
+                    .or_default()
                     .push(triangle_index);
             }
         }
@@ -2680,11 +1798,11 @@ impl<'a> QuadExtractor<'a> {
             };
             starved_cones += 1;
 
-            let mut neighbor_triangles = CxxSet::new();
+            let mut neighbor_triangles = BTreeSet::new();
             {
-                let mut ring_vertices = CxxSet::from([singular_vertex_index]);
+                let mut ring_vertices = BTreeSet::from([singular_vertex_index]);
                 for _ in 0..RING_COUNT {
-                    let mut next_ring_vertices = CxxSet::new();
+                    let mut next_ring_vertices = BTreeSet::new();
                     for vertex_index in &ring_vertices {
                         let Some(find_triangles) = triangles_around_vertex.get(vertex_index) else {
                             continue;
@@ -2811,7 +1929,7 @@ impl<'a> QuadExtractor<'a> {
                 continue;
             }
 
-            let behind_points = CxxSet::from([singular_point_index, coming_from_point_index]);
+            let behind_points = BTreeSet::from([singular_point_index, coming_from_point_index]);
 
             #[derive(Clone, Copy)]
             struct WalkCrossing {
@@ -3139,17 +2257,17 @@ impl<'a> QuadExtractor<'a> {
     ) {
         self.diagnose(|| "Searching boundaries...\n".to_string());
 
-        let mut next_map: CxxMap<CxxSet> = CxxMap::new();
+        let mut next_map: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
         for (from, to) in half_edges {
             if half_edges.contains(&(*to, *from)) {
                 continue;
             }
-            next_map.get_or_default(*from).insert(*to);
+            next_map.entry(*from).or_default().insert(*to);
         }
 
         while !next_map.is_empty() {
-            // libc++ `nextMap.begin()`: first node in hash order.
-            let Some(start_vertex) = next_map.first_key().copied() else {
+            // Loops start at the smallest open vertex (sorted order).
+            let Some((&start_vertex, _)) = next_map.first_key_value() else {
                 break;
             };
             let mut loop_ = Vec::new();
@@ -3240,8 +2358,7 @@ impl<'a> QuadExtractor<'a> {
     fn smooth_and_project(
         &mut self,
         iterations: usize,
-        // `BTreeSet`: membership-only use (`contains`, `is_empty`),
-        // exact for the C++ `unordered_set` (container audit).
+        // Membership-only use (`contains`, `is_empty`).
         movable_vertices: Option<&BTreeSet<usize>>,
     ) {
         if 0 == iterations
@@ -3252,7 +2369,8 @@ impl<'a> QuadExtractor<'a> {
             return;
         }
 
-        let mut neighbors: Vec<CxxSet> = vec![CxxSet::new(); self.remeshed_vertices.len()];
+        let mut neighbors: Vec<BTreeSet<usize>> =
+            vec![BTreeSet::new(); self.remeshed_vertices.len()];
         let mut edge_use_count: BTreeMap<(usize, usize), usize> = BTreeMap::new();
         for face in &self.remeshed_polygons {
             for i in 0..face.len() {
@@ -3633,7 +2751,7 @@ impl<'a> QuadExtractor<'a> {
     /// Shared `hasRepeatedVertex` lambda (repeated verbatim in every
     /// cleanup pass in the C++).
     fn has_repeated_vertex(face: &[usize]) -> bool {
-        let unique: CxxSet = face.iter().copied().collect();
+        let unique: BTreeSet<usize> = face.iter().copied().collect();
         unique.len() != face.len()
     }
 
@@ -6897,335 +6015,8 @@ fn closest_point_on_triangle(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> 
 }
 
 #[cfg(test)]
-mod cxx_hash_tests {
-    //! Differential oracle for the [`CxxSet`]/[`CxxMap`] emulation: replays
-    //! the fixture's CXXHASH op log (bucket count, size, and full iteration
-    //! order asserted after every op) and validates [`cxx_next_prime`]
-    //! against the NEXTPRIME ranges. `cxx_hash_chains` pins the
-    //! front-of-chain rule directly (values from the libc++ probe).
-
+mod tests {
     use super::*;
-
-    const FIXTURE: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/quadextractor_diff.txt"
-    );
-
-    fn parse_usize(token: &str) -> usize {
-        token.parse::<usize>().unwrap()
-    }
-
-    /// Split an op line at `=>` into (op tokens, `bc`, `n`, raw order tail).
-    fn split_state(line: &str) -> (Vec<&str>, usize, usize, &str) {
-        let (op, state) = line.split_once("=>").unwrap();
-        let op: Vec<&str> = op.split_whitespace().collect();
-        let state: Vec<&str> = state.split_whitespace().collect();
-        assert_eq!(state.len(), 3, "bad state: {line}");
-        let bc = parse_usize(state[0].strip_prefix("bc=").unwrap());
-        let n = parse_usize(state[1].strip_prefix("n=").unwrap());
-        let order = state[2].strip_prefix("order=").unwrap();
-        (op, bc, n, order)
-    }
-
-    fn parse_order_set(tail: &str) -> Vec<usize> {
-        if tail.is_empty() {
-            Vec::new()
-        } else {
-            tail.split(',').map(parse_usize).collect()
-        }
-    }
-
-    fn parse_order_map(tail: &str) -> Vec<(usize, usize)> {
-        if tail.is_empty() {
-            Vec::new()
-        } else {
-            tail.split(',')
-                .map(|pair| {
-                    let (k, v) = pair.split_once(':').unwrap();
-                    (parse_usize(k), parse_usize(v))
-                })
-                .collect()
-        }
-    }
-
-    fn flag(token: &str, name: &str) -> bool {
-        token.strip_prefix(name).unwrap() == "1"
-    }
-
-    #[test]
-    fn cxx_hash_oracle() {
-        let text = std::fs::read_to_string(FIXTURE).unwrap();
-        let mut section = "";
-        let mut set = CxxSet::new();
-        let mut map = CxxMap::new();
-        let mut set_snaps: Vec<CxxSet> = Vec::new();
-        let mut map_snaps: Vec<CxxMap<usize>> = Vec::new();
-        let mut set_ops = 0;
-        let mut map_ops = 0;
-        for line in text.lines() {
-            match line {
-                "CXXHASH_BEGIN" => section = "hash",
-                "CXXHASH_END" => section = "",
-                "NEXTPRIME_BEGIN" => section = "prime",
-                "NEXTPRIME_END" => section = "",
-                _ => {}
-            }
-            if section != "hash" || (!line.starts_with("HS ") && !line.starts_with("HM ")) {
-                continue;
-            }
-            let (op, bc, n, tail) = split_state(line);
-            if op[0] == "HS" {
-                set_ops += 1;
-                match op[1] {
-                    "I" => {
-                        let key = parse_usize(op[2]);
-                        assert_eq!(set.insert(key), flag(op[3], "ins="), "line: {line}");
-                    }
-                    "E" => {
-                        let key = parse_usize(op[2]);
-                        assert_eq!(set.remove(&key), flag(op[3], "erased="), "line: {line}");
-                    }
-                    "EI" => {
-                        let pos = parse_usize(op[2]);
-                        assert!(pos < set.order_vec().len(), "line: {line}");
-                        let key = parse_usize(op[3].strip_prefix("key=").unwrap());
-                        assert_eq!(set.order_vec()[pos], key, "line: {line}");
-                        assert!(set.remove(&key), "line: {line}");
-                        let next = op[4].strip_prefix("next=").unwrap();
-                        if next == "END" {
-                            assert_eq!(set.order_vec().len(), pos, "line: {line}");
-                        } else {
-                            assert_eq!(set.order_vec()[pos], parse_usize(next), "line: {line}");
-                        }
-                    }
-                    "C" => set.clear(),
-                    "HAS" => {
-                        let key = parse_usize(op[2]);
-                        assert_eq!(set.contains(&key), flag(op[3], "has="), "line: {line}");
-                    }
-                    "SNAP" => {
-                        let id = parse_usize(op[2]);
-                        assert_eq!(id, set_snaps.len(), "line: {line}");
-                        set_snaps.push(set.clone());
-                    }
-                    "CHECK" => {
-                        let id = parse_usize(op[2]);
-                        let snap = &set_snaps[id];
-                        assert_eq!(snap.buckets(), bc, "line: {line}");
-                        assert_eq!(snap.len(), n, "line: {line}");
-                        assert_eq!(snap.order_vec(), parse_order_set(tail), "line: {line}");
-                        continue;
-                    }
-                    "RANGE" | "INIT" => {
-                        let count = parse_usize(op[2]);
-                        let elems: Vec<usize> =
-                            op[3..3 + count].iter().map(|t| parse_usize(t)).collect();
-                        let fresh: CxxSet = elems.into_iter().collect();
-                        assert_eq!(fresh.buckets(), bc, "line: {line}");
-                        assert_eq!(fresh.len(), n, "line: {line}");
-                        assert_eq!(fresh.order_vec(), parse_order_set(tail), "line: {line}");
-                        continue;
-                    }
-                    _ => panic!("unknown set op: {line}"),
-                }
-                assert_eq!(set.buckets(), bc, "line: {line}");
-                assert_eq!(set.len(), n, "line: {line}");
-                assert_eq!(set.order_vec(), parse_order_set(tail), "line: {line}");
-            } else {
-                map_ops += 1;
-                match op[1] {
-                    "I" => {
-                        let key = parse_usize(op[2]);
-                        let value = parse_usize(op[3]);
-                        assert_eq!(
-                            map.insert_new(key, value),
-                            flag(op[4], "ins="),
-                            "line: {line}"
-                        );
-                    }
-                    "BSET" => {
-                        map.set(parse_usize(op[2]), parse_usize(op[3]));
-                    }
-                    "BADD" => {
-                        let key = parse_usize(op[2]);
-                        let delta = parse_usize(op[3]);
-                        *map.get_or_default(key) += delta;
-                        let want = parse_usize(op[4].strip_prefix("val=").unwrap());
-                        assert_eq!(map.get(&key).copied(), Some(want), "line: {line}");
-                    }
-                    "BREAD" => {
-                        let key = parse_usize(op[2]);
-                        let want = parse_usize(op[3].strip_prefix("val=").unwrap());
-                        assert_eq!(*map.get_or_default(key), want, "line: {line}");
-                    }
-                    "E" => {
-                        let key = parse_usize(op[2]);
-                        assert_eq!(
-                            map.remove(&key).is_some(),
-                            flag(op[3], "erased="),
-                            "line: {line}"
-                        );
-                    }
-                    "EI" => {
-                        let pos = parse_usize(op[2]);
-                        assert!(pos < map.len(), "line: {line}");
-                        let key = parse_usize(op[3].strip_prefix("key=").unwrap());
-                        assert_eq!(map.order_vec()[pos].0, key, "line: {line}");
-                        assert!(map.remove(&key).is_some(), "line: {line}");
-                        let next = op[4].strip_prefix("next=").unwrap();
-                        if next == "END" {
-                            assert_eq!(map.len(), pos, "line: {line}");
-                        } else {
-                            assert_eq!(map.order_vec()[pos].0, parse_usize(next), "line: {line}");
-                        }
-                    }
-                    "C" => map.clear(),
-                    "FIND" => {
-                        let key = parse_usize(op[2]);
-                        if flag(op[3], "found=") {
-                            let want = parse_usize(op[4].strip_prefix("val=").unwrap());
-                            assert_eq!(map.get(&key).copied(), Some(want), "line: {line}");
-                        } else {
-                            assert_eq!(map.get(&key), None, "line: {line}");
-                        }
-                    }
-                    "SNAP" => {
-                        let id = parse_usize(op[2]);
-                        assert_eq!(id, map_snaps.len(), "line: {line}");
-                        map_snaps.push(map.clone());
-                    }
-                    "CHECK" => {
-                        let id = parse_usize(op[2]);
-                        let snap = &map_snaps[id];
-                        assert_eq!(snap.buckets(), bc, "line: {line}");
-                        assert_eq!(snap.len(), n, "line: {line}");
-                        let pairs: Vec<(usize, usize)> = snap.order_vec();
-                        assert_eq!(pairs, parse_order_map(tail), "line: {line}");
-                        continue;
-                    }
-                    "RANGEINS" => {
-                        let count = parse_usize(op[2]);
-                        let mut fresh = CxxMap::new();
-                        for token in &op[3..3 + count] {
-                            let key = parse_usize(token);
-                            fresh.insert_new(key, (key % 100003) * 10 + 1);
-                        }
-                        assert_eq!(fresh.buckets(), bc, "line: {line}");
-                        assert_eq!(fresh.len(), n, "line: {line}");
-                        let pairs: Vec<(usize, usize)> = fresh.order_vec();
-                        assert_eq!(pairs, parse_order_map(tail), "line: {line}");
-                        continue;
-                    }
-                    _ => panic!("unknown map op: {line}"),
-                }
-                assert_eq!(map.buckets(), bc, "line: {line}");
-                assert_eq!(map.len(), n, "line: {line}");
-                let pairs: Vec<(usize, usize)> = map.order_vec();
-                assert_eq!(pairs, parse_order_map(tail), "line: {line}");
-            }
-        }
-        assert!(set_ops > 1000, "set ops replayed: {set_ops}");
-        assert!(map_ops > 1000, "map ops replayed: {map_ops}");
-        println!("cxx_hash_oracle: {set_ops} set ops + {map_ops} map ops replayed");
-    }
-
-    #[test]
-    fn cxx_next_prime_oracle() {
-        let text = std::fs::read_to_string(FIXTURE).unwrap();
-        let mut section = "";
-        let mut ranges = 0;
-        let mut tails = 0;
-        for line in text.lines() {
-            match line {
-                "NEXTPRIME_BEGIN" => section = "prime",
-                "NEXTPRIME_END" => section = "",
-                _ => {}
-            }
-            if section != "prime" {
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("NP ") {
-                let parts: Vec<&str> = rest.split_whitespace().collect();
-                let (lo, hi, p) = (
-                    parse_usize(parts[0]),
-                    parse_usize(parts[1]),
-                    parse_usize(parts[2]),
-                );
-                // `next_prime` is nondecreasing and every range ends at its
-                // prime, so the endpoints prove the whole range.
-                assert_eq!(cxx_next_prime(lo), p, "range {lo}..={hi}");
-                assert_eq!(cxx_next_prime(hi), p, "range {lo}..={hi}");
-                ranges += 1;
-            } else if let Some(rest) = line.strip_prefix("NP_TAIL ") {
-                let parts: Vec<&str> = rest.split_whitespace().collect();
-                assert_eq!(
-                    cxx_next_prime(parse_usize(parts[0])),
-                    parse_usize(parts[1]),
-                    "tail {rest}"
-                );
-                tails += 1;
-            }
-        }
-        assert!(ranges > 20000, "ranges checked: {ranges}");
-        assert_eq!(tails, 7, "tails checked: {tails}");
-        assert_eq!(cxx_next_prime(0), 0);
-        println!("cxx_next_prime_oracle: {ranges} ranges + {tails} tails checked");
-    }
-
-    /// Front-of-chain placement, pinned without the fixture (values from the
-    /// libc++ probe: D map20/brackets/copy+ins, E coll12).
-    #[test]
-    fn cxx_hash_chains() {
-        let mut map = CxxMap::new();
-        for i in 0..20 {
-            map.insert_new(i * 3, i * 100);
-        }
-        assert_eq!(map.buckets(), 23);
-        let keys: Vec<usize> = map.iter().map(|(k, _)| *k).collect();
-        assert_eq!(
-            keys,
-            vec![
-                57, 54, 51, 48, 45, 42, 39, 36, 33, 30, 27, 24, 21, 18, 15, 12, 9, 6, 3, 0
-            ]
-        );
-        // 999 lands in 33's chain (both = 10 mod 23): ahead of 33.
-        map.set(999, 5);
-        let keys: Vec<usize> = map.iter().map(|(k, _)| *k).collect();
-        assert_eq!(keys[8], 999);
-        assert_eq!(keys[9], 33);
-        // 1000 opens a chain with the head (both = 11 mod 23): new head.
-        map.get_or_default(1000);
-        assert_eq!(map.order_vec()[0].0, 1000);
-        assert_eq!(map.order_vec()[1].0, 57);
-        // Copies preserve order and count; the copy then diverges alone.
-        let mut copy = map.clone();
-        assert_eq!(copy.buckets(), map.buckets());
-        copy.set(7, 700);
-        let copy_keys: Vec<usize> = copy.iter().map(|(k, _)| *k).collect();
-        let pos33 = copy_keys.iter().position(|k| *k == 33).unwrap();
-        assert_eq!(copy_keys[pos33 + 1], 7);
-        assert_eq!(copy_keys[pos33 + 2], 30);
-        assert!(!map.contains_key(&7));
-        // Collision chain: all multiples of 23 share one chain, newest first.
-        let mut set = CxxSet::new();
-        for i in 0..12 {
-            set.insert(i * 23);
-        }
-        assert_eq!(set.buckets(), 23);
-        assert_eq!(
-            set.order_vec(),
-            vec![253, 230, 207, 184, 161, 138, 115, 92, 69, 46, 23, 0]
-        );
-        // Erase unlinks; clear keeps the count; reuse continues there.
-        assert!(set.remove(&0));
-        assert!(!set.remove(&999999));
-        assert_eq!(set.buckets(), 23);
-        set.clear();
-        assert_eq!(set.buckets(), 23);
-        assert!(set.is_empty());
-        set.insert(42);
-        assert_eq!(set.order_vec(), vec![42]);
-    }
 
     /// The sorted per-round indexes reproduce the `BTreeMap` builds
     /// exactly: identical keys, values, group order, and lookup behavior

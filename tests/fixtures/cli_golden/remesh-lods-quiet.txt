@@ -4,14 +4,14 @@ out_lod0.obj present
 out_lod1.obj present
 report: present
 counts:
-out_lod0.obj quads=214 nonquads=4 verts=218
+out_lod0.obj quads=224 nonquads=4 verts=228
 out_lod1.obj quads=94 nonquads=0 verts=96
-LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=214 non-quads=4 vertices=218 time=T seconds
+LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=224 non-quads=4 vertices=228 time=T seconds
 LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=94 non-quads=0 vertices=96 time=T seconds
 Target quads: 300
-  Quads: 214
+  Quads: 224
   Non-quads: 4
-  Vertices: 218
+  Vertices: 228
 Target quads: 150
   Quads: 94
   Non-quads: 0

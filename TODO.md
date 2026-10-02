@@ -90,9 +90,15 @@ when comparing back ends.
       +10%, dist_max +35%). Greediness trades accuracy for regularity
       monotonically — wrong direction (worst-case is our weak metric vs
       QuadWild). One-shot stays. Experiment reverted (lives in history).
-- [ ] Drop the libc++ order emulation (`CxxMap`/`CxxSet` in
-      `quad_extractor.rs`): the C++ oracle is gone, so native
-      deterministic containers simplify and speed it up (re-baseline)
+- [x] Drop the libc++ order emulation: `CxxSet`/`CxxMap` (~860 lines)
+      deleted, extractor fully `BTreeMap`/`BTreeSet` + dead 28k-line
+      fixture sections stripped. Oracles re-baselined via permissive
+      snapshot regen (extractor 80+value cases 124->120 non-quads,
+      engine 170 cases 185->183; totals neutral, 1 marginal empty
+      traded for 2 un-empties). noise.py A/B overlaps on every metric;
+      dragon-50k 25.6s before=after, RSS unchanged. Regen now supports
+      exact-compare snapshots + PROG re-pin (monotonicity-checked) in
+      permissive mode.
 - [ ] Reduce tiling chaos from decimation (meshopt collapse order flips
       under 1e-9 noise; see docs/igm-validity-spike.md)
 - [ ] Migrate meshoptimizer (the last C++ in `thirdparty/`, called via
