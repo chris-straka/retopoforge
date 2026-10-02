@@ -130,6 +130,11 @@ faces within **Projection Range** (fraction of the HIGH bbox
 diagonal, default 1%) take UVs; the rest keep theirs, and the
 report counts both.
 
+**Transfer HIGH Colors** does the same nearest-point projection for
+the HIGH active vertex-color layer — the path for non-textured AI
+outputs — writing a same-named face-corner color layer on LOW
+(beyond-range faces keep the fill color).
+
 ## Install
 
 1. Build the CLI: `cargo build --locked --release -p retopo` (binary at `rust/target/release/retopo`)

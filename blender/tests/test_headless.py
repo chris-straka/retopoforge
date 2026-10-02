@@ -957,6 +957,62 @@ def main():
         bpy.context.view_layer.objects.active = nouvs
         check_cancel("uv-less HIGH", bpy.ops.retopoforge.project_uvs)
 
+        # --- Vertex-color transfer: HIGH's active color layer lands on
+        # the hugging LOW by nearest-point projection.
+        check(hasattr(bpy.ops.retopoforge, "transfer_colors"),
+              "transfer-colors operator registered")
+        col = high.data.color_attributes.new("TestCol", "FLOAT_COLOR",
+                                             "CORNER")
+        for poly in high.data.polygons:
+            c = (1.0, 0.0, 0.0, 1.0) if poly.center.x < 0.0 else \
+                (0.0, 1.0, 0.0, 1.0)
+            for li in poly.loop_indices:
+                col.data[li].color = c
+        high.data.color_attributes.active_color = col
+        params.transfer_max_dist = 0.05
+        bpy.ops.object.select_all(action="DESELECT")
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.transfer_colors()
+        check("FINISHED" in result, f"transfer finished (got {result})")
+        low_col = low.data.color_attributes.get("TestCol")
+        check(low_col is not None, "LOW gained the transferred layer")
+        reds = [low_col.data[li].color[0]
+                for poly in low.data.polygons for li in poly.loop_indices]
+        check(max(reds) - min(reds) > 0.5,
+              f"transferred colors non-uniform "
+              f"(red spread {max(reds) - min(reds):.3f})")
+        m = re.search(r"transferred colors on (\d+)/(\d+) faces",
+                      bpy.context.scene.retopoforge_last_report)
+        check(m is not None and int(m.group(2)) == nfaces,
+              "report counts transferred faces")
+        check(m is not None and int(m.group(1)) / nfaces > 0.8,
+              "most faces transferred colors")
+        # Far away: a fresh layer keeps the fill color everywhere.
+        low.matrix_world.translation.x += 10.0
+        bpy.context.view_layer.update()
+        result = bpy.ops.retopoforge.transfer_colors()
+        check("FINISHED" in result, "far transfer finished")
+        check(f"transferred colors on 0/{nfaces} faces "
+              f"({nfaces} beyond range)"
+              in bpy.context.scene.retopoforge_last_report,
+              "report counts far transfer all skipped")
+        far_col = low.data.color_attributes.active_color
+        reds = [far_col.data[li].color[0]
+                for poly in low.data.polygons for li in poly.loop_indices]
+        check(max(reds) - min(reds) == 0.0, "far transfer kept fill color")
+        low.matrix_world = saved_matrix
+        # HIGH without colors cancels cleanly.
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=1.0)
+        nocol = bpy.context.active_object
+        low.select_set(True)
+        nocol.select_set(True)
+        bpy.context.view_layer.objects.active = nocol
+        check_cancel("color-less HIGH",
+                     bpy.ops.retopoforge.transfer_colors)
+
         leftovers = [o for o in bpy.data.objects if o.name.startswith("in_")]
         check(not leftovers, "no temp objects left behind")
 

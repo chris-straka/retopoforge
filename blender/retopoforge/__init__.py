@@ -362,6 +362,15 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         min=0.0,
         max=1.0,
     )
+    transfer_max_dist: FloatProperty(
+        name="Transfer Range",
+        description="Max HIGH distance for color transfer, as a fraction "
+                    "of the HIGH bounding-box diagonal (faces beyond "
+                    "keep the fill color)",
+        default=0.01,
+        min=0.0,
+        max=1.0,
+    )
     bake_cage: PointerProperty(
         name="Bake Cage",
         description="Cage mesh for selected-to-active bakes (empty: ray extrusion)",
@@ -1638,6 +1647,58 @@ def _bary_weights_3d(p, a, b, c):
     return (1.0 - v - w, v, w)
 
 
+def _face_correspondence(context, high, low, max_dist_frac):
+    """Nearest-face mapping HIGH -> LOW for attribute transfer.
+
+    Per LOW face: BVH-nearest HIGH face within range (fraction of the
+    HIGH bbox diagonal); per LOW corner: barycentric weights into a
+    fan triangle of that HIGH face. Returns (items, projected,
+    skipped) where items holds (low_poly, high_poly, corners) and each
+    corner is (low_loop_index, (ia, ib, ic), (w0, w1, w2)) with
+    fan-triangle vertices indexed into the HIGH poly's vert/loop
+    lists. Shared by UV projection and color transfer."""
+    from mathutils.bvhtree import BVHTree
+
+    depsgraph = context.evaluated_depsgraph_get()
+    tree = BVHTree.FromObject(high, depsgraph)
+    diag = (high.matrix_world @ Vector(high.bound_box[6])
+            - high.matrix_world @ Vector(high.bound_box[0])).length
+    max_dist = float(max_dist_frac) * diag
+    high_world = high.matrix_world
+    low_world = low.matrix_world
+    high_mesh = high.data
+    items = []
+    projected = 0
+    skipped = 0
+    for poly in low.data.polygons:
+        center = low_world @ poly.center
+        _, _, face_idx, dist = tree.find_nearest(center)
+        if face_idx is None or dist > max_dist:
+            skipped += 1
+            continue
+        hpoly = high_mesh.polygons[face_idx]
+        hvis = [high_world @ high_mesh.vertices[vi].co
+                for vi in hpoly.vertices]
+        fan = [(0, k, k + 1) for k in range(1, len(hvis) - 1)]
+        corners = []
+        for li in poly.loop_indices:
+            corner = low_world @ low.data.vertices[
+                low.data.loops[li].vertex_index].co
+            best = None
+            best_d2 = float("inf")
+            for (ia, ib, ic) in fan:
+                w = _bary_weights_3d(corner, hvis[ia], hvis[ib], hvis[ic])
+                q = hvis[ia] * w[0] + hvis[ib] * w[1] + hvis[ic] * w[2]
+                d2 = (corner - q).length_squared
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best = ((ia, ib, ic), w)
+            corners.append((li,) + best)
+        items.append((poly, hpoly, corners))
+        projected += 1
+    return items, projected, skipped
+
+
 class RETOPOFORGE_OT_project_uvs(bpy.types.Operator):
     """Copy HIGH UVs onto the LOW mesh by nearest-point projection
     (per-face, so original UV seams survive; faces beyond range keep
@@ -1648,8 +1709,6 @@ class RETOPOFORGE_OT_project_uvs(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        from mathutils.bvhtree import BVHTree
-
         params = context.scene.retopoforge_params
         high = context.active_object
         lows = [o for o in context.selected_objects
@@ -1667,47 +1726,63 @@ class RETOPOFORGE_OT_project_uvs(bpy.types.Operator):
         low_uv = low.data.uv_layers.active
         if low_uv is None:
             low_uv = low.data.uv_layers.new(name="Projected")
-        depsgraph = context.evaluated_depsgraph_get()
-        tree = BVHTree.FromObject(high, depsgraph)
-        diag = (high.matrix_world @ Vector(high.bound_box[6])
-                - high.matrix_world @ Vector(high.bound_box[0])).length
-        max_dist = float(params.project_uv_max_dist) * diag
-        high_world = high.matrix_world
-        low_world = low.matrix_world
-        high_mesh = high.data
-        projected = 0
-        skipped = 0
-        for poly in low.data.polygons:
-            center = low_world @ poly.center
-            loc, _, face_idx, dist = tree.find_nearest(center)
-            if face_idx is None or dist > max_dist:
-                skipped += 1
-                continue
-            hpoly = high_mesh.polygons[face_idx]
-            hvis = [high_world @ high_mesh.vertices[vi].co
-                    for vi in hpoly.vertices]
+        items, projected, skipped = _face_correspondence(
+            context, high, low, params.project_uv_max_dist)
+        for _, hpoly, corners in items:
             huvs = [high_uv.uv[li].vector for li in hpoly.loop_indices]
-            # Fan-triangulate the HIGH face; each LOW corner takes UVs
-            # from the fan triangle nearest its projection.
-            fan = [(0, k, k + 1) for k in range(1, len(hvis) - 1)]
-            for li in poly.loop_indices:
-                corner = low_world @ low.data.vertices[
-                    low.data.loops[li].vertex_index].co
-                projected_uv = None
-                best_d2 = float("inf")
-                for (ia, ib, ic) in fan:
-                    w = _bary_weights_3d(corner, hvis[ia], hvis[ib],
-                                         hvis[ic])
-                    q = (hvis[ia] * w[0] + hvis[ib] * w[1]
-                         + hvis[ic] * w[2])
-                    d2 = (corner - q).length_squared
-                    if d2 < best_d2:
-                        best_d2 = d2
-                        projected_uv = (huvs[ia] * w[0] + huvs[ib] * w[1]
-                                        + huvs[ic] * w[2])
-                low_uv.uv[li].vector = projected_uv.to_2d()
-            projected += 1
+            for li, (ia, ib, ic), (w0, w1, w2) in corners:
+                low_uv.uv[li].vector = (huvs[ia] * w0 + huvs[ib] * w1
+                                        + huvs[ic] * w2).to_2d()
         line = (f"{low.name}: projected UVs on {projected}/"
+                f"{projected + skipped} faces ({skipped} beyond range)")
+        context.scene.retopoforge_last_report += line + "\n"
+        self.report({"INFO"}, line)
+        return {"FINISHED"}
+
+
+class RETOPOFORGE_OT_transfer_colors(bpy.types.Operator):
+    """Copy the HIGH active vertex-color layer onto LOW by
+    nearest-point projection (for non-textured AI outputs; faces
+    beyond range keep the fill color)"""
+
+    bl_idname = "retopoforge.transfer_colors"
+    bl_label = "Transfer HIGH Colors"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        params = context.scene.retopoforge_params
+        high = context.active_object
+        lows = [o for o in context.selected_objects
+                if o is not high and o.type == "MESH"]
+        if high is None or high.type != "MESH" or not lows:
+            self.report({"ERROR"},
+                        "Select LOW meshes with the HIGH-poly source active")
+            return {"CANCELLED"}
+        low = lows[0]
+        high_col = high.data.color_attributes.active_color
+        if high_col is None:
+            self.report({"ERROR"},
+                        f"HIGH '{high.name}' has no color attribute")
+            return {"CANCELLED"}
+        low_col = low.data.color_attributes.new(
+            high_col.name, "FLOAT_COLOR", "CORNER")
+        low.data.color_attributes.active_color = low_col
+        items, projected, skipped = _face_correspondence(
+            context, high, low, params.transfer_max_dist)
+        high_mesh = high.data
+        for _, hpoly, corners in items:
+            if high_col.domain == "POINT":
+                vals = [high_col.data[vi].color
+                        for vi in hpoly.vertices]
+            else:
+                vals = [high_col.data[li].color
+                        for li in hpoly.loop_indices]
+            for li, (ia, ib, ic), (w0, w1, w2) in corners:
+                mixed = [vals[ia][c] * w0 + vals[ib][c] * w1
+                         + vals[ic][c] * w2 for c in range(4)]
+                low_col.data[li].color = (mixed[0], mixed[1], mixed[2],
+                                          mixed[3])
+        line = (f"{low.name}: transferred colors on {projected}/"
                 f"{projected + skipped} faces ({skipped} beyond range)")
         context.scene.retopoforge_last_report += line + "\n"
         self.report({"INFO"}, line)
@@ -1960,6 +2035,9 @@ class RETOPOFORGE_PT_bake(bpy.types.Panel):
         bcol.prop(params, "project_uv_max_dist")
         layout.operator("retopoforge.project_uvs", text="Project HIGH UVs",
                         icon="UV")
+        bcol.prop(params, "transfer_max_dist")
+        layout.operator("retopoforge.transfer_colors",
+                        text="Transfer HIGH Colors", icon="GROUP_VCOL")
 
 
 _CLASSES = (
@@ -1970,6 +2048,7 @@ _CLASSES = (
     RETOPOFORGE_OT_bake_textures,
     RETOPOFORGE_OT_remesh_and_bake,
     RETOPOFORGE_OT_project_uvs,
+    RETOPOFORGE_OT_transfer_colors,
     RETOPOFORGE_OT_export_guides,
     RETOPOFORGE_OT_export_features,
     RETOPOFORGE_OT_export_density,

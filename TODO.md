@@ -308,7 +308,13 @@ when comparing back ends.
       seams), range gate as bbox-diag fraction, report counts.
       Headless green (rewrite + tile bounds, majority projected,
       far-away keeps UVs, uv-less HIGH cancels).
-- [ ] Vertex-color / attribute transfer for non-textured AI outputs
+- [x] Vertex-color / attribute transfer for non-textured AI outputs.
+      LANDED (`retopoforge.transfer_colors`): HIGH active color layer
+      (point or corner domain) onto LOW via the shared
+      `_face_correspondence` projection core (factored out of UV
+      projection), same-named CORNER layer, range gate + report
+      counts. Headless green (non-uniform transfer, far-away fill,
+      color-less HIGH cancels).
 ## Rigging (separate repos, see docs/rigging-strategy.md)
 
 Character rigging lives outside this repo: `~/SWE/rigforge` (Rigify
