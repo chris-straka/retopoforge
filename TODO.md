@@ -206,14 +206,17 @@ when comparing back ends.
       native must cover the appendage on the FIRST attempt (no retry) —
       the coverage retry (`docs/coverage-retry.md`) papers over a fold
       the patch extractor should never produce. STATUS (kept on branch
-      `agent/patch-backend`, see `docs/patch-revival.md` there): revived
-      — planned greedy fill + caps + projection index turned the 30-min
-      beast hang into 4.3 s, tube smoke 0.6 s in CI, first-attempt
-      appendage coverage PROVEN and pinned — but the landing protocol
-      fails (92/144 non-quads; matched corpus three-way loses all four
-      criteria: fallback-heavy exact-equality quantization strands ~2/3
-      of faces into subdivision, 16-19x over-yield, 55% irregular).
-      To land: quantization agreement + all-quad odd fills.
+      `agent/patch-backend`, see `docs/patch-revival.md` there): revival
+      round 2 done — weld fixes (swapped Node endpoints, cut directions,
+      loop wrap), two-phase quantization agreement, all-quad odd fills
+      (trigon wheels, rescue ladder, paired fallback). Beast@1000 now
+      WINS non-quads (4 vs default seed spread 6-12) and distance
+      (max 2.27 vs >=5.21) but LOSES irr (43.9% vs <=21.2%) and angles
+      (25.8 vs <=22.1): independent per-patch solving conserves pin
+      conflicts (ablation-proven — unclaiming moves 179 noplan to 93
+      conflicted quads/152 tris, net worse). To land: soft pins (+-1
+      bumps with transition strips) or global coordination; both are
+      large novel builds, parked until the main loop needs them.
 - [ ] Humanoid faces/hands: out of scope here (wrapforge)
 - Experiments with code: branch `exp/igm-validity` (flip census,
   rounding schedule, untangling)
