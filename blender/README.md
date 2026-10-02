@@ -123,6 +123,13 @@ the HIGH-poly source the active object and hit it — the add-on
 remeshes (keeping the original regardless of the panel toggle),
 then Smart-UVs and bakes every PBR map to the `_retopo` result.
 
+**Project HIGH UVs** skips the re-bake instead: it copies the HIGH
+source's UVs onto the LOW mesh by nearest-point projection, one
+HIGH face per LOW face, so the original UV seams survive. Only
+faces within **Projection Range** (fraction of the HIGH bbox
+diagonal, default 1%) take UVs; the rest keep theirs, and the
+report counts both.
+
 ## Install
 
 1. Build the CLI: `cargo build --locked --release -p retopo` (binary at `rust/target/release/retopo`)

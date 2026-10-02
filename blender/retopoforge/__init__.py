@@ -26,7 +26,7 @@ from bpy.props import (
     PointerProperty,
     StringProperty,
 )
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 # Must equal the module name Blender loaded us under: "retopoforge" on the
 # legacy/sys.path test path, "bl_ext.<repo>.retopoforge" as an installed
@@ -352,6 +352,15 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
                     "(0: pack fit only, density is reported)",
         default=0.0,
         min=0.0,
+    )
+    project_uv_max_dist: FloatProperty(
+        name="Projection Range",
+        description="Max HIGH distance for UV projection, as a fraction "
+                    "of the HIGH bounding-box diagonal (faces beyond "
+                    "keep their UVs)",
+        default=0.01,
+        min=0.0,
+        max=1.0,
     )
     bake_cage: PointerProperty(
         name="Bake Cage",
@@ -1592,6 +1601,119 @@ class RETOPOFORGE_OT_export_density(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _bary_weights_3d(p, a, b, c):
+    """Barycentric weights of p in triangle abc (3D, area-based)."""
+    ab = b - a
+    ac = c - a
+    ap = p - a
+    d1 = ab.dot(ap)
+    d2 = ac.dot(ap)
+    if d1 <= 0.0 and d2 <= 0.0:
+        return (1.0, 0.0, 0.0)
+    bp = p - b
+    d3 = ab.dot(bp)
+    d4 = ac.dot(bp)
+    if d3 >= 0.0 and d4 <= d3:
+        return (0.0, 1.0, 0.0)
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+        v = d1 / (d1 - d3)
+        return (1.0 - v, v, 0.0)
+    cp = p - c
+    d5 = ab.dot(cp)
+    d6 = ac.dot(cp)
+    if d6 >= 0.0 and d5 <= d6:
+        return (0.0, 0.0, 1.0)
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
+        w = d2 / (d2 - d6)
+        return (1.0 - w, 0.0, w)
+    va = d3 * d6 - d5 * d4
+    if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
+        w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        return (0.0, 1.0 - w, w)
+    denom = 1.0 / (va + vb + vc)
+    v = vb * denom
+    w = vc * denom
+    return (1.0 - v - w, v, w)
+
+
+class RETOPOFORGE_OT_project_uvs(bpy.types.Operator):
+    """Copy HIGH UVs onto the LOW mesh by nearest-point projection
+    (per-face, so original UV seams survive; faces beyond range keep
+    their UVs)"""
+
+    bl_idname = "retopoforge.project_uvs"
+    bl_label = "Project HIGH UVs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        from mathutils.bvhtree import BVHTree
+
+        params = context.scene.retopoforge_params
+        high = context.active_object
+        lows = [o for o in context.selected_objects
+                if o is not high and o.type == "MESH"]
+        if high is None or high.type != "MESH" or not lows:
+            self.report({"ERROR"},
+                        "Select LOW meshes with the HIGH-poly source active")
+            return {"CANCELLED"}
+        low = lows[0]
+        high_uv = high.data.uv_layers.active
+        if high_uv is None:
+            self.report({"ERROR"},
+                        f"HIGH '{high.name}' has no UVs to project")
+            return {"CANCELLED"}
+        low_uv = low.data.uv_layers.active
+        if low_uv is None:
+            low_uv = low.data.uv_layers.new(name="Projected")
+        depsgraph = context.evaluated_depsgraph_get()
+        tree = BVHTree.FromObject(high, depsgraph)
+        diag = (high.matrix_world @ Vector(high.bound_box[6])
+                - high.matrix_world @ Vector(high.bound_box[0])).length
+        max_dist = float(params.project_uv_max_dist) * diag
+        high_world = high.matrix_world
+        low_world = low.matrix_world
+        high_mesh = high.data
+        projected = 0
+        skipped = 0
+        for poly in low.data.polygons:
+            center = low_world @ poly.center
+            loc, _, face_idx, dist = tree.find_nearest(center)
+            if face_idx is None or dist > max_dist:
+                skipped += 1
+                continue
+            hpoly = high_mesh.polygons[face_idx]
+            hvis = [high_world @ high_mesh.vertices[vi].co
+                    for vi in hpoly.vertices]
+            huvs = [high_uv.uv[li].vector for li in hpoly.loop_indices]
+            # Fan-triangulate the HIGH face; each LOW corner takes UVs
+            # from the fan triangle nearest its projection.
+            fan = [(0, k, k + 1) for k in range(1, len(hvis) - 1)]
+            for li in poly.loop_indices:
+                corner = low_world @ low.data.vertices[
+                    low.data.loops[li].vertex_index].co
+                projected_uv = None
+                best_d2 = float("inf")
+                for (ia, ib, ic) in fan:
+                    w = _bary_weights_3d(corner, hvis[ia], hvis[ib],
+                                         hvis[ic])
+                    q = (hvis[ia] * w[0] + hvis[ib] * w[1]
+                         + hvis[ic] * w[2])
+                    d2 = (corner - q).length_squared
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        projected_uv = (huvs[ia] * w[0] + huvs[ib] * w[1]
+                                        + huvs[ic] * w[2])
+                low_uv.uv[li].vector = projected_uv.to_2d()
+            projected += 1
+        line = (f"{low.name}: projected UVs on {projected}/"
+                f"{projected + skipped} faces ({skipped} beyond range)")
+        context.scene.retopoforge_last_report += line + "\n"
+        self.report({"INFO"}, line)
+        return {"FINISHED"}
+
+
 class RETOPOFORGE_OT_remesh_and_bake(bpy.types.Operator):
     """Remesh the active HIGH object, then Smart-UV + bake all PBR maps
     to the result in one action"""
@@ -1835,6 +1957,9 @@ class RETOPOFORGE_PT_bake(bpy.types.Panel):
                         icon="RENDER_RESULT")
         layout.operator("retopoforge.remesh_and_bake", text="Remesh + Bake All",
                         icon="PLAY")
+        bcol.prop(params, "project_uv_max_dist")
+        layout.operator("retopoforge.project_uvs", text="Project HIGH UVs",
+                        icon="UV")
 
 
 _CLASSES = (
@@ -1844,6 +1969,7 @@ _CLASSES = (
     RETOPOFORGE_OT_generate_lods,
     RETOPOFORGE_OT_bake_textures,
     RETOPOFORGE_OT_remesh_and_bake,
+    RETOPOFORGE_OT_project_uvs,
     RETOPOFORGE_OT_export_guides,
     RETOPOFORGE_OT_export_features,
     RETOPOFORGE_OT_export_density,

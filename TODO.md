@@ -301,8 +301,13 @@ when comparing back ends.
       note otherwise (pack normalizes scale — probed). Headless
       phase D green (tile fit, 8px/unit enforced exactly, absurd
       target refused).
-- [ ] Direct UV projection: nearest-point UV copy where the remesh hugs
-      the source (keeps original seams, skips re-bake)
+- [x] Direct UV projection: nearest-point UV copy where the remesh hugs
+      the source (keeps original seams, skips re-bake). LANDED
+      (`retopoforge.project_uvs`): BVH nearest-face per LOW face,
+      barycentric UV interpolation per corner (per-face mapping keeps
+      seams), range gate as bbox-diag fraction, report counts.
+      Headless green (rewrite + tile bounds, majority projected,
+      far-away keeps UVs, uv-less HIGH cancels).
 - [ ] Vertex-color / attribute transfer for non-textured AI outputs
 ## Rigging (separate repos, see docs/rigging-strategy.md)
 

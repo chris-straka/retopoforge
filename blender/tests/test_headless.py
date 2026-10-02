@@ -12,6 +12,7 @@
 import json
 import math
 import os
+import re
 import sys
 
 import bpy
@@ -900,6 +901,61 @@ def main():
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
             os.remove(os.path.join("/tmp", f"{retopo.name}_{name}.png"))
+
+        # --- Direct UV projection: HIGH UVs copied onto the hugging
+        # LOW per-face (seams survive); out-of-range faces keep UVs.
+        check(hasattr(bpy.ops.retopoforge, "project_uvs"),
+              "project-uvs operator registered")
+        bpy.ops.object.select_all(action="DESELECT")
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.cube_project()
+        bpy.ops.object.mode_set(mode="OBJECT")
+        before = [tuple(v.vector) for v in low.data.uv_layers.active.uv]
+        params.project_uv_max_dist = 0.05
+        bpy.ops.object.select_all(action="DESELECT")
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.project_uvs()
+        check("FINISHED" in result, f"project uvs finished (got {result})")
+        after = [tuple(v.vector) for v in low.data.uv_layers.active.uv]
+        check(before != after, "projection rewrote LOW UVs")
+        check(all(-0.1 <= c <= 1.1 for uv in after for c in uv),
+              "projected UVs stay near the tile")
+        nfaces = len(low.data.polygons)
+        m = re.search(r"projected UVs on (\d+)/(\d+) faces \((\d+) beyond",
+                      bpy.context.scene.retopoforge_last_report)
+        check(m is not None and int(m.group(2)) == nfaces,
+              "report counts projected faces")
+        projected_n = int(m.group(1)) if m is not None else -1
+        check(projected_n / nfaces > 0.8,
+              f"most faces projected ({projected_n}/{nfaces})")
+        # Out of range: shove LOW far away, nothing projects, UVs kept.
+        saved_matrix = low.matrix_world.copy()
+        low.matrix_world.translation.x += 10.0
+        bpy.context.view_layer.update()
+        result = bpy.ops.retopoforge.project_uvs()
+        check("FINISHED" in result, "out-of-range projection finished")
+        check(f"projected UVs on 0/{nfaces} faces ({nfaces} beyond range)"
+              in bpy.context.scene.retopoforge_last_report,
+              "report counts all faces skipped")
+        kept = [tuple(v.vector) for v in low.data.uv_layers.active.uv]
+        check(kept == after, "out-of-range faces keep their UVs")
+        low.matrix_world = saved_matrix
+        # HIGH without UVs cancels cleanly (primitives ship default
+        # UVs now, so strip them explicitly).
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=1.0)
+        nouvs = bpy.context.active_object
+        for layer in list(nouvs.data.uv_layers):
+            nouvs.data.uv_layers.remove(layer)
+        low.select_set(True)
+        nouvs.select_set(True)
+        bpy.context.view_layer.objects.active = nouvs
+        check_cancel("uv-less HIGH", bpy.ops.retopoforge.project_uvs)
 
         leftovers = [o for o in bpy.data.objects if o.name.startswith("in_")]
         check(not leftovers, "no temp objects left behind")
