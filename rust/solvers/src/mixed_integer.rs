@@ -708,6 +708,33 @@ impl MixedIntegerLeastSquares {
         self.kernel_size
     }
 
+    /// Full variable `i` as a sparse combination of kernel variables:
+    /// `value(i) == sum(a * kernel_values()[k])` over the returned pairs.
+    pub fn kernel_expansion(&self, i: usize) -> Vec<(usize, f64)> {
+        if i >= self.size {
+            return Vec::new();
+        }
+        self.kernel_line(i).iter().map(|c| (c.index, c.a)).collect()
+    }
+
+    /// Current kernel solution (empty before the first solve).
+    pub fn kernel_values(&self) -> &[f64] {
+        &self.values
+    }
+
+    /// True for kernel variables with an integer period (rounded and held
+    /// fixed once `converged()`); false for continuous ones.
+    pub fn kernel_is_integer(&self, k: usize) -> bool {
+        k < self.kernel_size && self.period[k] > 0
+    }
+
+    /// Replaces the kernel solution (same length), e.g. after a
+    /// post-rounding optimization of the continuous variables.
+    pub fn set_kernel_values(&mut self, values: Vec<f64>) {
+        assert_eq!(values.len(), self.values.len());
+        self.values = values;
+    }
+
     pub fn integer_kernel_variable_count(&self) -> usize {
         (0..self.kernel_size)
             .filter(|&i| self.period[i] > 0)

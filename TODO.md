@@ -140,11 +140,14 @@ when comparing back ends.
       the tiling, it does not fix the fold: beast stays a first-
       attempt-coverage target for the patch back end.
 - [ ] Untangling stage in the current engine (Garanzha et al. 2021
-      foldover-free maps; prototype on branch `exp/igm-validity`,
-      `RETOPO_UNTANGLE`): fixed most folds on fandisk/armadillo but not
-      beast, and is slow (60 rounds, unconverged). Finish convergence +
-      speed, then gate on scores; built into the existing pipeline, not a
-      separate back end. NOTE (bisected, see
+      foldover-free maps; prototype forward-ported from branch
+      `exp/igm-validity` to main, still `RETOPO_UNTANGLE`-gated):
+      on current main fandisk@5000 goes 55->8 flipped, armadillo@1000
+      119->45, beast@1000 230->142 (layout now partially feasible,
+      was stuck), all hitting the 60-round cap unconverged; fandisk
+      takes 11.8s (~10x). Finish convergence + speed, then gate on
+      scores; built into the existing pipeline, not a separate back
+      end. NOTE (bisected, see
       `docs/beast-knife-edge-bisection.md`): beast@1000-native drops the
       whole left appendage (x < -62, 416 working tris -> 0 quads, closed
       mesh, dist 30 vs 7) through a NEW chain — singularity count lands

@@ -34,6 +34,8 @@ pub mod parameterizer;
 pub mod glb;
 // Wave 2 lane: rs-quadextractor (vendored PositionKey/box-tree mirrors deduped at join).
 pub mod quad_extractor;
+// Item 7: foldover-free untangling of the rounded cover (env-gated).
+pub mod untangle;
 // Lane/par-single-island: shared deterministic parallelism helpers.
 pub(crate) mod par;
 // Native Rust decimator (noise-stable meshoptimizer port; selected by
