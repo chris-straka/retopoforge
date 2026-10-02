@@ -3,17 +3,16 @@
 retopoforge itself is MIT licensed (see `LICENSE`, copyright Jeremy HU and
 contributors): the Rust engine is a port of Jeremy HU's AutoRemesher. The
 `retopo` binary additionally includes the following third-party software.
-Full license texts are at the end of this file (meshoptimizer's also
-ships next to its vendored source in `thirdparty/meshoptimizer/`).
+Full license texts are at the end of this file. Nothing is vendored:
+the tree holds zero third-party code since the item-6 flip.
 
 ## `retopo` CLI and `retopo_core` library (cargo build)
 
 | Dependency | License | How it is used | Full text |
 |---|---|---|---|
-| meshoptimizer | MIT (Arseny Kapoulkine) | `simplifier.cpp`, `indexgenerator.cpp` compiled in via `rust/core/build.rs` | below; `thirdparty/meshoptimizer/LICENSE.md` |
+| meshoptimizer algorithm (Arseny Kapoulkine) | MIT | Transcribed to Rust (`retopo_core::decimator`, derived work); no vendored source since the item-6 flip | below |
 | isotropicremesher | MIT (Jeremy HU) | Ported to Rust (`iso_remesh_kernel.rs`, `isotropic_remesher.rs`) | below |
 | faer (MIT) and its dependency crates | Permissive per crate: mostly MIT and/or Apache-2.0, plus BSD-2-Clause, Unicode-3.0, Zlib, Unlicense options | Sparse/dense linear algebra for the solvers | crate sources; full set pinned in `rust/Cargo.lock` |
-| cc (build-time only) | MIT / Apache-2.0 | Compiles meshoptimizer; not shipped | crate source |
 
 None of the above is GPL. The Blender extension (`blender/`) is
 GPL-3.0-or-later as Blender requires; it talks to the MIT engine only as a
@@ -35,7 +34,7 @@ removed after the Rust switch.
 
 ## Full license texts
 
-### meshoptimizer (https://github.com/zeux/meshoptimizer)
+### meshoptimizer (algorithm transcribed into `retopo_core::decimator`; https://github.com/zeux/meshoptimizer)
 
 ```
 MIT License

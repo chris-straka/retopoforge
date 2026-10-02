@@ -39,5 +39,6 @@ pub(crate) mod par;
 // Native Rust decimator (noise-stable meshoptimizer port; the only
 // decimator since the item-6 flip).
 pub mod decimator;
-// Wave 3 lane: rs-autoremesher (meshoptimizer stays C++ via build.rs FFI).
+// Wave 3 lane: rs-autoremesher (native decimator since the item-6 flip;
+// the meshoptimizer FFI is gone).
 pub mod auto_remesher;

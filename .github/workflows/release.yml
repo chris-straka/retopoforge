@@ -55,8 +55,8 @@ jobs:
           set -e
           rm -rf blender/retopoforge/__pycache__
           cd blender && zip -r -X ../retopoforge-blender-extension.zip retopoforge
-      # The Rust binary is self-contained (meshoptimizer is statically
-      # compiled in); the Homebrew formula is the managed install.
+      # The Rust binary is self-contained (pure Rust, no static C++
+      # since the item-6 flip); the Homebrew formula is the managed install.
       - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
