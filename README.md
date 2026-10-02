@@ -109,14 +109,17 @@ bench/fetch_models.sh          # one-time download of test models (gitignored)
 bench/run.py                   # run suite, validate meshes, save results JSON
 bench/run.py --check bench/baseline.json   # fail on regression vs baseline
 bench/profile.py               # profile one production-size mesh (docs/perf.md)
+bench/deform.py --check bench/deform_baseline.json  # deformation gate alone
 ```
 
 The suite runs `rust/target/release/retopo` over five models × two presets
 (override with `bench/run.py --binary`)
 (`--target-quads` 1000/5000), validates every output mesh, and records
 timings plus quad counts. A run regresses when it exits non-zero, its
-mesh fails validation, its quad count drops >5% below baseline, or its
-non-quad share rises >2pp; wall time is recorded but never gates.
+mesh fails validation, its quad count drops >5% below baseline, its
+non-quad share rises >2pp, or its deformation scores (joint p95
+stretch, volume loss, flips vs `bench/deform_baseline.json`) regress;
+wall time is recorded but never gates.
 `bench/profile.py` profiles a single mesh instead: wall time, peak RSS,
 and the engine's per-phase breakdown — see
 [docs/perf.md](docs/perf.md). The shipped LOD rung strategy is

@@ -1,0 +1,13 @@
+{
+  "note": "Fixed deformation-test pose set (docs/deformation-test.md). A rig runs the poses whose joint it has ('when the rig has one'); the v1 auto-fit hinge rig has only the elbow, so corpus runs score elbow90/elbow135. Angles are flexion from straight, degrees, about the joint hinge through the joint pivot. This file is the gate's fixed input: do not retune per engine change.",
+  "poses": [
+    {"name": "elbow90", "joint": "elbow", "angle_deg": 90},
+    {"name": "elbow135", "joint": "elbow", "angle_deg": 135},
+    {"name": "knee90", "joint": "knee", "angle_deg": 90},
+    {"name": "knee120", "joint": "knee", "angle_deg": 120},
+    {"name": "shoulder90", "joint": "shoulder", "angle_deg": 90},
+    {"name": "neck60", "joint": "neck", "angle_deg": 60},
+    {"name": "spine30", "joint": "spine", "angle_deg": 30},
+    {"name": "jaw20", "joint": "jaw", "angle_deg": 20}
+  ]
+}

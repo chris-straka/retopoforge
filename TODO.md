@@ -172,8 +172,9 @@ when comparing back ends.
       speed, then gate on scores; built into the existing pipeline, not a
       separate back end
 - [ ] Joint loops: rigforge landmarks -> guide rings via `--guides`
-- [ ] Deformation score in bench (rig + pose + joint distortion) as the
-      main gate
+- [x] Deformation score in bench (rig + pose + joint distortion) as the
+      main gate (`bench/deform.py` + `bench/deform_baseline.json`, wired
+      into `bench/run.py --check`; see `docs/deformation-test.md`)
 - [ ] Build the patch back end as a selectable extension (`--backend patch`,
       clean-room QuadWild + Bi-MDF from the papers), only after the items
       above; the current engine stays the default. Target: beast@1000-

@@ -11,22 +11,45 @@ Usage:
                                      # run all, fail on regression vs baseline
     bench/run.py --check bench/baseline-linux.json
                                      # same, against the Linux counts
+    bench/run.py --no-deform         # skip deformation scoring + gate
+    bench/run.py --deform-baseline bench/deform_baseline.json
+                                     # use this deform baseline (default:
+                                     # deform_<check-basename> next to --check)
 
 Baselines are per-platform: sparse solves differ between Accelerate
 (macOS) and libstdc++ (Linux), so counts disagree beyond the gates.
 macOS CI checks baseline.json, Linux CI checks baseline-linux.json;
-regenerate each on its own platform, never mix.
+regenerate each on its own platform, never mix. The deform baseline
+follows the same rule (bench/deform_baseline.json next to
+bench/baseline.json, -linux variant next to baseline-linux.json).
 
 A run regresses when: it exits non-zero, its output mesh fails validation,
-its quad count drops >5% below baseline, or its non-quad share rises >2pp.
+its quad count drops >5% below baseline, its non-quad share rises >2pp,
+or its deformation scores regress (see below).
 Wall time is recorded but never gates (too noisy across machines).
+
+Deformation gate (bench/deform.py, docs/deformation-test.md): every
+output mesh is rigged with the fixed 2-bone hinge probe, posed, and
+scored for joint distortion (p95 stretch, volume loss, flips). In
+--check mode each case's scores must stay inside the deform baseline's
+seed spread; flips must not exceed the spread max (0 for feasible
+bends). The suite also remeshes the procedural `tube` limb (always run;
+its counts are recorded but ungated since baseline.json predates it).
+When the deform baseline file is missing (e.g. Linux before its
+platform baseline is generated), the check warns loudly and the deform
+scores go uncompared: spread gating needs the platform's spread (see
+docs/deformation-test.md for the one command that closes the gap).
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import deform  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(ROOT, "bench", "models")
@@ -104,8 +127,10 @@ def parse_report_stdout(text):
     return out
 
 
-def run_case(binary, model, preset, extra_args):
-    input_path = os.path.join(MODELS_DIR, model)
+def run_case(binary, model, preset, extra_args, input_path=None,
+             poses=None, score_deform=False):
+    if input_path is None:
+        input_path = os.path.join(MODELS_DIR, model)
     in_verts, in_faces = count_obj(input_path)
     with tempfile.TemporaryDirectory(prefix="retopo-bench-") as tmp:
         output_path = os.path.join(tmp, "out.obj")
@@ -138,6 +163,16 @@ def run_case(binary, model, preset, extra_args):
                         )
                         result["error_count"] = result.get("error_count", 0) + 1
                 result["stderr_tail"] = proc.stderr.strip().splitlines()[-2:]
+                if score_deform:
+                    # Fail closed: a mesh we cannot score must not pass.
+                    try:
+                        scored = deform.score_file(output_path, poses)
+                    except Exception as e:  # noqa: BLE001 -- recorded, fails case
+                        result.setdefault("errors", []).append(
+                            f"deform scoring failed: {e}")
+                        result["error_count"] = result.get("error_count", 0) + 1
+                        scored = {"poses": {}}
+                    result["deform"] = scored.get("poses", {})
             else:
                 result["verts"] = 0
                 result["quads"] = 0
@@ -162,8 +197,20 @@ def run_case(binary, model, preset, extra_args):
             }
 
 
-def check_regressions(results, baseline):
-    """Compare results to baseline. Returns list of failure strings."""
+def _target_of(args):
+    """Extract the --target-quads value from a preset's arg list."""
+    for i, a in enumerate(args):
+        if a == "--target-quads" and i + 1 < len(args):
+            return args[i + 1]
+    return "?"
+
+
+def check_regressions(results, baseline, deform_baseline=None):
+    """Compare results to baseline. Returns list of failure strings.
+
+    deform_baseline is the bench/deform.py baseline ({cases: ...}) or
+    None, in which case deform scores go uncompared (warned in main).
+    """
     base = {(r["model"], r["preset"]): r for r in baseline["results"]}
     failures = []
     for r in results:
@@ -174,6 +221,16 @@ def check_regressions(results, baseline):
             continue
         if r["error_count"]:
             failures.append(f"{where}: {r['error_count']} mesh errors: {r['errors'][:2]}")
+        if "deform" in r and r["deform"] is not None \
+                and deform_baseline is not None:
+            case = f"{r['model']}@{_target_of(r['args'])}"
+            entry = deform_baseline.get("cases", {}).get(case)
+            if entry is None:
+                failures.append(f"{where}: no deform baseline entry "
+                                f"for {case}")
+            else:
+                failures += deform.check_case(case, r["deform"],
+                                              entry["poses"])
         if key not in base:
             continue
         b = base[key]
@@ -195,6 +252,8 @@ def check_regressions(results, baseline):
 def main(argv):
     binary = DEFAULT_BINARY
     check_path = None
+    deform_baseline_path = None
+    deform_on = True
     i = 0
     while i < len(argv):
         if argv[i] == "--binary" and i + 1 < len(argv):
@@ -203,12 +262,26 @@ def main(argv):
         elif argv[i] == "--check" and i + 1 < len(argv):
             check_path = argv[i + 1]
             i += 2
+        elif argv[i] == "--deform-baseline" and i + 1 < len(argv):
+            deform_baseline_path = argv[i + 1]
+            i += 2
+        elif argv[i] == "--no-deform":
+            deform_on = False
+            i += 1
         else:
             print(f"unknown arg: {argv[i]}", file=sys.stderr)
             return 2
     if not os.path.exists(binary):
         print(f"binary not found: {binary} (build with cargo first: cargo build --locked --release -p retopo)", file=sys.stderr)
         return 2
+    poses = []
+    if deform_on:
+        if os.path.exists(deform.DEFAULT_POSES):
+            poses = deform.load_poses(deform.DEFAULT_POSES)
+        else:
+            print(f"deform poses not found: {deform.DEFAULT_POSES} "
+                  f"(deform scoring disabled)", file=sys.stderr)
+            deform_on = False
     models = [m for m in MODELS if os.path.exists(os.path.join(MODELS_DIR, m))]
     missing = [m for m in MODELS if m not in models]
     for m in missing:
@@ -217,11 +290,21 @@ def main(argv):
         print("no models found, aborting", file=sys.stderr)
         return 2
 
+    tube_tmp = tempfile.mkdtemp(prefix="retopo-bench-tube-")
+    tube_input = os.path.join(tube_tmp, "tube.obj")
+    deform.write_obj(*deform.generate_tube(), tube_input)
     results = []
     for model in models:
         for preset, args in PRESETS.items():
             print(f"run {model} {preset}...", flush=True)
-            results.append(run_case(binary, model, preset, args))
+            results.append(run_case(binary, model, preset, args,
+                                    poses=poses, score_deform=deform_on))
+    for preset, args in PRESETS.items():
+        print(f"run tube {preset}...", flush=True)
+        results.append(run_case(binary, "tube", preset, args,
+                                input_path=tube_input, poses=poses,
+                                score_deform=deform_on))
+    shutil.rmtree(tube_tmp, ignore_errors=True)
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -241,10 +324,37 @@ def main(argv):
         )
     print(f"\nsaved {out_path}")
 
+    if deform_on:
+        order = [p["name"] for p in poses]
+        print("\ndeform (stretch_p95 / vol% / flips per pose):")
+        for r in results:
+            d = r.get("deform")
+            if not d:
+                continue
+            cells = "; ".join(
+                f"{p}: {d[p]['stretch_p95']}/{d[p]['volume_loss_pct']}/"
+                f"{d[p]['flips']}" for p in order if p in d)
+            print(f"  {r['model']}/{r['preset']}: {cells}")
+
     if check_path:
         with open(check_path) as f:
             baseline = json.load(f)
-        failures = check_regressions(results, baseline)
+        deform_baseline = None
+        if deform_on:
+            if deform_baseline_path is None:
+                sibling = "deform_" + os.path.basename(check_path)
+                deform_baseline_path = os.path.join(
+                    os.path.dirname(check_path) or ".", sibling)
+            if os.path.exists(deform_baseline_path):
+                with open(deform_baseline_path) as f:
+                    deform_baseline = json.load(f)
+            else:
+                print(f"\nWARNING: deform baseline not found: "
+                      f"{deform_baseline_path}\n"
+                      f"deform scores go uncompared; generate it with:\n"
+                      f"  bench/deform.py --write-baseline "
+                      f"{deform_baseline_path}")
+        failures = check_regressions(results, baseline, deform_baseline)
         if failures:
             print("\nREGRESSIONS vs", check_path)
             for msg in failures:
