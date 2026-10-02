@@ -45,6 +45,16 @@ impl Symmetry {
     }
 }
 
+/// Remeshing back end (`--backend`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum Backend {
+    /// The current seamless-cover back end.
+    #[default]
+    Default,
+    /// The patch-layout back end (experimental).
+    Patch,
+}
+
 /// The fully parsed command line. Optional paths are `None` when their
 /// flag was absent (previously empty-string sentinels).
 pub(crate) struct Config {
@@ -52,6 +62,7 @@ pub(crate) struct Config {
     pub(crate) output: PathBuf,
     pub(crate) report: Option<PathBuf>,
     pub(crate) lod_targets: Vec<i64>,
+    pub(crate) backend: Backend,
     pub(crate) target_quads: i32,
     pub(crate) edge_scaling: f64,
     pub(crate) sharp_edge_degrees: f64,
@@ -75,6 +86,7 @@ impl Default for Config {
             output: PathBuf::new(),
             report: None,
             lod_targets: Vec::new(),
+            backend: Backend::Default,
             target_quads: 50000,
             edge_scaling: 1.0,
             sharp_edge_degrees: 90.0,
@@ -279,6 +291,16 @@ fn parse_model_type(text: &str) -> Result<ModelType, CliError> {
     }
 }
 
+fn parse_backend(text: &str) -> Result<Backend, CliError> {
+    match text {
+        "default" => Ok(Backend::Default),
+        "patch" => Ok(Backend::Patch),
+        _ => Err(CliError::message(format!(
+            "Error: --backend expects 'default' or 'patch', got '{text}'"
+        ))),
+    }
+}
+
 /// Parse argv (including argv[0]) into an [`Action`]. `--help` and
 /// `--version` win immediately wherever they appear; otherwise
 /// `--input` and `--output` are required.
@@ -388,6 +410,10 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
                 let text = take_value(inline, &mut rest, "--model-type")?;
                 config.model_type = parse_model_type(&text)?;
             }
+            "--backend" => {
+                let text = take_value(inline, &mut rest, "--backend")?;
+                config.backend = parse_backend(&text)?;
+            }
             _ => {
                 return Err(ArgsError::with_usage(format!(
                     "Error: unknown option '{arg}'"
@@ -436,6 +462,12 @@ pub(crate) fn print_usage(argv0: &str) {
             "                              (default: 1.0, range: 0.0-1.0)\n",
             "  --model-type <organic|hardsurface>\n",
             "                              Model type hint (default: organic)\n",
+            "  --backend <default|patch>   Remeshing back end (default: default).\n",
+            "                              patch selects the patch-layout back end\n",
+            "                              (experimental): same front end, patch\n",
+            "                              tracing plus quantization instead of\n",
+            "                              the seamless cover. --dipoles is\n",
+            "                              ignored with patch\n",
             "  --symmetry <off|auto|x|y|z>  Mirror-symmetry constraints\n",
             "                              (default: off). auto detects the dominant\n",
             "                              plane; x/y/z pin it. Falls back to\n",

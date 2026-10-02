@@ -7,7 +7,7 @@
 //! produced output, 1 otherwise. All text and exit codes are pinned by
 //! the CLI contract goldens.
 
-use crate::args::Config;
+use crate::args::{Backend, Config};
 use crate::constraint_files::{Constraints, parse_density_file, parse_guides_file};
 use crate::format::g_format;
 use crate::mesh_io::{
@@ -19,10 +19,110 @@ use crate::report::{Report, print_rung_line};
 use retopo_core::auto_remesher::{AutoRemesher, CoverageReport, ModelType};
 use retopo_core::glb as glb_io;
 use retopo_core::mesh_separator::MeshSeparator;
+use retopo_core::patch_backend::PatchRemesher;
+use retopo_core::vector2::Vector2;
 use retopo_core::vector3::Vector3;
+use std::ffi::c_void;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
+
+/// The output surface both back ends share, so the single and multi
+/// paths run one reporting body however the mesh was produced.
+trait Engine {
+    fn remesh(&mut self) -> bool;
+    fn phase_report(&self) -> &[String];
+    fn remeshed_vertices(&self) -> &[Vector3];
+    fn remeshed_quads(&self) -> &[Vec<usize>];
+    fn remeshed_vertex_uvs(&self) -> &[Vector2];
+    fn island_output_quad_counts(&self) -> &[usize];
+    fn coverage_reports(&self) -> &[CoverageReport];
+}
+
+impl Engine for AutoRemesher {
+    fn remesh(&mut self) -> bool {
+        self.remesh()
+    }
+    fn phase_report(&self) -> &[String] {
+        self.phase_report()
+    }
+    fn remeshed_vertices(&self) -> &[Vector3] {
+        self.remeshed_vertices()
+    }
+    fn remeshed_quads(&self) -> &[Vec<usize>] {
+        self.remeshed_quads()
+    }
+    fn remeshed_vertex_uvs(&self) -> &[Vector2] {
+        self.remeshed_vertex_uvs()
+    }
+    fn island_output_quad_counts(&self) -> &[usize] {
+        self.island_output_quad_counts()
+    }
+    fn coverage_reports(&self) -> &[CoverageReport] {
+        self.coverage_reports()
+    }
+}
+
+impl Engine for PatchRemesher {
+    fn remesh(&mut self) -> bool {
+        self.remesh()
+    }
+    fn phase_report(&self) -> &[String] {
+        self.phase_report()
+    }
+    fn remeshed_vertices(&self) -> &[Vector3] {
+        self.remeshed_vertices()
+    }
+    fn remeshed_quads(&self) -> &[Vec<usize>] {
+        self.remeshed_quads()
+    }
+    fn remeshed_vertex_uvs(&self) -> &[Vector2] {
+        self.remeshed_vertex_uvs()
+    }
+    fn island_output_quad_counts(&self) -> &[usize] {
+        self.island_output_quad_counts()
+    }
+    fn coverage_reports(&self) -> &[CoverageReport] {
+        self.coverage_reports()
+    }
+}
+
+/// Progress state for patch runs (same `N% done. <status>` shape as
+/// the default path's reporter).
+#[derive(Default)]
+struct PatchProgressState {
+    last_percent: i32,
+    last_status: String,
+}
+
+fn report_patch_progress(tag: *mut c_void, progress: f32, status: &str) {
+    let state = unsafe { &*(tag as *const Mutex<PatchProgressState>) };
+    let mut state = state.lock().unwrap();
+    let percent = (progress * 100.0) as i32;
+    if percent == state.last_percent && status == state.last_status {
+        return;
+    }
+    state.last_percent = percent;
+    state.last_status = status.to_string();
+    let mut out = std::io::stdout().lock();
+    if status.is_empty() {
+        let _ = writeln!(out, "{percent}% done.");
+    } else {
+        let _ = writeln!(out, "{percent}% done. {status}");
+    }
+    let _ = out.flush();
+}
+
+/// Attach progress reporting to a patch remesher. The caller must hold
+/// `state` in a local that outlives the `remesh()` call without moving.
+fn attach_patch_progress(remesher: &mut PatchRemesher, state: &Mutex<PatchProgressState>) {
+    // SAFETY: same contract as the default path's attach — the engine
+    // only dereferences the tag while `remesh()` runs, synchronously,
+    // and the caller's local outlives that call.
+    remesher.set_tag(state as *const Mutex<PatchProgressState> as *mut c_void);
+    remesher.set_progress_handler(Some(report_patch_progress));
+}
 
 #[derive(Default)]
 struct RungResult {
@@ -187,6 +287,34 @@ fn configure_remesher(
     remesher.set_quiet(config.quiet);
 }
 
+/// Patch twin of [`configure_remesher`]: same settings, no dipoles
+/// (the patch back end has no dipole pass yet).
+fn configure_patch_remesher(
+    remesher: &mut PatchRemesher,
+    config: &Config,
+    guides: Vec<Vec<Vector3>>,
+    features: Vec<Vec<Vector3>>,
+    density: &[f64],
+    target_triangles: usize,
+) {
+    remesher.set_target_triangle_count(target_triangles);
+    remesher.set_symmetry_enabled(config.symmetry.enabled());
+    remesher.set_symmetry_plane(config.symmetry.plane());
+    remesher.set_guide_polylines(guides);
+    remesher.set_sharp_polylines(features);
+    remesher.set_density_multipliers(density);
+    if config.edge_scaling > 0.0 {
+        remesher.set_scaling(config.edge_scaling);
+    }
+    remesher.set_model_type(config.model_type);
+    remesher.set_gradient_adaptivity(config.adaptivity);
+    remesher.set_anisotropy(config.anisotropy);
+    remesher.set_sharp_edge_degrees(config.sharp_edge_degrees);
+    remesher.set_smooth_normal_degrees(config.smooth_normal_degrees);
+    remesher.set_compute_remeshed_uvs(config.emit_uvs);
+    remesher.set_quiet(config.quiet);
+}
+
 /// Remesh one loaded mesh at one target count and save it: the unit of
 /// work in `--lods`/batch mode.
 fn remesh_loaded_mesh(
@@ -205,33 +333,85 @@ fn remesh_loaded_mesh(
         return result;
     }
 
-    let mut remesher = AutoRemesher::new(vertices, triangles);
-    configure_remesher(
-        &mut remesher,
-        config,
-        constraints.guides.clone(),
-        constraints.features.clone(),
-        &constraints.density,
-        (target_quads as usize).wrapping_mul(2),
-    );
-    let progress_state = Mutex::new(ProgressState::default());
-    if !config.quiet {
-        attach_progress(&mut remesher, &progress_state);
+    // The back ends construct (and attach progress) differently but
+    // report identically through `Engine`.
+    match config.backend {
+        Backend::Default => {
+            let mut engine = AutoRemesher::new(vertices, triangles);
+            configure_remesher(
+                &mut engine,
+                config,
+                constraints.guides.clone(),
+                constraints.features.clone(),
+                &constraints.density,
+                (target_quads as usize).wrapping_mul(2),
+            );
+            let progress_state = Mutex::new(ProgressState::default());
+            if !config.quiet {
+                attach_progress(&mut engine, &progress_state);
+            }
+            finish_rung(
+                config,
+                vertices,
+                triangles,
+                &mut engine,
+                output_path,
+                start_time,
+                &mut result,
+            );
+        }
+        Backend::Patch => {
+            let mut engine = PatchRemesher::new(vertices, triangles);
+            configure_patch_remesher(
+                &mut engine,
+                config,
+                constraints.guides.clone(),
+                constraints.features.clone(),
+                &constraints.density,
+                (target_quads as usize).wrapping_mul(2),
+            );
+            let progress_state = Mutex::new(PatchProgressState::default());
+            if !config.quiet {
+                attach_patch_progress(&mut engine, &progress_state);
+            }
+            finish_rung(
+                config,
+                vertices,
+                triangles,
+                &mut engine,
+                output_path,
+                start_time,
+                &mut result,
+            );
+        }
     }
+    result
+}
 
-    if !remesher.remesh() {
+/// Run the engine, count and save its output: the shared tail of
+/// [`remesh_loaded_mesh`] for both back ends.
+fn finish_rung(
+    config: &Config,
+    vertices: &[Vector3],
+    triangles: &[Vec<usize>],
+    engine: &mut impl Engine,
+    output_path: &Path,
+    start_time: Instant,
+    result: &mut RungResult,
+) {
+    if !engine.remesh() {
         result.error = "remeshing produced no result".to_string();
-        return result;
+        return;
     }
 
     if !config.quiet {
-        for line in remesher.phase_report() {
+        for line in engine.phase_report() {
             eprintln!("  {line}");
         }
     }
 
-    let remeshed_vertices = remesher.remeshed_vertices();
-    let remeshed_quads = remesher.remeshed_quads();
+    let remeshed_vertices = engine.remeshed_vertices();
+    let remeshed_quads = engine.remeshed_quads();
 
     for face in remeshed_quads {
         if face.len() == 4 {
@@ -246,26 +426,25 @@ fn remesh_loaded_mesh(
     MeshSeparator::split_to_islands(triangles, &mut input_islands);
     result.island_count = input_islands.len();
     result.failed_islands = dropped_island_count(
-        remesher.island_output_quad_counts(),
+        engine.island_output_quad_counts(),
         &input_islands,
         vertices,
         remeshed_vertices,
     );
-    result.coverage_reports = remesher.coverage_reports().to_vec();
+    result.coverage_reports = engine.coverage_reports().to_vec();
 
     let uvs = if config.emit_uvs {
-        Some(remesher.remeshed_vertex_uvs())
+        Some(engine.remeshed_vertex_uvs())
     } else {
         None
     };
     if !save_mesh(output_path, remeshed_vertices, remeshed_quads, uvs) {
         result.error = format!("failed to write {}", output_path.display());
-        return result;
+        return;
     }
 
     result.elapsed_seconds = start_time.elapsed().as_secs_f64();
     result.ok = true;
-    result
 }
 
 fn model_type_name(model_type: ModelType) -> &'static str {
@@ -607,38 +786,70 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
         }
     }
 
-    let mut remesher = AutoRemesher::new(&loaded.vertices, &loaded.triangles);
-    configure_remesher(
-        &mut remesher,
-        config,
-        constraints.guides,
-        constraints.features,
-        &constraints.density,
-        (config.target_quads as usize).wrapping_mul(2),
-    );
-    let progress_state = Mutex::new(ProgressState::default());
-    if !config.quiet {
-        attach_progress(&mut remesher, &progress_state);
+    // The back ends construct (and attach progress) differently but
+    // report identically through `Engine`.
+    match config.backend {
+        Backend::Default => {
+            let mut engine = AutoRemesher::new(&loaded.vertices, &loaded.triangles);
+            configure_remesher(
+                &mut engine,
+                config,
+                constraints.guides,
+                constraints.features,
+                &constraints.density,
+                (config.target_quads as usize).wrapping_mul(2),
+            );
+            let progress_state = Mutex::new(ProgressState::default());
+            if !config.quiet {
+                attach_progress(&mut engine, &progress_state);
+            }
+            finish_single_mode(config, &loaded, &mut engine, start_time)
+        }
+        Backend::Patch => {
+            let mut engine = PatchRemesher::new(&loaded.vertices, &loaded.triangles);
+            configure_patch_remesher(
+                &mut engine,
+                config,
+                constraints.guides,
+                constraints.features,
+                &constraints.density,
+                (config.target_quads as usize).wrapping_mul(2),
+            );
+            let progress_state = Mutex::new(PatchProgressState::default());
+            if !config.quiet {
+                attach_patch_progress(&mut engine, &progress_state);
+            }
+            finish_single_mode(config, &loaded, &mut engine, start_time)
+        }
     }
+}
 
-    if !remesher.remesh() {
+/// Run the engine, count and save its output, print the report: the
+/// shared tail of [`run_single_mode`] for both back ends.
+fn finish_single_mode(
+    config: &Config,
+    loaded: &LoadedMesh,
+    engine: &mut impl Engine,
+    start_time: Instant,
+) -> i32 {
+    if !engine.remesh() {
         eprintln!("Error: remeshing produced no result");
         return 1;
     }
 
     if !config.quiet {
-        for line in remesher.phase_report() {
+        for line in engine.phase_report() {
             eprintln!("  {line}");
         }
     }
 
-    let remeshed_vertices = remesher.remeshed_vertices();
-    let remeshed_quads = remesher.remeshed_quads();
+    let remeshed_vertices = engine.remeshed_vertices();
+    let remeshed_quads = engine.remeshed_quads();
 
     let mut input_islands: Vec<Vec<Vec<usize>>> = Vec::new();
     MeshSeparator::split_to_islands(&loaded.triangles, &mut input_islands);
     let failed_islands = dropped_island_count(
-        remesher.island_output_quad_counts(),
+        engine.island_output_quad_counts(),
         &input_islands,
         &loaded.vertices,
         remeshed_vertices,
@@ -649,7 +860,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
             input_islands.len()
         );
     }
-    print_coverage_warnings(remesher.coverage_reports(), None);
+    print_coverage_warnings(engine.coverage_reports(), None);
 
     let mut quad_count = 0usize;
     let mut non_quad_count = 0usize;
@@ -662,7 +873,7 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     }
 
     let uvs = if config.emit_uvs {
-        Some(remesher.remeshed_vertex_uvs())
+        Some(engine.remeshed_vertex_uvs())
     } else {
         None
     };

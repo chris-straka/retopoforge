@@ -48,6 +48,10 @@ Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--target-quads` (default 50000), `--edge-scaling` (1.0–4.0),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
+`--backend default|patch` (default `default`; `patch` selects the
+experimental patch-layout back end — same front end, patch tracing plus
+quantization instead of the seamless cover; `--dipoles` is ignored with
+`patch`),
 `--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,
 `--density <file>`, `--features <file>`, `--uvs on|off` (default `off`),
 `--lods <q0,q1,...>`,

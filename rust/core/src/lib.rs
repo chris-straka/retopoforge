@@ -41,3 +41,5 @@ pub(crate) mod par;
 pub mod decimator;
 // Wave 3 lane: rs-autoremesher (meshoptimizer stays C++ via build.rs FFI).
 pub mod auto_remesher;
+// Selectable patch-layout back end (clean-room QuadWild + Bi-MDF family).
+pub mod patch_backend;
