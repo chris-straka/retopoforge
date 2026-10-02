@@ -199,7 +199,15 @@ when comparing back ends.
       above; the current engine stays the default. Target: beast@1000-
       native must cover the appendage on the FIRST attempt (no retry) —
       the coverage retry (`docs/coverage-retry.md`) papers over a fold
-      the patch extractor should never produce.
+      the patch extractor should never produce. STATUS (kept on branch
+      `agent/patch-backend`, see `docs/patch-revival.md` there): revived
+      — planned greedy fill + caps + projection index turned the 30-min
+      beast hang into 4.3 s, tube smoke 0.6 s in CI, first-attempt
+      appendage coverage PROVEN and pinned — but the landing protocol
+      fails (92/144 non-quads; matched corpus three-way loses all four
+      criteria: fallback-heavy exact-equality quantization strands ~2/3
+      of faces into subdivision, 16-19x over-yield, 55% irregular).
+      To land: quantization agreement + all-quad odd fills.
 - [ ] Humanoid faces/hands: out of scope here (wrapforge)
 - Experiments with code: branch `exp/igm-validity` (flip census,
   rounding schedule, untangling)
