@@ -20,7 +20,9 @@ mod run;
 use args::{Action, parse_args, print_usage};
 use std::io::Write as _;
 
-pub(crate) const RETOPO_VERSION: &str = "0.1.0";
+/// CLI + mesh-stamp version, single-sourced from the workspace
+/// `Cargo.toml` (synced to the 0.3.0 packaging in the CLI UX pass).
+pub(crate) const RETOPO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn flush_stdout() {
     let _ = std::io::stdout().flush();
