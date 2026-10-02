@@ -51,8 +51,9 @@ def run_prep(qw, model_path, work):
     return rem, prep_s
 
 
-def run_quantize(qw, rem, work, scale_fact, tag):
-    with open(os.path.join(qw, "config/main_config/flow_noalign_lemon.txt")) as f:
+def run_quantize(qw, rem, work, scale_fact, tag,
+                 config="config/main_config/flow_noalign_lemon.txt"):
+    with open(os.path.join(qw, config)) as f:
         cfg = re.sub(r"(?m)^scaleFact .*$", f"scaleFact {scale_fact:.6g}",
                      f.read())
     cfg_path = os.path.join(work, "main.txt")
@@ -81,6 +82,8 @@ def main(argv):
     ap.add_argument("--models", default="armadillo.obj,beast.obj")
     ap.add_argument("--targets", default="1000,5000")
     ap.add_argument("--json")
+    ap.add_argument("--config", default="config/main_config/flow_noalign_lemon.txt",
+                    help="quantization config, relative to --qw (flow.txt = README's better edge flow)")
     args = ap.parse_args(argv)
     report = {}
     for model in args.models.split(","):
@@ -93,7 +96,7 @@ def main(argv):
                 print(f"{model}: prep FAILED ({prep_s:.1f}s)", flush=True)
                 continue
             # scaleFact 1 probe; quad count scales ~ 1/scaleFact^2.
-            probe, _ = run_quantize(args.qw, rem, work, 1.0, "1")
+            probe, _ = run_quantize(args.qw, rem, work, 1.0, "1", args.config)
             base = count_quads(probe) if probe else 0
             for t in args.targets.split(","):
                 target = int(t)
@@ -101,7 +104,7 @@ def main(argv):
                 best = None
                 for rnd in range(CALIBRATION_ROUNDS):
                     out, secs = run_quantize(args.qw, rem, work, s,
-                                             str(10 * target + rnd + 2))
+                                             str(10 * target + rnd + 2), args.config)
                     # (the tag must be numeric: it names the output file)
                     if out is None:
                         break
@@ -124,6 +127,10 @@ def main(argv):
                     ("quads", "non_quads", "irr_pct", "angdev_mean",
                      "dist_mean", "dist_max", "prep_s", "quantize_s")))
                 sys.stdout.flush()
+                if args.json:
+                    # Save after every case: big inputs can take hours.
+                    with open(args.json, "w") as f:
+                        json.dump(report, f, indent=1)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(report, f, indent=1)
