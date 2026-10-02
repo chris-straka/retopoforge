@@ -405,24 +405,18 @@ fn differential_replay() {
         remesher.set_tag(tag_ptr);
         let ok = remesher.remesh();
         // Coverage retry pins (see `docs/coverage-retry.md`): case 58
-        // (soup fragment) fires and cannot recover; case 99 (grid)
-        // fires on a 24-connected small drop the count floor misses
-        // and recovers on retry 1. Every other case must stay
-        // retry-free so future firings fail loudly here.
+        // (soup fragment, 3 sharps) used to fire and never recover;
+        // since the corner-mark cage fix (alignment-only explicit
+        // marks, see `docs/corner-marks.md`) its first attempt covers
+        // and it stays retry-free. Case 99 (grid) fires on a
+        // 24-connected small drop the count floor misses and recovers
+        // on retry 1. Every other case must stay retry-free so future
+        // firings fail loudly here.
         let coverage = remesher.coverage_reports();
         if id == 58 {
-            assert_eq!(
-                coverage,
-                &[CoverageReport {
-                    island_index: 2,
-                    retries_made: 3,
-                    recovered: false,
-                    initial_uncovered: 69,
-                    final_uncovered: 69,
-                    input_side: false,
-                    kept_attempt: 0,
-                }],
-                "{case}: case-58 coverage report skew"
+            assert!(
+                coverage.is_empty(),
+                "{case}: case-58 fired coverage after the cage fix: {coverage:?}"
             );
         } else if id == 99 {
             assert_eq!(
@@ -431,8 +425,8 @@ fn differential_replay() {
                     island_index: 0,
                     retries_made: 1,
                     recovered: true,
-                    initial_uncovered: 24,
-                    final_uncovered: 11,
+                    initial_uncovered: 12,
+                    final_uncovered: 0,
                     input_side: false,
                     kept_attempt: 1,
                 }],

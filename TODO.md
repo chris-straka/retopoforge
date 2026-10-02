@@ -150,8 +150,10 @@ when comparing back ends.
       byte-identical, contract + full suite green (62 ok), bench gate
       green, permanent `coverage_retry.rs` regression (skips without
       the corpus; proven to fail with retries off). Follow-ups landed:
-      unrecoverable suite case pinned explicitly (diff id 58, docs say
-      why retries fail); retry jitter confined to the parameterization
+      unrecoverable suite case pinned explicitly (diff id 58 — since
+      retired by the corner-mark cage fix: its collapse was its own
+      sharps pinning the slab; docs say why); retry jitter confined
+      to the parameterization
       (extractor embeds unjittered; median output-to-working 2.2e-15,
       pinned); per-region patch bar (>= 10 connected beyond 3 widths)
       for thin drops the floor misses (claw fixture; suite grid case +
@@ -461,9 +463,16 @@ and QtAwesome deleted as dead code before the removal.
       from the engine.
 - [x] Quiet through the engine: `--quiet` still leaks engine-owned
       stderr (progress + phase report). Plumb the flag down.
-- [ ] Corner singularities under crossing sharps: full closed cages
-      over-constrain and distort. Fix the corner-mark radius/strength
-      handling (currently documented as "keep it small").
+- [x] Corner singularities under crossing sharps: full closed cages
+      over-constrain and distort — FIXED (see `docs/corner-marks.md`):
+      explicit marks are alignment-only now (`AlignU`/`AlignV`: UV
+      equality kept, integer period + curl anchor dropped). Box cage
+      8-seed: quads 437->563, irr 13.7->4.0, dist max 6.9->4.3
+      (disjoint ranges); single lines hold; damage was proportional
+      to mark count (channel ablation), crossings need nothing extra.
+      Oracles: 5 quadparam + 32 parameterizer demotions, 45-case
+      ardiff re-pin (zero SHARPS=0 changers), case-58 coverage pin
+      retired, new `box-cage` CLI regression (fails pre-fix).
 - [ ] Case-156 C++ heap-OOB read on DENSITY-3 inputs (found by port
       forensics, engine bisection): C++ values derive from UB —
       EPX-by-UB in the oracle, never match; exclude the input class in

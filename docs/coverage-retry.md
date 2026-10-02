@@ -126,26 +126,23 @@ clears both sides. (Measure patch size over UNSORTED gaps; an
 early probe sorted first and reported garbage — the verdict always
 used vertex order.)
 
-## The unrecovered suite case (diff id 58, island 2)
+## The unrecovered suite case (diff id 58, island 2) — retired
 
-The only suite island that fires and cannot recover: a triangle-soup
-fragment (`EPX 58 KIND soup`, 14 verts / 3 tris) whose island 2
-resamples to a thin flat slab (437 verts, 826 tris, x 3.2 x y 0.43 x
-z 3.4, zero singularities). Attempt 0 traces 80 quads over part of it
-(output spans x[-1.05,0.28] z[0.22,1.70] of working x[-1.31,1.88]
-z[-1.36,1.99]); 69 verts sit beyond 3 widths. Its uv layout collapses
-in v (a 19 x 0.5 strip, 251/826 near-zero-area uvs), so extraction has
-no full cover to trace.
+This case used to be the only suite island that fires and cannot
+recover: a triangle-soup fragment (`EPX 58 KIND soup`, 14 verts / 3
+tris, 3 sharps) whose island 2 resampled to a thin flat slab (437
+verts, 826 tris, zero singularities). Attempt 0 traced 80 quads over
+part of it; 69 verts sat beyond 3 widths; the uv layout collapsed in
+v (a 19 x 0.5 strip, 251/826 near-zero-area uvs). All three retries
+failed worse (quads 101/131/119) — the collapse looked structural.
 
-All three retries fail worse (quads 101/131/119, c3 230/235/192, frac
-0.55-0.62 vs attempt 0's 0.45): the collapse is structural, not a
-knife-edge fold — 1e-3 jitter re-rolls within the same degenerate
-layout family (more fragmented tracing, less coverage), never near
-the bar. Fallback-0 keeps attempt 0, so the committed golden is
-byte-stable; the diff test pins the exact report (island 2, 3
-retries, unrecovered, 69/69) and fails loudly if any other case ever
-fires. Islands 0/1 of the same case (frac 0.60/0.31, c3 = 0) show the
-25-vert floor correctly quieting scattered spikes on tiny islands.
+The corner-mark cage fix (`docs/corner-marks.md`) revealed the real
+cause: the 3 explicit sharps pinned integer coordinates across the
+slab, over-constraining the cover into the collapsed layout. With
+alignment-only marks the first attempt covers and the case stays
+retry-free (pinned explicitly in `auto_remesher_diff.rs`). Lesson:
+"structural, unrecoverable" meant "pinned by its own sharps". Case 99
+still fires and now recovers fully (12 -> 0 uncovered, was 24 -> 11).
 
 ## Input-side calibration (thin-claw fixture)
 

@@ -118,6 +118,14 @@ fn differential_replay() {
     let mut seen_180 = false;
     let mut seen_183 = false;
     let mut seen_325 = false;
+    // Corner-mark cage fix (docs/corner-marks.md): strict cases demoted
+    // to PPX because alignment-only explicit marks intentionally change
+    // their UV values (all carry sharps; ok/progress/rot/sing still pin).
+    const CAGE_DEMOTED: &[i64] = &[
+        2, 4, 21, 25, 43, 44, 45, 46, 61, 63, 66, 69, 76, 81, 90, 96, 123, 127, 129, 130, 136, 139,
+        143, 144, 167, 172, 173, 177, 187, 188, 192, 193,
+    ];
+    let mut seen_cage: Vec<i64> = Vec::new();
     loop {
         let tag = c.word();
         if tag == "CASES" {
@@ -288,9 +296,531 @@ fn differential_replay() {
                     && density_mode == 0
                     && field_mode == 0
             }
+            // Corner-mark cage fix (docs/corner-marks.md): explicit-sharp
+            // marks are alignment-only now, so these sharp-carrying cases
+            // no longer match C++ UV values. PPX keeps the robustness pins
+            // (ok/progress/rot/sing); values are report-only.
+            2 => {
+                kind == "sphere"
+                    && nv == 12
+                    && nt == 20
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 135f64.to_bits()
+                    && adapt.to_bits() == 1f64.to_bits()
+                    && aniso.to_bits() == 0.5f64.to_bits()
+                    && simp
+                    && maxpd == 8
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 1
+                    && density_mode == 2
+                    && field_mode == 0
+            }
+            4 => {
+                kind == "sphere"
+                    && nv == 20
+                    && nt == 36
+                    && scaling.to_bits() == 0.5f64.to_bits()
+                    && hard.to_bits() == 75f64.to_bits()
+                    && adapt.to_bits() == 0f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && !simp
+                    && maxpd == 4
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 2
+                    && field_mode == 0
+            }
+            21 => {
+                kind == "fan"
+                    && nv == 6
+                    && nt == 5
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 1f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && simp
+                    && maxpd == 10
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 3
+                    && density_mode == 2
+                    && field_mode == 3
+            }
+            25 => {
+                kind == "grid"
+                    && nv == 25
+                    && nt == 32
+                    && scaling.to_bits() == 0.75f64.to_bits()
+                    && hard.to_bits() == 75f64.to_bits()
+                    && adapt.to_bits() == 1f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && !simp
+                    && maxpd == 8
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 2
+                    && field_mode == 0
+            }
+            43 => {
+                kind == "saddle"
+                    && nv == 30
+                    && nt == 40
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 45f64.to_bits()
+                    && adapt.to_bits() == 0f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 8
+                    && symaxis == -1
+                    && n_guides == 4
+                    && n_sharps == 3
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            44 => {
+                kind == "sphere"
+                    && nv == 38
+                    && nt == 72
+                    && scaling.to_bits() == 0.33000000000000002f64.to_bits()
+                    && hard.to_bits() == 60f64.to_bits()
+                    && adapt.to_bits() == 0f64.to_bits()
+                    && aniso.to_bits() == 0.5f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == 0
+                    && symoff.to_bits() == 0.019f64.to_bits()
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 4
+                    && field_mode == 0
+            }
+            45 => {
+                kind == "sphere"
+                    && nv == 22
+                    && nt == 40
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0.25f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == 0
+                    && symoff.to_bits() == 0.090817816000670126f64.to_bits()
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            46 => {
+                kind == "grid"
+                    && nv == 25
+                    && nt == 32
+                    && scaling.to_bits() == 0.5f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 2f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 3
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            61 => {
+                kind == "grid"
+                    && nv == 25
+                    && nt == 32
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 135f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            63 => {
+                kind == "saddle"
+                    && nv == 12
+                    && nt == 12
+                    && scaling.to_bits() == 0.33000000000000002f64.to_bits()
+                    && hard.to_bits() == 60f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 0f64.to_bits()
+                    && simp
+                    && maxpd == 1
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 2
+                    && density_mode == 4
+                    && field_mode == 0
+            }
+            66 => {
+                kind == "grid"
+                    && nv == 30
+                    && nt == 40
+                    && scaling.to_bits() == 0.75f64.to_bits()
+                    && hard.to_bits() == 60f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            69 => {
+                kind == "grid"
+                    && nv == 24
+                    && nt == 30
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 0f64.to_bits()
+                    && simp
+                    && maxpd == 8
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 2
+                    && field_mode == 0
+            }
+            76 => {
+                kind == "grid"
+                    && nv == 10
+                    && nt == 8
+                    && scaling.to_bits() == 2f64.to_bits()
+                    && hard.to_bits() == 15f64.to_bits()
+                    && adapt.to_bits() == 1f64.to_bits()
+                    && aniso.to_bits() == 0f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 4
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            81 => {
+                kind == "grid"
+                    && nv == 25
+                    && nt == 32
+                    && scaling.to_bits() == 0.33000000000000002f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && !simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            90 => {
+                kind == "quad"
+                    && nv == 4
+                    && nt == 2
+                    && scaling.to_bits() == 0.75f64.to_bits()
+                    && hard.to_bits() == 180f64.to_bits()
+                    && adapt.to_bits() == 0.75f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && !simp
+                    && maxpd == 0
+                    && symaxis == 2
+                    && symoff.to_bits() == 0f64.to_bits()
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 3
+            }
+            96 => {
+                kind == "sphere"
+                    && nv == 14
+                    && nt == 24
+                    && scaling.to_bits() == 1.5f64.to_bits()
+                    && hard.to_bits() == 135f64.to_bits()
+                    && adapt.to_bits() == 0f64.to_bits()
+                    && aniso.to_bits() == 0.5f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            123 => {
+                kind == "saddle"
+                    && nv == 20
+                    && nt == 24
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 10f64.to_bits()
+                    && adapt.to_bits() == 0.75f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 0
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 1
+            }
+            127 => {
+                kind == "quad"
+                    && nv == 4
+                    && nt == 2
+                    && scaling.to_bits() == 0.75f64.to_bits()
+                    && hard.to_bits() == 135f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 12
+                    && symaxis == -1
+                    && n_guides == 0
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 3
+            }
+            129 => {
+                kind == "grid"
+                    && nv == 15
+                    && nt == 16
+                    && scaling.to_bits() == 1.5f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 0f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == 0
+                    && symoff.to_bits() == 0.77700000000000002f64.to_bits()
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            130 => {
+                kind == "grid"
+                    && nv == 12
+                    && nt == 12
+                    && scaling.to_bits() == 2f64.to_bits()
+                    && hard.to_bits() == 15f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            136 => {
+                kind == "grid"
+                    && nv == 12
+                    && nt == 12
+                    && scaling.to_bits() == 2f64.to_bits()
+                    && hard.to_bits() == 30f64.to_bits()
+                    && adapt.to_bits() == 0.75f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            139 => {
+                kind == "quad"
+                    && nv == 4
+                    && nt == 2
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 180f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 0f64.to_bits()
+                    && !simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 3
+                    && n_sharps == 1
+                    && density_mode == 0
+                    && field_mode == 3
+            }
+            143 => {
+                kind == "sphere"
+                    && nv == 47
+                    && nt == 90
+                    && scaling.to_bits() == 1f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 1f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            144 => {
+                kind == "saddle"
+                    && nv == 9
+                    && nt == 8
+                    && scaling.to_bits() == 0.33000000000000002f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 0
+                    && n_sharps == 4
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            167 => {
+                kind == "grid"
+                    && nv == 6
+                    && nt == 4
+                    && scaling.to_bits() == 2f64.to_bits()
+                    && hard.to_bits() == 10f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == 1
+                    && symoff.to_bits() == (-0.97399999999999998f64).to_bits()
+                    && n_guides == 2
+                    && n_sharps == 4
+                    && density_mode == 4
+                    && field_mode == 0
+            }
+            172 => {
+                kind == "sphere"
+                    && nv == 37
+                    && nt == 70
+                    && scaling.to_bits() == 0.33000000000000002f64.to_bits()
+                    && hard.to_bits() == 60f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 2f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == 1
+                    && symoff.to_bits() == 0f64.to_bits()
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 4
+                    && field_mode == 0
+            }
+            173 => {
+                kind == "sphere"
+                    && nv == 37
+                    && nt == 70
+                    && scaling.to_bits() == 2f64.to_bits()
+                    && hard.to_bits() == 90f64.to_bits()
+                    && adapt.to_bits() == 0.75f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 0
+                    && n_sharps == 1
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            177 => {
+                kind == "sphere"
+                    && nv == 26
+                    && nt == 48
+                    && scaling.to_bits() == 0.5f64.to_bits()
+                    && hard.to_bits() == 135f64.to_bits()
+                    && adapt.to_bits() == 0f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && !simp
+                    && maxpd == 1
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            187 => {
+                kind == "grid"
+                    && nv == 12
+                    && nt == 10
+                    && scaling.to_bits() == 2f64.to_bits()
+                    && hard.to_bits() == 75f64.to_bits()
+                    && adapt.to_bits() == 1f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && !simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 3
+                    && density_mode == 0
+                    && field_mode == 0
+            }
+            188 => {
+                kind == "fan"
+                    && nv == 7
+                    && nt == 6
+                    && scaling.to_bits() == 0.75f64.to_bits()
+                    && hard.to_bits() == 45f64.to_bits()
+                    && adapt.to_bits() == 0.75f64.to_bits()
+                    && aniso.to_bits() == 0.5f64.to_bits()
+                    && !simp
+                    && maxpd == 3
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 4
+                    && density_mode == 2
+                    && field_mode == 1
+            }
+            192 => {
+                kind == "grid"
+                    && nv == 12
+                    && nt == 10
+                    && scaling.to_bits() == 0.33000000000000002f64.to_bits()
+                    && hard.to_bits() == 180f64.to_bits()
+                    && adapt.to_bits() == 0.5f64.to_bits()
+                    && aniso.to_bits() == 1f64.to_bits()
+                    && simp
+                    && maxpd == 6
+                    && symaxis == -1
+                    && n_guides == 1
+                    && n_sharps == 1
+                    && density_mode == 4
+                    && field_mode == 3
+            }
+            193 => {
+                kind == "saddle"
+                    && nv == 12
+                    && nt == 12
+                    && scaling.to_bits() == 0.25f64.to_bits()
+                    && hard.to_bits() == 60f64.to_bits()
+                    && adapt.to_bits() == 0.25f64.to_bits()
+                    && aniso.to_bits() == 1.5f64.to_bits()
+                    && !simp
+                    && maxpd == 0
+                    && symaxis == -1
+                    && n_guides == 2
+                    && n_sharps == 2
+                    && density_mode == 0
+                    && field_mode == 0
+            }
             _ => false,
         };
-        if (id == 180 || id == 183 || id == 325) && !listed_identity {
+        if (id == 180 || id == 183 || id == 325 || CAGE_DEMOTED.contains(&id)) && !listed_identity {
             mismatches.push(format!("{case}: listed PPX identity drifted"));
         }
         if id == 180 {
@@ -301,6 +831,9 @@ fn differential_replay() {
         }
         if id == 325 {
             seen_325 = true;
+        }
+        if CAGE_DEMOTED.contains(&id) {
+            seen_cage.push(id);
         }
         let expected_robust = kind == "soup" || listed_identity;
         if strict == expected_robust {
@@ -590,6 +1123,12 @@ fn differential_replay() {
     assert!(
         seen_180 && seen_183 && seen_325,
         "listed PPX cases missing from fixture (180: {seen_180}, 183: {seen_183}, 325: {seen_325})"
+    );
+    seen_cage.sort_unstable();
+    seen_cage.dedup();
+    assert_eq!(
+        seen_cage, CAGE_DEMOTED,
+        "cage-demoted PPX cases missing or shifted in fixture"
     );
     assert_eq!(t_lines, 3, "expected 3 timing lines");
     assert!(

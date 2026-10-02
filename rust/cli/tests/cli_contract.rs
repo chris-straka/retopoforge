@@ -344,6 +344,107 @@ fn write_grid_features(path: &Path, w: usize, h: usize) {
     std::fs::write(path, out).expect("write features");
 }
 
+fn write_box_obj(path: &Path) {
+    // Welded 8x8-per-face box, outward winding (cage-fix regression:
+    // a closed 12-edge --features cage must not collapse the yield).
+    let n = 8usize;
+    let mut verts: Vec<[f64; 3]> = Vec::new();
+    let mut index = std::collections::HashMap::new();
+    let mut intern = |p: [f64; 3], verts: &mut Vec<[f64; 3]>| -> usize {
+        // Grid coords are multiples of 0.25 (exact in f64): bit-key the
+        // weld so shared edge verts merge across faces.
+        let key = (p[0].to_bits(), p[1].to_bits(), p[2].to_bits());
+        *index.entry(key).or_insert_with(|| {
+            verts.push(p);
+            verts.len() - 1
+        })
+    };
+    let mut tris: Vec<[usize; 3]> = Vec::new();
+    let faces = [
+        ([-1.0, -1.0, -1.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]),
+        ([-1.0, -1.0, 1.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]),
+        ([-1.0, -1.0, -1.0], [2.0, 0.0, 0.0], [0.0, 0.0, 2.0]),
+        ([-1.0, 1.0, -1.0], [2.0, 0.0, 0.0], [0.0, 0.0, 2.0]),
+        ([-1.0, -1.0, -1.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]),
+        ([1.0, -1.0, -1.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]),
+    ];
+    for (corner, du, dv) in faces {
+        let mut idx = vec![vec![0usize; n + 1]; n + 1];
+        for i in 0..=n {
+            for j in 0..=n {
+                let p = [
+                    corner[0] + (i as f64 / n as f64) * du[0] + (j as f64 / n as f64) * dv[0],
+                    corner[1] + (i as f64 / n as f64) * du[1] + (j as f64 / n as f64) * dv[1],
+                    corner[2] + (i as f64 / n as f64) * du[2] + (j as f64 / n as f64) * dv[2],
+                ];
+                idx[i][j] = intern(p, &mut verts);
+            }
+        }
+        for i in 0..n {
+            for j in 0..n {
+                tris.push([idx[i][j], idx[i + 1][j], idx[i + 1][j + 1]]);
+                tris.push([idx[i][j], idx[i + 1][j + 1], idx[i][j + 1]]);
+            }
+        }
+    }
+    let sub = |p: [f64; 3], q: [f64; 3]| [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+    let cross = |p: [f64; 3], q: [f64; 3]| {
+        [
+            p[1] * q[2] - p[2] * q[1],
+            p[2] * q[0] - p[0] * q[2],
+            p[0] * q[1] - p[1] * q[0],
+        ]
+    };
+    let mut out = String::from("# welded box 8x8\n");
+    for p in &verts {
+        out.push_str(&format!("v {} {} {}\n", p[0], p[1], p[2]));
+    }
+    for t in &tris {
+        let e1 = sub(verts[t[1]], verts[t[0]]);
+        let e2 = sub(verts[t[2]], verts[t[0]]);
+        let n = cross(e1, e2);
+        let c = [
+            (verts[t[0]][0] + verts[t[1]][0] + verts[t[2]][0]) / 3.0,
+            (verts[t[0]][1] + verts[t[1]][1] + verts[t[2]][1]) / 3.0,
+            (verts[t[0]][2] + verts[t[1]][2] + verts[t[2]][2]) / 3.0,
+        ];
+        let (a, b, c) = if n[0] * c[0] + n[1] * c[1] + n[2] * c[2] < 0.0 {
+            (t[0], t[2], t[1])
+        } else {
+            (t[0], t[1], t[2])
+        };
+        out.push_str(&format!("f {} {} {}\n", a + 1, b + 1, c + 1));
+    }
+    std::fs::write(path, out).expect("write box");
+}
+
+fn write_box_cage(path: &Path) {
+    // Closed 12-edge cage around the 2x2x2 box (blank-line separated).
+    let mut out = String::from("# box cage\n");
+    let mut edge = |a: [f64; 3], b: [f64; 3]| {
+        out.push_str(&format!(
+            "{} {} {}\n{} {} {}\n\n",
+            a[0], a[1], a[2], b[0], b[1], b[2]
+        ));
+    };
+    for y in [-1.0, 1.0] {
+        for z in [-1.0, 1.0] {
+            edge([-1.0, y, z], [1.0, y, z]);
+        }
+    }
+    for x in [-1.0, 1.0] {
+        for z in [-1.0, 1.0] {
+            edge([x, -1.0, z], [x, 1.0, z]);
+        }
+    }
+    for x in [-1.0, 1.0] {
+        for y in [-1.0, 1.0] {
+            edge([x, y, -1.0], [x, y, 1.0]);
+        }
+    }
+    std::fs::write(path, out).expect("write cage");
+}
+
 fn write_grid_density(path: &Path, w: usize, h: usize) {
     // Mild mask: 2x bump in the middle, 1.0 elsewhere.
     let mut out = String::from("# grid density\n");
@@ -1776,6 +1877,33 @@ fn remesh_contract() {
             let shared = shared_dir(side);
             write_grid_density(&shared.join("density.txt"), 16, 16);
             grid_args(side, &["--quiet", "--density", "SHARED/density.txt"])
+        },
+        &|side| vec![side.join("out.obj")],
+        &|_| None,
+        &mut failures,
+    ));
+    rows.push(remesh_case(
+        &bins,
+        "box-cage",
+        &|side| {
+            // Corner-mark cage fix (docs/corner-marks.md): a closed
+            // 12-edge cage must keep the yield (pre-fix: 444 quads at
+            // 15% irregular; post-fix: ~600 quads at ~5%). Counts pin
+            // within tolerance, so a re-collapse fails loudly.
+            let shared = shared_dir(side);
+            write_box_obj(&shared.join("box.obj"));
+            write_box_cage(&shared.join("cage.txt"));
+            vec![
+                "-i".into(),
+                s(&shared.join("box.obj")),
+                "-o".into(),
+                s(&side.join("out.obj")),
+                "--target-quads".into(),
+                "600".into(),
+                "--quiet".into(),
+                "--features".into(),
+                s(&shared.join("cage.txt")),
+            ]
         },
         &|side| vec![side.join("out.obj")],
         &|_| None,

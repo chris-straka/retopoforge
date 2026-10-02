@@ -119,6 +119,16 @@ enum EdgeConstraint {
     ConstraintNone,
     ConstraintU,
     ConstraintV,
+    /// Explicit-sharp (`--features`) marks: alignment only. The cover
+    /// keeps the UV equality (the crisp line) but skips the integer
+    /// period and the curl anchor. Full U/V pins on every marked edge
+    /// over-constrain the cover: a 12-edge box cage pins 912 integer
+    /// variables + 456 equalities + ~456 anchors, collapsing yield
+    /// (561 -> 444 quads) and tripling irregulars (5.3 -> 15.2%).
+    /// Alignment without positional locking recovers fully (see
+    /// `docs/corner-marks.md`). Automatic dihedral marks keep U/V.
+    AlignU,
+    AlignV,
 }
 
 fn edge_constraint(
@@ -164,10 +174,10 @@ fn edge_constraint(
 
 // Explicit-sharp twin of edgeConstraint: the dihedral gate is replaced
 // by proximity to a user sharp polyline (edge midpoint within `radius`
-// of a segment). The field-alignment check below is identical, so a
-// marked edge constrains the same U/V coordinate an automatic sharp
-// would, and anchors the curl correction through the same
-// cornerConstraints channel. Returns None when no sharp passes nearby.
+// of a segment). The field-alignment check below is identical, but the
+// mark is alignment-only (`AlignU`/`AlignV`): the cover keeps the UV
+// equality without the integer period or the curl anchor (see the
+// `EdgeConstraint` docs). Returns None when no sharp passes nearby.
 fn sharp_edge_constraint(
     mesh: &SurfaceMesh,
     c: usize,
@@ -205,9 +215,9 @@ fn sharp_edge_constraint(
         return EdgeConstraint::ConstraintNone;
     }
     if along_b {
-        EdgeConstraint::ConstraintV
+        EdgeConstraint::AlignV
     } else {
-        EdgeConstraint::ConstraintU
+        EdgeConstraint::AlignU
     }
 }
 
@@ -401,10 +411,13 @@ fn compute_corner_constraints(
     let corners = mesh.corner_count();
     let mut corner_constraints = vec![EdgeConstraint::ConstraintNone; corners];
     let sharp_set = sharps.filter(|s| !s.is_empty());
-    // Corner marks pin integer coordinates, so the radius stays tight
-    // (half an edge length): only edges ON the snapped feature line
-    // qualify. Anything wider pins rings of edges around every feature
-    // and collapses the quad budget on small hard-surface parts.
+    // Full corner marks pin integer coordinates, so the explicit-mark
+    // radius stays tight (half an edge length): only edges ON the
+    // snapped feature line qualify. Anything wider pins rings of edges
+    // around every feature and collapses the quad budget on small
+    // hard-surface parts. (Explicit marks are alignment-only since the
+    // cage fix — see the `EdgeConstraint` docs — but the tight radius
+    // still keeps the alignment band on the line.)
     let sharp_radius = if sharp_set.is_some() {
         0.5 * mesh.average_edge_length()
     } else {
@@ -512,12 +525,16 @@ fn apply_curl_correction(
         );
     }
 
-    // Anchored faces pin the curl-correction rotation to zero. Automatic
-    // dihedral marks and explicit sharp marks arrive through the same
-    // cornerConstraints channel, so both anchor identically.
+    // Anchored faces pin the curl-correction rotation to zero. Only
+    // full (automatic dihedral) marks anchor: explicit-sharp alignment
+    // marks arrive through the same channel but must not freeze the
+    // rotation (cage over-constraint — see the `EdgeConstraint` docs).
     let mut anchored = vec![false; face_count];
     for c in 0..mesh.corner_count() {
-        if corner_constraints[c] != EdgeConstraint::ConstraintNone {
+        if matches!(
+            corner_constraints[c],
+            EdgeConstraint::ConstraintU | EdgeConstraint::ConstraintV
+        ) {
             anchored[mesh.corner_face(c)] = true;
         }
     }
@@ -1468,6 +1485,15 @@ fn solve_quad_cover(ctx: &CoverContext, progress: Option<&dyn Fn(f32, &str)>) ->
             EdgeConstraint::ConstraintU => {
                 s.set_variable_period(2 * c, 1);
                 s.set_variable_period(2 * n, 1);
+                s.add_constraint2(2 * c, 1.0, 2 * n, -1.0);
+            }
+            // Alignment-only explicit marks: the equality without the
+            // integer periods (cage over-constraint — see the
+            // `EdgeConstraint` docs).
+            EdgeConstraint::AlignV => {
+                s.add_constraint2(2 * c + 1, 1.0, 2 * n + 1, -1.0);
+            }
+            EdgeConstraint::AlignU => {
                 s.add_constraint2(2 * c, 1.0, 2 * n, -1.0);
             }
             EdgeConstraint::ConstraintNone => {}
