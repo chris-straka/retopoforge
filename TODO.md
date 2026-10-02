@@ -278,8 +278,13 @@ when comparing back ends.
 - [x] GLB input (and ideally output) for the CLI to cut the manual
       GLB→OBJ conversion out of the loop (cgltf input + hand-written
       writer; batch and `--lods` keep the extension)
-- [ ] Full PBR bake: bake every map the source has (albedo, roughness,
-      metallic, AO, emissive), not just diffuse + normal; cage support
+- [x] Full PBR bake: bake every map the source has (albedo, roughness,
+      metallic, AO, emissive), not just diffuse + normal; cage support.
+      LANDED: per-map toggles (default on), used-socket detection with
+      skip notes, metallic via temp-duplicate Metallic→Emission rewire
+      (no native bake type), cage picker with face-count validation.
+      Headless phases A/B/C green (skip notes, 6 non-uniform PNGs,
+      dup cleanup, cage bake + wrong-topology cancel).
 - [ ] One-click end-to-end: remesh → UV → bake all maps in one action
 - [ ] Better low-poly UVs: proper unwrap + pack with texel-density
       control (replacing Smart UV), or the engine-side global atlas

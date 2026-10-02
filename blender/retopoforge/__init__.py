@@ -294,6 +294,31 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Also bake a tangent-space normal map alongside diffuse",
         default=True,
     )
+    bake_roughness: BoolProperty(
+        name="Bake Roughness",
+        description="Bake roughness when the HIGH source uses it",
+        default=True,
+    )
+    bake_metallic: BoolProperty(
+        name="Bake Metallic",
+        description="Bake metallic when the HIGH source uses it",
+        default=True,
+    )
+    bake_ao: BoolProperty(
+        name="Bake AO",
+        description="Bake ambient occlusion from the HIGH source",
+        default=True,
+    )
+    bake_emission: BoolProperty(
+        name="Bake Emission",
+        description="Bake emission when the HIGH source emits light",
+        default=True,
+    )
+    bake_cage: PointerProperty(
+        name="Bake Cage",
+        description="Cage mesh for selected-to-active bakes (empty: ray extrusion)",
+        type=bpy.types.Object,
+    )
     guides_enabled: BoolProperty(
         name="Flow Guides",
         description="Constrain quad flow to the edge selection on each target (passed as --guides)",
@@ -1050,6 +1075,109 @@ def _ensure_high_material(obj):
     obj.data.materials.append(mat)
 
 
+def _principled_nodes(obj):
+    """Yield (material, Principled BSDF node) over obj's node materials."""
+    for slot in obj.data.materials:
+        mat = slot
+        if mat is None or not mat.use_nodes:
+            continue
+        for node in mat.node_tree.nodes:
+            if node.type == "BSDF_PRINCIPLED":
+                yield mat, node
+                break
+
+
+def _socket_used(obj, socket, default):
+    """True when any Principled `socket` on obj is texture-linked or set
+    off its default (i.e. the HIGH source genuinely carries that map)."""
+    for _, bsdf in _principled_nodes(obj):
+        inp = bsdf.inputs.get(socket)
+        if inp is None:
+            continue
+        if inp.is_linked:
+            return True
+        val = inp.default_value
+        if isinstance(val, float):
+            if abs(val - default) > 1e-9:
+                return True
+        else:
+            try:
+                if any(abs(c - d) > 1e-9 for c, d in zip(val, default)):
+                    return True
+            except TypeError:
+                pass
+    return False
+
+
+def _emission_used(obj):
+    """True when any Principled emits non-black light."""
+    for _, bsdf in _principled_nodes(obj):
+        color = bsdf.inputs.get("Emission Color")
+        strength = bsdf.inputs.get("Emission Strength")
+        if color is None or strength is None:
+            continue
+        sval = strength.default_value
+        if strength.is_linked or sval > 1e-9:
+            if color.is_linked:
+                return True
+            if any(c > 1e-9 for c in color.default_value[:3]):
+                return True
+    return False
+
+
+def _metallic_bake_source(context, high):
+    """Duplicate high with single-user materials rewired Metallic->Emission
+    (Blender has no metallic bake type; an EMIT bake of the duplicate
+    transfers the metallic map). Returns the dup; the caller must delete
+    it (object + mesh + copied materials). Returns None when no
+    Principled metallic is in play."""
+    if not _socket_used(high, "Metallic", 0.0):
+        return None
+    dup = high.copy()
+    dup.data = high.data.copy()
+    dup.name = f"{high.name}_metallic_src"
+    context.collection.objects.link(dup)
+    for i, slot in enumerate(list(dup.data.materials)):
+        if slot is None or not slot.use_nodes:
+            continue
+        mat = slot.copy()
+        dup.data.materials[i] = mat
+        bsdf = next((n for n in mat.node_tree.nodes
+                     if n.type == "BSDF_PRINCIPLED"), None)
+        out = next((n for n in mat.node_tree.nodes
+                    if n.type == "OUTPUT_MATERIAL"), None)
+        if bsdf is None or out is None:
+            continue
+        metallic = bsdf.inputs.get("Metallic")
+        if metallic is None:
+            continue
+        emission = mat.node_tree.nodes.new("ShaderNodeEmission")
+        emission.inputs["Strength"].default_value = 1.0
+        if metallic.is_linked:
+            src = metallic.links[0].from_socket
+            mat.node_tree.links.new(src, emission.inputs["Color"])
+        else:
+            v = float(metallic.default_value)
+            emission.inputs["Color"].default_value = (v, v, v, 1.0)
+        for link in list(out.inputs["Surface"].links):
+            mat.node_tree.links.remove(link)
+        mat.node_tree.links.new(emission.outputs["Emission"],
+                                out.inputs["Surface"])
+    return dup
+
+
+def _delete_bake_source(context, dup):
+    if dup is None:
+        return
+    mesh = dup.data
+    mats = [s for s in mesh.materials if s is not None]
+    bpy.data.objects.remove(dup, do_unlink=True)
+    bpy.data.meshes.remove(mesh, do_unlink=True)
+    for mat in mats:
+        if mat.users == 0:
+            bpy.data.materials.remove(mat)
+
+
 def _smart_uv_low(context, low):
     _ensure_object_mode()
     context.view_layer.update()
@@ -1064,8 +1192,8 @@ def _smart_uv_low(context, low):
 
 
 class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
-    """Bake diffuse (+ normal) from the HIGH-poly active object to the
-    selected LOW-poly target (Smart-UV, Cycles CPU, selected-to-active)"""
+    """Bake PBR maps from the HIGH-poly active object to the selected
+    LOW-poly target (Smart-UV, Cycles CPU, selected-to-active)"""
 
     bl_idname = "retopoforge.bake_textures"
     bl_label = "Bake High to Low"
@@ -1092,59 +1220,105 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
         _smart_uv_low(context, low)
         _ensure_high_material(high)
 
+        cage = params.bake_cage
+        if cage is not None:
+            if cage.type != "MESH":
+                self.report({"ERROR"},
+                            f"Bake cage '{cage.name}' is not a mesh object")
+                return {"CANCELLED"}
+            # Blender casts cage rays onto the active (LOW) object and
+            # requires matching face counts — reject early with the fix
+            # (duplicate LOW, inflate slightly) instead of mid-bake.
+            if len(cage.data.polygons) != len(low.data.polygons):
+                self.report(
+                    {"ERROR"},
+                    f"Bake cage '{cage.name}' has "
+                    f"{len(cage.data.polygons)} faces but '{low.name}' has "
+                    f"{len(low.data.polygons)} (duplicate LOW and inflate it)")
+                return {"CANCELLED"}
+
+        # Job list: (map name, bake type, pass filter, bake-toggle on,
+        # source carries the map). Diffuse + normal + AO always run when
+        # toggled (albedo flat-colors still transfer; normal/AO derive
+        # from geometry); roughness/metallic/emission skip with a note
+        # when no HIGH material feeds that socket.
+        jobs = [
+            ("diffuse", "DIFFUSE", {"COLOR"}, True, True),
+            ("normal", "NORMAL", set(), params.bake_normal, True),
+            ("roughness", "ROUGHNESS", set(), params.bake_roughness,
+             _socket_used(high, "Roughness", 0.5)),
+            ("metallic", "EMIT", set(), params.bake_metallic, False),
+            ("ao", "AO", set(), params.bake_ao, True),
+            ("emission", "EMIT", set(), params.bake_emission,
+             _emission_used(high)),
+        ]
+        metallic_src = None
+        if params.bake_metallic:
+            metallic_src = _metallic_bake_source(context, high)
+        jobs[3] = ("metallic", "EMIT", set(), params.bake_metallic,
+                   metallic_src is not None)
+
         outdir = os.path.dirname(bpy.data.filepath) or "/tmp"
         size = int(params.bake_size)
-        diffuse = bpy.data.images.new(f"{low.name}_diffuse", size, size,
+        images = {}
+        for name, _, _, enabled, used in jobs:
+            if not (enabled and used):
+                continue
+            img = bpy.data.images.new(f"{low.name}_{name}", size, size,
                                       alpha=True)
-        diffuse.file_format = "PNG"
-        diffuse_path = os.path.join(outdir, f"{low.name}_diffuse.png")
-        diffuse.filepath_raw = diffuse_path
-        tex_node = _ensure_bake_target(low, diffuse)
-        normal = None
-        normal_path = ""
-        if params.bake_normal:
-            normal = bpy.data.images.new(f"{low.name}_normal", size, size,
-                                         alpha=True)
-            normal.file_format = "PNG"
-            normal_path = os.path.join(outdir, f"{low.name}_normal.png")
-            normal.filepath_raw = normal_path
+            img.file_format = "PNG"
+            img.filepath_raw = os.path.join(outdir, f"{low.name}_{name}.png")
+            images[name] = img
+        tex_node = _ensure_bake_target(low, images["diffuse"])
 
         scene = context.scene
         saved_engine = scene.render.engine
         saved_samples = scene.cycles.samples if saved_engine == "CYCLES" else None
+        saved_cage = scene.render.bake.cage_object
+        saved_use_cage = scene.render.bake.use_cage
         scene.render.engine = "CYCLES"
         scene.cycles.device = "CPU"
         scene.cycles.samples = 1
         bake = scene.render.bake
         bake.use_selected_to_active = True
-        bake.use_cage = False
+        bake.use_cage = cage is not None
+        bake.cage_object = cage
         bake.cage_extrusion = float(params.bake_extrusion)
         bake.margin = int(params.bake_margin)
         bake.use_clear = True
 
         # Blender's selected-to-active bakes onto the ACTIVE object, so low
         # takes over as active for the bake itself (restored afterwards);
-        # the user-facing contract stays active=HIGH at invoke time.
-        for o in context.selected_objects:
-            o.select_set(False)
-        high.select_set(True)
-        low.select_set(True)
-        context.view_layer.objects.active = low
-        context.view_layer.update()
+        # the user-facing contract stays active=HIGH at invoke time. The
+        # metallic job bakes from the rewired duplicate instead of high.
+        lines = []
         try:
-            bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"},
-                                use_clear=True)
-            diffuse.save()
-            line = f"{low.name}: diffuse -> {diffuse_path}"
-            if normal is not None:
-                tex_node.image = normal
-                bpy.ops.object.bake(type="NORMAL", use_clear=True)
-                normal.save()
-                line += f"\n{low.name}: normal -> {normal_path}"
+            for name, btype, filt, enabled, used in jobs:
+                if not enabled:
+                    continue
+                if not used:
+                    lines.append(f"{low.name}: {name} skipped (HIGH has no {name})")
+                    continue
+                src = metallic_src if name == "metallic" else high
+                for o in context.selected_objects:
+                    o.select_set(False)
+                src.select_set(True)
+                low.select_set(True)
+                context.view_layer.objects.active = low
+                context.view_layer.update()
+                tex_node.image = images[name]
+                if filt:
+                    bpy.ops.object.bake(type=btype, pass_filter=filt,
+                                        use_clear=True)
+                else:
+                    bpy.ops.object.bake(type=btype, use_clear=True)
+                images[name].save()
+                lines.append(f"{low.name}: {name} -> {images[name].filepath_raw}")
         except RuntimeError as exc:
             self.report({"ERROR"}, f"Bake failed: {exc}")
             return {"CANCELLED"}
         finally:
+            _delete_bake_source(context, metallic_src)
             for o in context.selected_objects:
                 o.select_set(False)
             high.select_set(True)
@@ -1153,9 +1327,12 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             # The bake needs Cycles, but the scene is the user's: put the
             # render settings back the way they were.
             scene.render.engine = saved_engine
+            bake.cage_object = saved_cage
+            bake.use_cage = saved_use_cage
             if saved_samples is not None:
                 scene.cycles.samples = saved_samples
 
+        line = "\n".join(lines)
         scene.retopoforge_last_report += line + "\n"
         self.report({"INFO"}, line.replace("\n", " | "))
         return {"FINISHED"}
@@ -1469,7 +1646,12 @@ class RETOPOFORGE_PT_bake(bpy.types.Panel):
         bcol.prop(params, "bake_size")
         bcol.prop(params, "bake_extrusion")
         bcol.prop(params, "bake_margin")
+        bcol.prop(params, "bake_cage")
         bcol.prop(params, "bake_normal")
+        bcol.prop(params, "bake_roughness")
+        bcol.prop(params, "bake_metallic")
+        bcol.prop(params, "bake_ao")
+        bcol.prop(params, "bake_emission")
         layout.operator("retopoforge.bake_textures", text="Bake High to Low",
                         icon="RENDER_RESULT")
 

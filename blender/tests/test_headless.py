@@ -696,8 +696,92 @@ def main():
             check(spread > 0.05, f"diffuse pixels non-uniform (spread {spread:.3f})")
         finally:
             bpy.data.images.remove(probe)
+        # Full PBR: AO always bakes; roughness/metallic/emission skip
+        # with a note when the HIGH source doesn't use those sockets.
+        ao_path = os.path.join("/tmp", f"{low.name}_ao.png")
+        check(os.path.isfile(ao_path), f"ao png saved ({ao_path})")
+        for skipped in ("roughness", "metallic", "emission"):
+            skip_path = os.path.join("/tmp", f"{low.name}_{skipped}.png")
+            check(not os.path.isfile(skip_path),
+                  f"{skipped} skipped without source maps ({skip_path})")
+            check(f"{low.name}: {skipped} skipped" in
+                  bpy.context.scene.retopoforge_last_report,
+                  f"report notes the {skipped} skip")
         os.remove(diff_path)
         os.remove(norm_path)
+        os.remove(ao_path)
+
+        # Phase B: give the two HIGH mats distinct roughness / metallic /
+        # emission so every PBR map bakes non-uniform pixels.
+        red_bsdf = mat_red.node_tree.nodes["Principled BSDF"]
+        green_bsdf = mat_green.node_tree.nodes["Principled BSDF"]
+        red_bsdf.inputs["Roughness"].default_value = 0.2
+        green_bsdf.inputs["Roughness"].default_value = 0.9
+        red_bsdf.inputs["Metallic"].default_value = 0.0
+        green_bsdf.inputs["Metallic"].default_value = 1.0
+        red_bsdf.inputs["Emission Color"].default_value = (1.0, 0.0, 0.0, 1.0)
+        red_bsdf.inputs["Emission Strength"].default_value = 2.0
+        mats_before = len(bpy.data.materials)
+        bpy.ops.object.select_all(action="DESELECT")
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.bake_textures()
+        check("FINISHED" in result, f"pbr bake finished (got {result})")
+        for name in ("diffuse", "normal", "roughness", "metallic", "ao",
+                     "emission"):
+            pbr_path = os.path.join("/tmp", f"{low.name}_{name}.png")
+            check(os.path.isfile(pbr_path), f"{name} png saved ({pbr_path})")
+        for name in ("roughness", "metallic", "emission"):
+            pbr_path = os.path.join("/tmp", f"{low.name}_{name}.png")
+            probe = bpy.data.images.load(pbr_path)
+            try:
+                px = list(probe.pixels)
+                spread = max(px) - min(px)
+                check(spread > 0.05,
+                      f"{name} pixels non-uniform (spread {spread:.3f})")
+            finally:
+                bpy.data.images.remove(probe)
+            os.remove(pbr_path)
+        for name in ("diffuse", "normal", "ao"):
+            os.remove(os.path.join("/tmp", f"{low.name}_{name}.png"))
+        check(not any("_metallic_src" in o.name for o in bpy.data.objects),
+              "metallic rewire duplicate deleted after bake")
+        check(len(bpy.data.materials) == mats_before,
+              "metallic rewire materials deleted after bake")
+
+        # Phase C: cage bake — an inflated duplicate of LOW (Blender
+        # requires the cage to match the active object's face count).
+        # A wrong-topology cage must cancel with a clear error first.
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=2.4)
+        bad_cage = bpy.context.active_object
+        params.bake_cage = bad_cage
+        bpy.ops.object.select_all(action="DESELECT")
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        check_cancel("wrong-topology cage", bpy.ops.retopoforge.bake_textures)
+        cage = low.copy()
+        cage.data = low.data.copy()
+        cage.scale = (1.05, 1.05, 1.05)
+        bpy.context.collection.objects.link(cage)
+        params.bake_cage = cage
+        bpy.ops.object.select_all(action="DESELECT")
+        low.select_set(True)
+        high.select_set(True)
+        bpy.context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.bake_textures()
+        check("FINISHED" in result, f"cage bake finished (got {result})")
+        check(os.path.isfile(diff_path), "cage bake saved diffuse png")
+        check(not bpy.context.scene.render.bake.use_cage,
+              "use_cage restored after bake")
+        params.bake_cage = None
+        for name in ("diffuse", "normal", "roughness", "metallic", "ao",
+                     "emission"):
+            p = os.path.join("/tmp", f"{low.name}_{name}.png")
+            if os.path.isfile(p):
+                os.remove(p)
 
         leftovers = [o for o in bpy.data.objects if o.name.startswith("in_")]
         check(not leftovers, "no temp objects left behind")

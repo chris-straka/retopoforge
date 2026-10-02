@@ -96,9 +96,18 @@ After remeshing, project the original detail back: select the LOW-poly
 target, make the HIGH-poly source the **active** object, and hit **Bake
 High to Low**. The low gets a Smart UV project, both bake under Cycles
 on the CPU (selected-to-active, with the panel's size/extrusion/margin),
-and `<low>_diffuse.png` plus `<low>_normal.png` land next to the blend
-file (`/tmp` when the blend is unsaved). The scene's render engine and
-sample count are restored afterwards.
+and the PBR maps land next to the blend file (`/tmp` when the blend is
+unsaved): `<low>_diffuse.png` always, plus `<low>_normal.png`,
+`<low>_roughness.png`, `<low>_metallic.png`, `<low>_ao.png`, and
+`<low>_emission.png` per the panel toggles. Roughness/metallic/emission
+bake only when the HIGH source actually uses those sockets (texture
+link or off-default value) and note the skip otherwise; metallic
+bakes through a temporary Metallic→Emission rewire of a HIGH
+duplicate (Blender has no metallic bake type; the duplicate is
+deleted afterwards). Set **Bake Cage** to a mesh to cast rays from a
+cage instead of extrusion — it must match LOW's face count
+(duplicate LOW and inflate it slightly). The scene's render engine,
+sample count, and cage settings are restored afterwards.
 
 ## Install
 
