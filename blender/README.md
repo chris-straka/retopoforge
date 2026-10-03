@@ -15,8 +15,10 @@ cannot carry UVs or vertex colors — the panel says so.
 - **Remesh Selected** runs the CLI on every selected mesh object
   (`target-quads`, `model-type`, `sharp-edge`, `smooth-normal`,
   `edge-scaling`, `adaptivity`, `anisotropy`, plus the toggles below).
-  `Apply Modifiers` remeshes the evaluated mesh; `Keep Original` spawns
-  a remeshed copy and hides the source instead of replacing its mesh.
+  `Apply Modifiers` remeshes the evaluated mesh and clears the stack on
+  the result (it is already baked in; a live Mirror would mirror the
+  remesh again); `Keep Original` spawns a remeshed copy and hides the
+  source instead of replacing its mesh.
 - **Symmetry** passes `--symmetry` to the CLI (off by default). The plane
   selector picks `Auto` (detect the dominant plane) or pins `X`/`Y`/`Z`.
 - **Generate LODs** remeshes each selected object once per comma-separated
@@ -96,8 +98,8 @@ After remeshing, project the original detail back: select the LOW-poly
 target, make the HIGH-poly source the **active** object, and hit **Bake
 High to Low**. The low gets a Smart UV project, both bake under Cycles
 on the CPU (selected-to-active, with the panel's size/extrusion/margin),
-and the PBR maps land next to the blend file (`/tmp` when the blend is
-unsaved): `<low>_diffuse.png` always, plus `<low>_normal.png`,
+and the PBR maps land next to the blend file (the system temp dir when
+the blend is unsaved): `<low>_diffuse.png` always, plus `<low>_normal.png`,
 `<low>_roughness.png`, `<low>_metallic.png`, `<low>_ao.png`, and
 `<low>_emission.png` per the panel toggles. Roughness/metallic/emission
 bake only when the HIGH source actually uses those sockets (texture
@@ -107,7 +109,15 @@ duplicate (Blender has no metallic bake type; the duplicate is
 deleted afterwards). Set **Bake Cage** to a mesh to cast rays from a
 cage instead of extrusion — it must match LOW's face count
 (duplicate LOW and inflate it slightly). The scene's render engine,
-sample count, and cage settings are restored afterwards.
+device, sample count, and bake settings are restored afterwards.
+
+Data maps (normal, roughness, metallic, AO) are baked as Non-Color, so
+the PNGs hold raw values; AO renders with 64 samples (the other passes
+are deterministic and take one). When LOW had no material, the bake
+creates one and wires the maps into its Principled BSDF (normal via a
+Normal Map node; AO stays an unlinked node), so LOW renders textured
+right away; a material LOW already had only gains the image nodes.
+Re-baking reuses the same images, nodes, and files.
 
 **LOW UVs** picks how the bake target gets its UVs: **Smart UV**
 (the default, as before) or **Unwrap + Pack** — a real unwrap
@@ -120,12 +130,16 @@ and the report says what the tile fits.
 
 **Remesh + Bake All** chains the whole pipeline in one action: make
 the HIGH-poly source the active object and hit it — the add-on
-remeshes (keeping the original regardless of the panel toggle),
-then Smart-UVs and bakes every PBR map to the `_retopo` result.
+remeshes (keeping the original regardless of the panel toggle or
+recalled settings), then Smart-UVs and bakes every PBR map to the
+`_retopo` result (without a cage: none can match a mesh that did not
+exist yet).
 
 **Project HIGH UVs** skips the re-bake instead: it copies the HIGH
-source's UVs onto the LOW mesh by nearest-point projection, one
-HIGH face per LOW face, so the original UV seams survive. Only
+source's UVs onto the LOW mesh by nearest-point projection: every
+LOW corner samples its own nearest HIGH point, kept inside the HIGH
+UV island under the face's center so no LOW face straddles a seam
+and the original seams survive. Only
 faces within **Projection Range** (fraction of the HIGH bbox
 diagonal, default 1%) take UVs; the rest keep theirs, and the
 report counts both.
@@ -146,7 +160,8 @@ outputs — writing a same-named face-corner color layer on LOW
    add-on preferences (the panel shows whether it was found).
 
 Requires Blender 4.2+ (uses the `wm.obj_export` / `wm.obj_import`
-operators and the extensions platform).
+operators and the extensions platform). The headless test passes on
+4.5 LTS and 5.0.
 
 ## Test headless
 
@@ -157,6 +172,11 @@ has a broken Python environment and cannot run scripts:
 /Applications/Blender.app/Contents/MacOS/Blender --background \
     --factory-startup --python blender/tests/test_headless.py
 ```
+
+Without a Blender install, the `bpy` wheel (Blender as a Python module)
+runs the same script: `python3.11 -m venv bpyenv &&
+bpyenv/bin/pip install bpy==4.5.4` (or `bpy==5.0.1`), then
+`bpyenv/bin/python blender/tests/test_headless.py`.
 
 The test registers the extension, remeshes a transformed subdivided
 cube, and asserts the mesh was replaced, is mostly quads, keeps the

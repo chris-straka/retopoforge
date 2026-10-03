@@ -462,15 +462,15 @@ def _ensure_object_mode():
         bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def _operator_has_property(op, name):
+    return name in op.get_rna_type().properties.keys()
+
+
 def _export_selection(context, filepath, apply_modifiers):
-    bpy.ops.wm.obj_export(
+    kwargs = dict(
         filepath=filepath,
         export_selected_objects=True,
         apply_modifiers=apply_modifiers,
-        # Local coordinates, not world: the exporter runs while the object
-        # is under the identity transform, and local coords stay correct
-        # even if that ever changes. Identity + local = belt and suspenders.
-        apply_transform=False,
         # Identity axis mapping (verified empirically: a (1,2,4) marker
         # round-trips byte-identical). Defaults rotate -90 deg about X;
         # NEGATIVE_Y/Z rotates 180 deg about Z. The importer applies no
@@ -482,6 +482,14 @@ def _export_selection(context, filepath, apply_modifiers):
         export_materials=False,
         export_triangulated_mesh=False,
     )
+    # Local coordinates, not world: the exporter runs while the object is
+    # under the identity transform, and local coords stay correct even if
+    # that ever changes. Identity + local = belt and suspenders. The
+    # keyword only exists on Blender 5.0+; the 4.x LTS exporters reject
+    # it, and there the identity transform alone already guarantees it.
+    if _operator_has_property(bpy.ops.wm.obj_export, "apply_transform"):
+        kwargs["apply_transform"] = False
+    bpy.ops.wm.obj_export(**kwargs)
 
 
 def _import_result(filepath):
@@ -706,6 +714,17 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
     bl_label = "Remesh with RetopoForge"
     bl_options = {"REGISTER", "UNDO"}
 
+    # Chained callers (Remesh + Bake All) need HIGH intact whatever the
+    # panel or the recalled settings say; never saved into the recall blob.
+    force_keep_original: BoolProperty(
+        name="Force Keep Original",
+        default=False,
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+
+    def _keep_original(self):
+        return self._params.keep_original or self.force_keep_original
+
     def _export_job(self, context, obj, index):
         _ensure_object_mode()
         context.view_layer.update()
@@ -729,19 +748,28 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
             raise RuntimeError("CLI output imported no mesh objects")
         new_mesh = imported[0].data
         new_mesh.name = job["obj"].name + "_remeshed"
-        if self._params.keep_original:
-            copy = job["obj"].copy()
-            copy.data = new_mesh
-            copy.name = job["obj"].name + "_retopo"
-            context.collection.objects.link(copy)
-            copy.matrix_world = job["matrix"]
+        if self._keep_original():
+            result_obj = job["obj"].copy()
+            result_obj.data = new_mesh
+            result_obj.name = job["obj"].name + "_retopo"
+            # Sibling of the source: same collections, not whichever
+            # collection happens to be active.
+            for coll in job["obj"].users_collection:
+                coll.objects.link(result_obj)
+            result_obj.matrix_world = job["matrix"]
             job["obj"].hide_viewport = True
         else:
-            old_mesh = job["obj"].data
-            job["obj"].data = new_mesh
+            result_obj = job["obj"]
+            old_mesh = result_obj.data
+            result_obj.data = new_mesh
             if old_mesh.users == 0:
                 bpy.data.meshes.remove(old_mesh)
-            job["obj"].matrix_world = job["matrix"]
+            result_obj.matrix_world = job["matrix"]
+        if self._params.apply_modifiers:
+            # The exported mesh already had the stack applied; leaving it
+            # live would apply it twice (a Mirror doubles, a Subsurf
+            # re-smooths the fresh quads), exactly like Blender's Apply.
+            result_obj.modifiers.clear()
         for temp in imported:
             bpy.data.objects.remove(temp, do_unlink=True)
         summary = parse_summary(stdout_text)
@@ -1094,31 +1122,161 @@ class RETOPOFORGE_OT_generate_lods(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _ensure_bake_target(obj, image):
-    """Give obj a material with an active Image Texture node holding image
-    (the node Cycles bakes into). Reuses the first material slot, creating
-    a node-based material only when the object has none."""
-    mat = obj.data.materials[0] if len(obj.data.materials) else None
+# Marks a LOW material the bake created (safe to rewire on every bake);
+# a material the user brought is only given image nodes, never rewired.
+_BAKE_MATERIAL_TAG = "retopoforge_bake"
+# Data maps store raw values: tagging them Non-Color keeps Blender from
+# sRGB-encoding the bake and makes the saved PNGs load back correctly.
+_NON_COLOR_MAPS = frozenset({"normal", "roughness", "metallic", "ao"})
+# AO is the one Monte Carlo pass here; one sample is pure noise.
+_AO_BAKE_SAMPLES = 64
+# Scene settings the bake overrides, restored afterwards (dotted paths
+# from the scene).
+_BAKE_SCENE_SETTINGS = (
+    "render.engine",
+    "cycles.device",
+    "cycles.samples",
+    "render.bake.use_selected_to_active",
+    "render.bake.use_cage",
+    "render.bake.cage_object",
+    "render.bake.cage_extrusion",
+    "render.bake.margin",
+    "render.bake.use_clear",
+)
+
+
+def _snapshot_settings(scene, paths):
+    saved = []
+    for path in paths:
+        owner_path, _, attr = path.rpartition(".")
+        owner = scene
+        for part in owner_path.split("."):
+            owner = getattr(owner, part)
+        saved.append((owner, attr, getattr(owner, attr)))
+    return saved
+
+
+def _restore_settings(saved):
+    for owner, attr, value in saved:
+        try:
+            setattr(owner, attr, value)
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+
+def _bake_image(name, size, filepath, non_color):
+    """The image a map bakes into, reused across re-bakes (so repeated
+    bakes overwrite one datablock and file instead of piling up .001
+    copies)."""
+    image = bpy.data.images.get(name)
+    if image is None:
+        image = bpy.data.images.new(name, size, size, alpha=True)
+    else:
+        # Back to a blank generated buffer at the requested size: the
+        # last bake's PNG may since have been moved or deleted, and a
+        # FILE image would then fail to load its buffer.
+        image.source = "GENERATED"
+        image.generated_type = "BLANK"
+        image.generated_width = size
+        image.generated_height = size
+    image.file_format = "PNG"
+    image.filepath_raw = filepath
+    try:
+        image.colorspace_settings.name = ("Non-Color" if non_color
+                                          else "sRGB")
+    except TypeError:
+        pass
+    return image
+
+
+def _bake_material(obj):
+    """obj's first material, the one the bake target nodes live in.
+    An object with no (or an empty) first slot gets a fresh tagged
+    node material there."""
+    mats = obj.data.materials
+    mat = mats[0] if len(mats) else None
     if mat is None:
         mat = bpy.data.materials.new(name=f"{obj.name}_bake")
         mat.use_nodes = True
-        obj.data.materials.append(mat)
+        mat[_BAKE_MATERIAL_TAG] = True
+        if len(mats):
+            mats[0] = mat
+        else:
+            mats.append(mat)
     if not mat.use_nodes:
         mat.use_nodes = True
+    return mat
+
+
+def _bake_node(mat, name, image):
+    """The Image Texture node holding one baked map (found by name on
+    re-bakes)."""
     nodes = mat.node_tree.nodes
-    tex = None
-    for node in nodes:
-        if node.type == "TEX_IMAGE" and node.image is image:
-            tex = node
-            break
-    if tex is None:
-        tex = nodes.new("ShaderNodeTexImage")
-        tex.image = image
-    for node in nodes:
-        node.select = False
-    tex.select = True
-    nodes.active = tex
-    return tex
+    node_name = f"RetopoForge {name}"
+    node = nodes.get(node_name)
+    if node is None or node.type != "TEX_IMAGE":
+        node = nodes.new("ShaderNodeTexImage")
+        node.name = node_name
+        node.label = node_name
+    node.image = image
+    return node
+
+
+def _activate_bake_node(mat, node):
+    """Cycles bakes into the material's active Image Texture node."""
+    for other in mat.node_tree.nodes:
+        other.select = False
+    node.select = True
+    mat.node_tree.nodes.active = node
+
+
+def _wire_baked_maps(mat, map_nodes):
+    """Hook the baked maps into a bake-created material's Principled
+    BSDF so the LOW renders textured right away. AO has no Principled
+    input and stays an unlinked node."""
+    if not mat.get(_BAKE_MATERIAL_TAG):
+        return
+    tree = mat.node_tree
+    bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"),
+                None)
+    if bsdf is None:
+        return
+
+    def feed(socket_name, output):
+        socket = bsdf.inputs.get(socket_name)
+        if socket is None:
+            return
+        for link in list(socket.links):
+            tree.links.remove(link)
+        tree.links.new(output, socket)
+
+    order = ("diffuse", "roughness", "metallic", "normal", "emission", "ao")
+    for row, name in enumerate(n for n in order if n in map_nodes):
+        map_nodes[name].location = (bsdf.location.x - 600,
+                                    bsdf.location.y - 280 * row)
+    for name, socket_name in (("diffuse", "Base Color"),
+                              ("roughness", "Roughness"),
+                              ("metallic", "Metallic"),
+                              ("emission", "Emission Color")):
+        if name in map_nodes:
+            feed(socket_name, map_nodes[name].outputs["Color"])
+    if "emission" in map_nodes:
+        strength = bsdf.inputs.get("Emission Strength")
+        if strength is not None and not strength.is_linked:
+            strength.default_value = 1.0
+    if "normal" in map_nodes:
+        normal_map = tree.nodes.get("RetopoForge normal map")
+        if normal_map is None or normal_map.type != "NORMAL_MAP":
+            normal_map = tree.nodes.new("ShaderNodeNormalMap")
+            normal_map.name = "RetopoForge normal map"
+            normal_map.label = normal_map.name
+        normal_map.location = (bsdf.location.x - 250,
+                               map_nodes["normal"].location.y)
+        for link in list(normal_map.inputs["Color"].links):
+            tree.links.remove(link)
+        tree.links.new(map_nodes["normal"].outputs["Color"],
+                       normal_map.inputs["Color"])
+        feed("Normal", normal_map.outputs["Normal"])
 
 
 def _ensure_high_material(obj):
@@ -1330,6 +1488,14 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
     bl_label = "Bake High to Low"
     bl_options = {"REGISTER", "UNDO"}
 
+    # Remesh + Bake All bakes onto a LOW that did not exist a moment ago,
+    # so no cage can match it yet: the chained call bakes without one.
+    ignore_cage: BoolProperty(
+        name="Ignore Cage",
+        default=False,
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+
     def execute(self, context):
         params = context.scene.retopoforge_params
         high = context.view_layer.objects.active
@@ -1348,14 +1514,9 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             self.report({"INFO"},
                         f"Multiple LOW candidates; baking to '{low.name}'")
 
-        uv_note = None
-        if params.bake_uv_mode == "UNWRAP":
-            uv_note = _unwrap_pack_low(context, low, params)
-        else:
-            _smart_uv_low(context, low)
-        _ensure_high_material(high)
-
-        cage = params.bake_cage
+        # Validate the cage before touching anything (UV prep rewrites
+        # LOW's UVs, so a late cancel would leave them changed).
+        cage = None if self.ignore_cage else params.bake_cage
         if cage is not None:
             if cage.type != "MESH":
                 self.report({"ERROR"},
@@ -1372,48 +1533,49 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
                     f"{len(low.data.polygons)} (duplicate LOW and inflate it)")
                 return {"CANCELLED"}
 
+        uv_note = None
+        if params.bake_uv_mode == "UNWRAP":
+            uv_note = _unwrap_pack_low(context, low, params)
+        else:
+            _smart_uv_low(context, low)
+        _ensure_high_material(high)
+
         # Job list: (map name, bake type, pass filter, bake-toggle on,
         # source carries the map). Diffuse + normal + AO always run when
         # toggled (albedo flat-colors still transfer; normal/AO derive
         # from geometry); roughness/metallic/emission skip with a note
         # when no HIGH material feeds that socket.
+        metallic_src = None
+        if params.bake_metallic:
+            metallic_src = _metallic_bake_source(context, high)
         jobs = [
             ("diffuse", "DIFFUSE", {"COLOR"}, True, True),
             ("normal", "NORMAL", set(), params.bake_normal, True),
             ("roughness", "ROUGHNESS", set(), params.bake_roughness,
              _socket_used(high, "Roughness", 0.5)),
-            ("metallic", "EMIT", set(), params.bake_metallic, False),
+            ("metallic", "EMIT", set(), params.bake_metallic,
+             metallic_src is not None),
             ("ao", "AO", set(), params.bake_ao, True),
             ("emission", "EMIT", set(), params.bake_emission,
              _emission_used(high)),
         ]
-        metallic_src = None
-        if params.bake_metallic:
-            metallic_src = _metallic_bake_source(context, high)
-        jobs[3] = ("metallic", "EMIT", set(), params.bake_metallic,
-                   metallic_src is not None)
 
-        outdir = os.path.dirname(bpy.data.filepath) or "/tmp"
+        outdir = os.path.dirname(bpy.data.filepath) or tempfile.gettempdir()
         size = int(params.bake_size)
-        images = {}
+        mat = _bake_material(low)
+        map_nodes = {}
         for name, _, _, enabled, used in jobs:
             if not (enabled and used):
                 continue
-            img = bpy.data.images.new(f"{low.name}_{name}", size, size,
-                                      alpha=True)
-            img.file_format = "PNG"
-            img.filepath_raw = os.path.join(outdir, f"{low.name}_{name}.png")
-            images[name] = img
-        tex_node = _ensure_bake_target(low, images["diffuse"])
+            image = _bake_image(f"{low.name}_{name}", size,
+                                os.path.join(outdir, f"{low.name}_{name}.png"),
+                                name in _NON_COLOR_MAPS)
+            map_nodes[name] = _bake_node(mat, name, image)
 
         scene = context.scene
-        saved_engine = scene.render.engine
-        saved_samples = scene.cycles.samples if saved_engine == "CYCLES" else None
-        saved_cage = scene.render.bake.cage_object
-        saved_use_cage = scene.render.bake.use_cage
+        saved = _snapshot_settings(scene, _BAKE_SCENE_SETTINGS)
         scene.render.engine = "CYCLES"
         scene.cycles.device = "CPU"
-        scene.cycles.samples = 1
         bake = scene.render.bake
         bake.use_selected_to_active = True
         bake.use_cage = cage is not None
@@ -1441,14 +1603,16 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
                 low.select_set(True)
                 context.view_layer.objects.active = low
                 context.view_layer.update()
-                tex_node.image = images[name]
+                scene.cycles.samples = _AO_BAKE_SAMPLES if btype == "AO" else 1
+                _activate_bake_node(mat, map_nodes[name])
                 if filt:
                     bpy.ops.object.bake(type=btype, pass_filter=filt,
                                         use_clear=True)
                 else:
                     bpy.ops.object.bake(type=btype, use_clear=True)
-                images[name].save()
-                lines.append(f"{low.name}: {name} -> {images[name].filepath_raw}")
+                image = map_nodes[name].image
+                image.save()
+                lines.append(f"{low.name}: {name} -> {image.filepath_raw}")
         except RuntimeError as exc:
             self.report({"ERROR"}, f"Bake failed: {exc}")
             return {"CANCELLED"}
@@ -1461,12 +1625,10 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
             context.view_layer.objects.active = high
             # The bake needs Cycles, but the scene is the user's: put the
             # render settings back the way they were.
-            scene.render.engine = saved_engine
-            bake.cage_object = saved_cage
-            bake.use_cage = saved_use_cage
-            if saved_samples is not None:
-                scene.cycles.samples = saved_samples
+            _restore_settings(saved)
 
+        _wire_baked_maps(mat, map_nodes)
+        _activate_bake_node(mat, map_nodes["diffuse"])
         if uv_note is not None:
             lines.insert(0, f"{low.name}: {uv_note}")
         line = "\n".join(lines)
@@ -1647,62 +1809,130 @@ def _bary_weights_3d(p, a, b, c):
     return (1.0 - v - w, v, w)
 
 
-def _face_correspondence(context, high, low, max_dist_frac):
-    """Nearest-face mapping HIGH -> LOW for attribute transfer.
+def _uv_islands(mesh, uv_layer):
+    """Per-polygon UV island ids: polygons sharing an edge join one
+    island unless the edge is a UV seam (its two corners carry different
+    UVs on either side)."""
+    parent = list(range(len(mesh.polygons)))
 
-    Per LOW face: BVH-nearest HIGH face within range (fraction of the
-    HIGH bbox diagonal); per LOW corner: barycentric weights into a
-    fan triangle of that HIGH face. Returns (items, projected,
-    skipped) where items holds (low_poly, high_poly, corners) and each
-    corner is (low_loop_index, (ia, ib, ic), (w0, w1, w2)) with
-    fan-triangle vertices indexed into the HIGH poly's vert/loop
-    lists. Shared by UV projection and color transfer."""
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    uvs = uv_layer.uv
+    first_owner = {}
+    for poly in mesh.polygons:
+        verts = poly.vertices
+        loops = poly.loop_indices
+        n = len(verts)
+        for k in range(n):
+            va, vb = verts[k], verts[(k + 1) % n]
+            ua = tuple(uvs[loops[k]].vector)
+            ub = tuple(uvs[loops[(k + 1) % n]].vector)
+            key, uv_key = ((va, vb), (ua, ub)) if va < vb else \
+                ((vb, va), (ub, ua))
+            owner = first_owner.get(key)
+            if owner is None:
+                first_owner[key] = (poly.index, uv_key)
+            elif owner[1] == uv_key:
+                parent[find(owner[0])] = find(poly.index)
+    return [find(i) for i in range(len(parent))]
+
+
+def _face_correspondence(high, low, max_dist_frac, island_of=None):
+    """Nearest-point mapping LOW corners -> HIGH surface for attribute
+    transfer.
+
+    A LOW face is in range when its center lies within max_dist_frac
+    of the HIGH bbox diagonal; its nearest HIGH face is the anchor.
+    Every corner then maps to its own nearest HIGH point (sampling one
+    HIGH face per LOW face would clamp all corners onto that small face
+    and shrink the result). With island_of (per-HIGH-polygon UV island
+    ids), a corner whose nearest point lies in another island than the
+    anchor is re-projected within the anchor's island, so no LOW face
+    straddles a UV seam. HIGH is read as its base mesh, so face indices
+    always match its data (modifiers are not evaluated).
+
+    Returns (items, projected, skipped): items holds (low_poly, corners)
+    with each corner (low_loop, high_loops, high_verts, weights), three
+    HIGH loop/vertex indices of the fan triangle holding the projected
+    point and its barycentric weights."""
     from mathutils.bvhtree import BVHTree
 
-    depsgraph = context.evaluated_depsgraph_get()
-    tree = BVHTree.FromObject(high, depsgraph)
-    diag = (high.matrix_world @ Vector(high.bound_box[6])
-            - high.matrix_world @ Vector(high.bound_box[0])).length
-    max_dist = float(max_dist_frac) * diag
-    high_world = high.matrix_world
-    low_world = low.matrix_world
     high_mesh = high.data
+    high_world = high.matrix_world
+    hverts = [high_world @ v.co for v in high_mesh.vertices]
+    hpolys = high_mesh.polygons
+    tree = BVHTree.FromPolygons(hverts, [tuple(p.vertices) for p in hpolys])
+    diag = (high_world @ Vector(high.bound_box[6])
+            - high_world @ Vector(high.bound_box[0])).length
+    max_dist = float(max_dist_frac) * diag
+
+    island_members = {}
+    if island_of is not None:
+        for index, island in enumerate(island_of):
+            island_members.setdefault(island, []).append(index)
+    island_trees = {}
+
+    def nearest_in_island(island, point):
+        entry = island_trees.get(island)
+        if entry is None:
+            members = island_members[island]
+            entry = (BVHTree.FromPolygons(
+                hverts, [tuple(hpolys[i].vertices) for i in members]),
+                members)
+            island_trees[island] = entry
+        location, _, local, _ = entry[0].find_nearest(point)
+        return location, entry[1][local]
+
+    def corner_on(face_idx, point):
+        hpoly = hpolys[face_idx]
+        pverts = hpoly.vertices
+        ploops = hpoly.loop_indices
+        best = None
+        best_d2 = float("inf")
+        for k in range(1, len(pverts) - 1):
+            tri = (0, k, k + 1)
+            a, b, c = (hverts[pverts[t]] for t in tri)
+            w = _bary_weights_3d(point, a, b, c)
+            d2 = (point - (a * w[0] + b * w[1] + c * w[2])).length_squared
+            if d2 < best_d2:
+                best_d2 = d2
+                best = (tuple(ploops[t] for t in tri),
+                        tuple(pverts[t] for t in tri), w)
+        return best
+
+    low_world = low.matrix_world
+    low_mesh = low.data
     items = []
     projected = 0
     skipped = 0
-    for poly in low.data.polygons:
-        center = low_world @ poly.center
-        _, _, face_idx, dist = tree.find_nearest(center)
-        if face_idx is None or dist > max_dist:
+    for poly in low_mesh.polygons:
+        _, _, anchor, dist = tree.find_nearest(low_world @ poly.center)
+        if anchor is None or dist > max_dist:
             skipped += 1
             continue
-        hpoly = high_mesh.polygons[face_idx]
-        hvis = [high_world @ high_mesh.vertices[vi].co
-                for vi in hpoly.vertices]
-        fan = [(0, k, k + 1) for k in range(1, len(hvis) - 1)]
         corners = []
         for li in poly.loop_indices:
-            corner = low_world @ low.data.vertices[
-                low.data.loops[li].vertex_index].co
-            best = None
-            best_d2 = float("inf")
-            for (ia, ib, ic) in fan:
-                w = _bary_weights_3d(corner, hvis[ia], hvis[ib], hvis[ic])
-                q = hvis[ia] * w[0] + hvis[ib] * w[1] + hvis[ic] * w[2]
-                d2 = (corner - q).length_squared
-                if d2 < best_d2:
-                    best_d2 = d2
-                    best = ((ia, ib, ic), w)
-            corners.append((li,) + best)
-        items.append((poly, hpoly, corners))
+            point = low_world @ low_mesh.vertices[
+                low_mesh.loops[li].vertex_index].co
+            location, _, face_idx, _ = tree.find_nearest(point)
+            if (island_of is not None
+                    and island_of[face_idx] != island_of[anchor]):
+                location, face_idx = nearest_in_island(
+                    island_of[anchor], point)
+            corners.append((li,) + corner_on(face_idx, location))
+        items.append((poly, corners))
         projected += 1
     return items, projected, skipped
 
 
 class RETOPOFORGE_OT_project_uvs(bpy.types.Operator):
     """Copy HIGH UVs onto the LOW mesh by nearest-point projection
-    (per-face, so original UV seams survive; faces beyond range keep
-    their UVs)"""
+    (each LOW face stays inside one HIGH UV island, so seams survive;
+    faces beyond range keep their UVs)"""
 
     bl_idname = "retopoforge.project_uvs"
     bl_label = "Project HIGH UVs"
@@ -1727,12 +1957,14 @@ class RETOPOFORGE_OT_project_uvs(bpy.types.Operator):
         if low_uv is None:
             low_uv = low.data.uv_layers.new(name="Projected")
         items, projected, skipped = _face_correspondence(
-            context, high, low, params.project_uv_max_dist)
-        for _, hpoly, corners in items:
-            huvs = [high_uv.uv[li].vector for li in hpoly.loop_indices]
-            for li, (ia, ib, ic), (w0, w1, w2) in corners:
-                low_uv.uv[li].vector = (huvs[ia] * w0 + huvs[ib] * w1
-                                        + huvs[ic] * w2).to_2d()
+            high, low, params.project_uv_max_dist,
+            island_of=_uv_islands(high.data, high_uv))
+        huv = high_uv.uv
+        for _, corners in items:
+            for li, (la, lb, lc), _, (w0, w1, w2) in corners:
+                low_uv.uv[li].vector = (huv[la].vector * w0
+                                        + huv[lb].vector * w1
+                                        + huv[lc].vector * w2)
         line = (f"{low.name}: projected UVs on {projected}/"
                 f"{projected + skipped} faces ({skipped} beyond range)")
         context.scene.retopoforge_last_report += line + "\n"
@@ -1768,20 +2000,15 @@ class RETOPOFORGE_OT_transfer_colors(bpy.types.Operator):
             high_col.name, "FLOAT_COLOR", "CORNER")
         low.data.color_attributes.active_color = low_col
         items, projected, skipped = _face_correspondence(
-            context, high, low, params.transfer_max_dist)
-        high_mesh = high.data
-        for _, hpoly, corners in items:
-            if high_col.domain == "POINT":
-                vals = [high_col.data[vi].color
-                        for vi in hpoly.vertices]
-            else:
-                vals = [high_col.data[li].color
-                        for li in hpoly.loop_indices]
-            for li, (ia, ib, ic), (w0, w1, w2) in corners:
-                mixed = [vals[ia][c] * w0 + vals[ib][c] * w1
-                         + vals[ic][c] * w2 for c in range(4)]
-                low_col.data[li].color = (mixed[0], mixed[1], mixed[2],
-                                          mixed[3])
+            high, low, params.transfer_max_dist)
+        by_point = high_col.domain == "POINT"
+        hdata = high_col.data
+        for _, corners in items:
+            for li, hloops, hvs, (w0, w1, w2) in corners:
+                ia, ib, ic = hvs if by_point else hloops
+                a, b, c = hdata[ia].color, hdata[ib].color, hdata[ic].color
+                low_col.data[li].color = tuple(
+                    a[k] * w0 + b[k] * w1 + c[k] * w2 for k in range(4))
         line = (f"{low.name}: transferred colors on {projected}/"
                 f"{projected + skipped} faces ({skipped} beyond range)")
         context.scene.retopoforge_last_report += line + "\n"
@@ -1798,47 +2025,42 @@ class RETOPOFORGE_OT_remesh_and_bake(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        params = context.scene.retopoforge_params
         high = context.active_object
         if high is None or high.type != "MESH":
             self.report({"ERROR"},
                         "Make the HIGH-poly mesh the active object")
             return {"CANCELLED"}
-        # Chained bake needs the HIGH mesh intact: force keep-original
-        # for the remesh leg, restoring the user's setting afterwards.
-        saved_keep = params.keep_original
-        params.keep_original = True
+        # Chained bake needs the HIGH mesh intact: force keep-original for
+        # the remesh leg via the operator, never via the scene params (the
+        # remesh leg's settings recall would overwrite a param, and the
+        # forced value would then be saved as the user's choice).
         before = set(bpy.data.objects)
-        try:
-            for o in context.selected_objects:
-                o.select_set(False)
-            high.select_set(True)
-            context.view_layer.objects.active = high
-            result = bpy.ops.retopoforge.remesh()
-            if "FINISHED" not in result:
-                self.report({"ERROR"}, "Remesh leg failed, bake skipped")
-                return {"CANCELLED"}
-            fresh = [o for o in bpy.data.objects
-                     if o not in before and o.type == "MESH"]
-            if not fresh:
-                self.report({"ERROR"},
-                            "Remesh produced no new mesh object")
-                return {"CANCELLED"}
-            low = fresh[0]
-            # The remesh leg hides HIGH; the chained bake raycasts it,
-            # so unhide first (viewport-hidden objects bake black).
-            high.hide_viewport = False
-            for o in context.selected_objects:
-                o.select_set(False)
-            low.select_set(True)
-            high.select_set(True)
-            context.view_layer.objects.active = high
-            result = bpy.ops.retopoforge.bake_textures()
-            if "FINISHED" not in result:
-                self.report({"ERROR"}, "Bake leg failed")
-                return {"CANCELLED"}
-        finally:
-            params.keep_original = saved_keep
+        for o in context.selected_objects:
+            o.select_set(False)
+        high.select_set(True)
+        context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.remesh(force_keep_original=True)
+        if "FINISHED" not in result:
+            self.report({"ERROR"}, "Remesh leg failed, bake skipped")
+            return {"CANCELLED"}
+        fresh = [o for o in bpy.data.objects
+                 if o not in before and o.type == "MESH"]
+        if not fresh:
+            self.report({"ERROR"}, "Remesh produced no new mesh object")
+            return {"CANCELLED"}
+        low = fresh[0]
+        # The remesh leg hides HIGH; the chained bake raycasts it,
+        # so unhide first (viewport-hidden objects bake black).
+        high.hide_viewport = False
+        for o in context.selected_objects:
+            o.select_set(False)
+        low.select_set(True)
+        high.select_set(True)
+        context.view_layer.objects.active = high
+        result = bpy.ops.retopoforge.bake_textures(ignore_cage=True)
+        if "FINISHED" not in result:
+            self.report({"ERROR"}, "Bake leg failed")
+            return {"CANCELLED"}
         self.report({"INFO"}, f"Remeshed + baked '{high.name}'")
         return {"FINISHED"}
 

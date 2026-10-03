@@ -2,9 +2,9 @@
 //!
 //! The errors that flow (flag parsing, constraint files, batch input
 //! collection) are all usage errors; runtime failures (load/remesh/
-//! write) report inline at their call sites with exit 1. See
-//! `docs/cli-ux-redesign.md` §5. All text and codes are pinned by the
-//! CLI contract goldens.
+//! write) report inline at their call sites with exit 1 (CLI UX spec
+//! section 5; the spec lived on branch `lane/cli-ux-spec`). All text
+//! and codes are pinned by the CLI contract goldens.
 
 /// A usage error the CLI reports on stderr (exit 2).
 pub(crate) enum CliError {
