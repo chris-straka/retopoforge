@@ -28,9 +28,12 @@ cannot carry UVs or vertex colors — the panel says so.
   whole chain (`--lods`).
 - **Settings recall** remembers the exact panel values used per object
   (including LOD targets, symmetry, guides, sharp features, and density
-  settings). The
-  next remesh of the same object restores them first, so a do-over is
-  one click; the blob lives on the scene and survives save/reload.
+  settings). Making a remeshed object active again restores them into
+  the panel; objects never remeshed leave the panel as it is. Recall
+  never fires on Remesh itself, so values you edit with the object
+  still active are what the do-over uses. Remesh leaves its results
+  selected and active, so a tweak-and-redo is one click. The blob lives
+  on the scene and survives save/reload.
 
 ## Flow guides
 

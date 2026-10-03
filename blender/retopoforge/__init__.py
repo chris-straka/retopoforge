@@ -10,6 +10,7 @@
 # The engine stays MIT-licensed: this GPL extension talks to it only as a
 # subprocess over OBJ files, never linked, never imported.
 
+import contextlib
 import json
 import os
 import re
@@ -26,6 +27,7 @@ from bpy.props import (
     PointerProperty,
     StringProperty,
 )
+from bpy.app.handlers import persistent
 from mathutils import Matrix, Vector
 
 # Must equal the module name Blender loaded us under: "retopoforge" on the
@@ -137,11 +139,18 @@ def load_recall_entry(context, obj_name):
     """Copy the saved params for obj_name into the scene params. Returns
     True when an entry existed (even if some keys were invalid and
     skipped); unknown keys and mistyped values never raise."""
-    blob = _read_recall_blob(context)
-    entry = blob.get(obj_name)
+    return _load_recall_into(context.scene, obj_name)
+
+
+def _load_recall_into(scene, obj_name):
+    try:
+        blob = json.loads(scene.retopoforge_recall or "{}")
+    except (ValueError, TypeError):
+        return False
+    entry = blob.get(obj_name) if isinstance(blob, dict) else None
     if not isinstance(entry, dict):
         return False
-    params = context.scene.retopoforge_params
+    params = scene.retopoforge_params
     for key in _RECALL_INT_KEYS:
         value = entry.get(key)
         if isinstance(value, int) and not isinstance(value, bool):
@@ -183,15 +192,70 @@ def load_recall_entry(context, obj_name):
     return True
 
 
-def _recall_target_name(context, targets):
-    # Multi-object remesh recalls the active object's entry (the one the
-    # user most likely tuned for); a non-mesh active object falls back to
-    # the first target so single-object runs always recall themselves.
-    active = context.view_layer.objects.active
-    if (active is not None and active.type == "MESH"
-            and any(o.name == active.name for o in targets)):
-        return active.name
-    return targets[0].name
+# Recall fires when the user makes a different mesh object active (the
+# next depsgraph update notices), never on Remesh itself: values edited
+# in the panel after picking an object are what the next remesh uses.
+# Keyed per (scene, view layer); the add-on's own operators move the
+# active object around internally, so they pause recall and mark the
+# final active object as seen on the way out.
+_recall_last_active = {}
+_recall_pause_depth = 0
+
+
+def _active_mesh_name(view_layer):
+    active = view_layer.objects.active
+    if active is None or active.type != "MESH":
+        return None
+    return active.name
+
+
+def _recall_key(scene, view_layer):
+    return (scene.as_pointer(), view_layer.name)
+
+
+def _mark_active_seen(context):
+    view_layer = context.view_layer
+    _recall_last_active[_recall_key(context.scene, view_layer)] = \
+        _active_mesh_name(view_layer)
+
+
+def _pause_recall():
+    global _recall_pause_depth
+    _recall_pause_depth += 1
+
+
+def _resume_recall(context):
+    global _recall_pause_depth
+    _recall_pause_depth = max(0, _recall_pause_depth - 1)
+    _mark_active_seen(context)
+
+
+@contextlib.contextmanager
+def _recall_paused(context):
+    _pause_recall()
+    try:
+        yield
+    finally:
+        _resume_recall(context)
+
+
+@persistent
+def _recall_on_active_change(scene, depsgraph):
+    if _recall_pause_depth:
+        return
+    view_layer = depsgraph.view_layer
+    name = _active_mesh_name(view_layer)
+    key = _recall_key(scene, view_layer)
+    if key in _recall_last_active and _recall_last_active[key] == name:
+        return
+    _recall_last_active[key] = name
+    if name is not None:
+        _load_recall_into(scene, name)
+
+
+@persistent
+def _recall_forget_on_load(_):
+    _recall_last_active.clear()
 
 
 class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
@@ -451,6 +515,20 @@ class RetopoForgePreferences(bpy.types.AddonPreferences):
             box.label(text="Using: " + found, icon="CHECKMARK")
         else:
             box.label(text="No retopo binary found", icon="ERROR")
+
+
+def _select_results(context, results, active_name):
+    """Leave the remesh results (source name -> result object) selected,
+    with the result of the previously active source active, so a
+    do-over is one click and recall sees no object switch."""
+    if not results:
+        return
+    for o in context.selected_objects:
+        o.select_set(False)
+    for obj in results.values():
+        obj.select_set(True)
+    context.view_layer.objects.active = (results.get(active_name)
+                                         or next(iter(results.values())))
 
 
 def _mesh_objects(context):
@@ -772,6 +850,7 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
             result_obj.modifiers.clear()
         for temp in imported:
             bpy.data.objects.remove(temp, do_unlink=True)
+        self._results[job["obj"].name] = result_obj
         summary = parse_summary(stdout_text)
         if summary is not None:
             quads, non_quads, verts, seconds = summary
@@ -806,6 +885,10 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         tmpdir = getattr(self, "_tmpdir", "")
         if tmpdir and os.path.isdir(tmpdir):
             shutil.rmtree(tmpdir, ignore_errors=True)
+        if getattr(self, "_recall_paused", False):
+            self._recall_paused = False
+            _select_results(context, self._results, self._active_name)
+            _resume_recall(context)
 
     # -- synchronous path (headless use, tests) -------------------------
 
@@ -820,13 +903,14 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         if not targets:
             self.report({"ERROR"}, "Select at least one mesh object")
             return {"CANCELLED"}
-        # Do-overs are one click: a previous remesh of this object restores
-        # its exact params (same recall point as the modal invoke below, so
-        # headless runs behave identically). self._params aliases the scene
-        # group, so the loaded values flow straight into the CLI call.
-        recall_name = _recall_target_name(context, targets)
-        if load_recall_entry(context, recall_name):
-            self.report({"INFO"}, f"Recalled last settings for '{recall_name}'")
+        active_name = _active_mesh_name(context.view_layer)
+        self._results = {}
+        with _recall_paused(context):
+            result = self._execute_targets(context, binary, targets)
+            _select_results(context, self._results, active_name)
+        return result
+
+    def _execute_targets(self, context, binary, targets):
         self._tmpdir = tempfile.mkdtemp(prefix="retopoforge_")
         context.scene.retopoforge_last_report = ""
         try:
@@ -877,11 +961,12 @@ class RETOPOFORGE_OT_remesh(bpy.types.Operator):
         if not targets:
             self.report({"ERROR"}, "Select at least one mesh object")
             return {"CANCELLED"}
-        # Recall before queueing: at invoke, an entry for this object
-        # restores its last-used params so a do-over is one click.
-        recall_name = _recall_target_name(context, targets)
-        if load_recall_entry(context, recall_name):
-            self.report({"INFO"}, f"Recalled last settings for '{recall_name}'")
+        self._results = {}
+        self._active_name = _active_mesh_name(context.view_layer)
+        # Paused until _cleanup: every exit path (finish, error, ESC)
+        # runs through it.
+        _pause_recall()
+        self._recall_paused = True
         self._tmpdir = tempfile.mkdtemp(prefix="retopoforge_")
         self._queue = [{"obj": o, "matrix": o.matrix_world.copy()} for o in targets]
         self._total = len(self._queue)
@@ -1046,6 +1131,11 @@ class RETOPOFORGE_OT_generate_lods(bpy.types.Operator):
         return rung
 
     def execute(self, context):
+        # Moves the active object around internally: pause recall.
+        with _recall_paused(context):
+            return self._execute(context)
+
+    def _execute(self, context):
         params = context.scene.retopoforge_params
         prefs = context.preferences.addons[ADDON_ID].preferences
         binary = find_retopo_binary(prefs.retopo_binary)
@@ -1497,6 +1587,11 @@ class RETOPOFORGE_OT_bake_textures(bpy.types.Operator):
     )
 
     def execute(self, context):
+        # Moves the active object around internally: pause recall.
+        with _recall_paused(context):
+            return self._execute(context)
+
+    def _execute(self, context):
         params = context.scene.retopoforge_params
         high = context.view_layer.objects.active
         if high is None or high.type != "MESH":
@@ -2025,6 +2120,11 @@ class RETOPOFORGE_OT_remesh_and_bake(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        # Moves the active object around internally: pause recall.
+        with _recall_paused(context):
+            return self._execute(context)
+
+    def _execute(self, context):
         high = context.active_object
         if high is None or high.type != "MESH":
             self.report({"ERROR"},
@@ -2300,9 +2400,20 @@ def register():
         description="Per-object last-used remesh parameters as a JSON blob",
         default="",
     )
+    # After the scene properties exist: the handler reads them.
+    if _recall_on_active_change not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_recall_on_active_change)
+    if _recall_forget_on_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_recall_forget_on_load)
 
 
 def unregister():
+    for handlers, handler in (
+            (bpy.app.handlers.depsgraph_update_post, _recall_on_active_change),
+            (bpy.app.handlers.load_post, _recall_forget_on_load)):
+        if handler in handlers:
+            handlers.remove(handler)
+    _recall_last_active.clear()
     del bpy.types.Scene.retopoforge_recall
     del bpy.types.Scene.retopoforge_last_report
     del bpy.types.Scene.retopoforge_params
