@@ -51,7 +51,10 @@ coverage retry chain and native decimator all read correct.
 
 - The engine commit above was checked on Linux: full suite has the same
   11 platform-only failures with identical messages (see `AGENTS.md`),
-  zero warnings, and byte-identical outputs on armadillo + dragon @15k.
+  zero warnings, byte-identical outputs on armadillo + dragon @15k, and
+  `bench/run.py --check bench/baseline-linux.json` green with every
+  count and deform score identical to the pre-change run (only timings
+  moved; dragon/small 5.4s -> 4.7s).
   Confirm macOS CI (`development` workflow, `cargo test`) is green and
   `bench/run.py --check bench/baseline.json` passes on the Mac.
 
