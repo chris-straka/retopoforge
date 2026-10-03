@@ -13,7 +13,7 @@ Topology first, rig second:
 - One-off monsters: retopoforge remesh -> rigforge (`hll_stalker` or a
   new preset) -> weights.
 - Pieces (capes, hair, armor, clothes): weights copied from the body (Data
-  Transfer), see `~/Games/hll/tools/asset-pipeline.md`.
+  Transfer), see `~/Games/tools/asset-pipeline.md`.
 
 ## Tools
 
