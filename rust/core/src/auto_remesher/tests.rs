@@ -578,6 +578,107 @@ mod coverage_tests {
         );
     }
 
+    /// Spike routing: one giant fan tri (a folded-uv spike) on an
+    /// otherwise healthy output must not expand its whole bounding box
+    /// into the grid before the cell cap is checked. Its first edge is
+    /// short, so h stays at the grid's scale and the box spans ~1e4
+    /// cells per axis (~1e12 cells): the cap has to bail before
+    /// inserting it, and the scan fallback still answers exactly.
+    #[test]
+    fn spike_tri_bails_to_scan_before_expanding() {
+        let n = 20usize;
+        let (mut vertices, _, mut quads) = plane_grid(n);
+        let healthy = vertices.len();
+        vertices.push(v(-0.99, -0.99, 0.0));
+        vertices.push(v(1000.0, 1000.0, 1000.0));
+        quads.push(vec![0, 1, healthy, healthy + 1]);
+        let diag = 2.0 * 2.0f64.sqrt();
+        let unit = diag / (quads.len() as f64).sqrt();
+        let bar = AutoRemesher::COVERAGE_WIDTH_MULTIPLE * unit;
+        let index =
+            CoverageIndex::build(&vertices, &quads, bar).expect("valid fan tris build an index");
+        assert!(
+            matches!(index, CoverageIndex::Scan { .. }),
+            "a spike past the cell cap must route to Scan"
+        );
+        let mut seen = vec![0u32; index.tri_count()];
+        assert!(index.covered_within(&v(0.0, 0.0, 0.0), bar * bar, &mut seen, 1));
+        assert!(!index.covered_within(&v(0.0, 0.0, 50.0), bar * bar, &mut seen, 2));
+    }
+
+    /// `coverage_gaps` grid walk vs the full scan: bitwise-equal gaps
+    /// on a healthy output, a dropped half (far queries fall back to
+    /// the scan), and a spike output (grid build bails), with queries
+    /// on, above, beside, and far from the surface.
+    #[test]
+    fn coverage_gaps_grid_matches_scan_bitwise() {
+        let n = 24usize;
+        let (mut vertices, _, quads) = plane_grid(n);
+        // Wavy output so distances are not all axis-aligned zeros.
+        for (i, p) in vertices.iter_mut().enumerate() {
+            let z = 0.05 * ((i as f64) * 0.7).sin();
+            *p = v(p.x(), p.y(), z);
+        }
+        let half: Vec<Vec<usize>> = quads
+            .iter()
+            .enumerate()
+            .filter(|(c, _)| c % (n - 1) < n / 2)
+            .map(|(_, q)| q.clone())
+            .collect();
+        let mut spiked = quads.clone();
+        let mut spike_verts = vertices.clone();
+        spike_verts.push(v(1000.0, -1000.0, 1000.0));
+        spiked.push(vec![0, 1, n + 1, spike_verts.len() - 1]);
+        let mut queries = Vec::new();
+        for j in 0..40 {
+            for i in 0..40 {
+                let x = -1.3 + 2.6 * i as f64 / 39.0;
+                let y = -1.3 + 2.6 * j as f64 / 39.0;
+                let z = 0.4 * ((i * 7 + j * 3) as f64 * 0.37).sin();
+                queries.push(v(x, y, z));
+            }
+        }
+        queries.push(v(0.0, 0.0, 25.0));
+        queries.push(v(f64::NAN, 0.0, 0.0));
+        for (tag, verts, qs) in [
+            ("healthy", &vertices, &quads),
+            ("half", &vertices, &half),
+            ("spike", &spike_verts, &spiked),
+        ] {
+            let got = AutoRemesher::coverage_gaps(&queries, verts, qs);
+            let (fan, _) = CoverageIndex::fan(verts, qs);
+            let tris: Vec<(usize, usize, usize, [f64; 6])> = fan
+                .iter()
+                .map(|&(a, b, c)| {
+                    let (pa, pb, pc) = (&verts[a], &verts[b], &verts[c]);
+                    (
+                        a,
+                        b,
+                        c,
+                        [
+                            pa.x().min(pb.x()).min(pc.x()),
+                            pa.y().min(pb.y()).min(pc.y()),
+                            pa.z().min(pb.z()).min(pc.z()),
+                            pa.x().max(pb.x()).max(pc.x()),
+                            pa.y().max(pb.y()).max(pc.y()),
+                            pa.z().max(pb.z()).max(pc.z()),
+                        ],
+                    )
+                })
+                .collect();
+            for (k, q) in queries.iter().enumerate() {
+                let want = AutoRemesher::scan_nearest_dist2(q, verts, &tris).sqrt();
+                assert_eq!(
+                    got[k].to_bits(),
+                    want.to_bits(),
+                    "{tag}: query {k} grid gap {} vs scan {}",
+                    got[k],
+                    want
+                );
+            }
+        }
+    }
+
     /// Grid-arm agreement: a healthy output above `COVERAGE_SCAN_TRIS`
     /// routes to `Grid` and matches brute force on quiet (full grid)
     /// and firing (dropped half) outputs — the shell walk + ring exit

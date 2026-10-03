@@ -35,6 +35,8 @@ pub struct IsotropicRemesher<'a> {
     progress_handler: Option<ProgressHandler>,
     remeshed_vertices: Vec<Vector3>,
     remeshed_triangles: Vec<Vec<usize>>,
+    /// Report kernel construction anomalies on stderr (CLI `--verbose`).
+    verbose: bool,
 }
 
 impl<'a> IsotropicRemesher<'a> {
@@ -56,7 +58,15 @@ impl<'a> IsotropicRemesher<'a> {
             progress_handler: None,
             remeshed_vertices: Vec::new(),
             remeshed_triangles: Vec::new(),
+            verbose: false,
         }
+    }
+
+    /// Report non-triangle / repeated-halfedge input on stderr, one
+    /// summary line each (the C++ printed a line per occurrence on every
+    /// run; off by default so `--quiet` and default runs stay clean).
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.verbose = verbose;
     }
 
     /// Mirrors `setConstraintVertices` (stored; the C++ `remesh()` never
@@ -107,6 +117,15 @@ impl<'a> IsotropicRemesher<'a> {
     /// `nullptr` check is dead since the mesh is built in the constructor).
     pub fn remesh(&mut self) -> bool {
         let mut remesher = IsoRemeshKernel::new(&self.vertices, &self.triangles);
+        if self.verbose {
+            let (non_triangles, repeated) = remesher.build_anomalies();
+            if non_triangles > 0 {
+                eprintln!("Found non-triangle faces:{non_triangles}");
+            }
+            if repeated > 0 {
+                eprintln!("Found repeated halfedges:{repeated}");
+            }
+        }
         if self.target_edge_length > 0.0 {
             remesher.set_target_edge_length(self.target_edge_length);
         }

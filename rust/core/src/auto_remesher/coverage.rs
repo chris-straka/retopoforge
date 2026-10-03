@@ -5,8 +5,9 @@ use std::collections::HashMap;
 /// Output-side proximity index for the input-side verdict: a
 /// uniform grid over the fanned output quads, answering covered-or-not
 /// within a squared bar with early exit (input-side coverage runs over
-/// up to 150k input verts, where the `coverage_gaps` full scan is
-/// seconds per attempt). Small or degenerate outputs take the `Scan`
+/// up to 150k input verts, where a full scan is seconds per attempt;
+/// `coverage_gaps` reuses the same grid for exact nearest distances).
+/// Small or degenerate outputs take the `Scan`
 /// arm instead: when the mean fan edge collapses (h -> 0 on
 /// zero-area/repeated-corner tris), ring expansion would walk ~bar/h
 /// ~= 1e12 empty rings per query — that hung `differential_replay`
@@ -34,6 +35,15 @@ const COVERAGE_MAX_RINGS: f64 = 64.0;
 /// degenerate at grid scale (giant tris over a collapsed index) and
 /// the caller scans instead, staying exact.
 const COVERAGE_MAX_CELLS: usize = 1_000_000;
+
+/// Cell-key magnitude limit (2^52): below it every key is an exact
+/// integer and `floor(x / h)` is off by at most one cell.
+const KEY_LIMIT: f64 = 4_503_599_627_370_496.0;
+
+/// Rings the exact nearest-distance walk searches before handing a
+/// query to the full scan (a vertex far from every output tri would
+/// otherwise walk ~diag/h rings of empty cells).
+const NEAREST_MAX_RINGS: i64 = 6;
 
 impl<'v> CoverageIndex<'v> {
     /// Fan-triangulates `quads` (out-of-range corners skipped, never
@@ -121,9 +131,9 @@ pub(crate) struct CoverageGrid<'v> {
 impl<'v> CoverageGrid<'v> {
     /// Indexes pre-fanned `tris` with cell size `h` (`None` when the
     /// index would exceed `COVERAGE_MAX_CELLS`: the caller scans
-    /// instead). Per-tri spans are tri-local, so with the caller's
-    /// `h > bar/64` guarantee the ranges below are bounded and this
-    /// always terminates.
+    /// instead). Each tri's cell box is checked against the remaining
+    /// cap before it is expanded, so a single giant tri cannot blow
+    /// past the cap on its own and the build is bounded by the cap.
     pub(crate) fn build(
         verts: &'v [Vector3],
         tris: Vec<(usize, usize, usize)>,
@@ -135,16 +145,34 @@ impl<'v> CoverageGrid<'v> {
                 return None;
             }
             let (pa, pb, pc) = (&verts[a], &verts[b], &verts[c]);
-            let lo = [
-                (pa.x().min(pb.x()).min(pc.x()) / h).floor() as i64,
-                (pa.y().min(pb.y()).min(pc.y()) / h).floor() as i64,
-                (pa.z().min(pb.z()).min(pc.z()) / h).floor() as i64,
+            let lo_f = [
+                (pa.x().min(pb.x()).min(pc.x()) / h).floor(),
+                (pa.y().min(pb.y()).min(pc.y()) / h).floor(),
+                (pa.z().min(pb.z()).min(pc.z()) / h).floor(),
             ];
-            let hi = [
-                (pa.x().max(pb.x()).max(pc.x()) / h).floor() as i64,
-                (pa.y().max(pb.y()).max(pc.y()) / h).floor() as i64,
-                (pa.z().max(pb.z()).max(pc.z()) / h).floor() as i64,
+            let hi_f = [
+                (pa.x().max(pb.x()).max(pc.x()) / h).floor(),
+                (pa.y().max(pb.y()).max(pc.y()) / h).floor(),
+                (pa.z().max(pb.z()).max(pc.z()) / h).floor(),
             ];
+            // Keys past 2^52 cells are no longer exact integers (and
+            // saturate in i64 further out): the cell-distance bounds the
+            // queries rely on stop holding, so scan such outputs.
+            if lo_f.iter().chain(hi_f.iter()).any(|k| k.abs() >= KEY_LIMIT) {
+                return None;
+            }
+            let lo = lo_f.map(|k| k as i64);
+            let hi = hi_f.map(|k| k as i64);
+            // One spike tri (a folded-uv sliver with a short first
+            // edge) can span ~1e12 cells on its own: bail before
+            // expanding a box the cap could never hold. Span math in
+            // i128 (saturated keys from far-out coordinates can't wrap).
+            let span: i128 = (0..3)
+                .map(|axis| hi[axis] as i128 - lo[axis] as i128 + 1)
+                .product();
+            if span > (COVERAGE_MAX_CELLS - cells.len().min(COVERAGE_MAX_CELLS)) as i128 {
+                return None;
+            }
             for i in lo[0]..=hi[0] {
                 for j in lo[1]..=hi[1] {
                     for k in lo[2]..=hi[2] {
@@ -204,58 +232,11 @@ impl<'v> CoverageGrid<'v> {
         seen: &mut [u32],
         stamp: u32,
     ) -> bool {
-        let c = [
-            (p.x() / self.h).floor() as i64,
-            (p.y() / self.h).floor() as i64,
-            (p.z() / self.h).floor() as i64,
-        ];
-        // Wrapping: a query past ~9e18 cells saturates its base key;
-        // neighbors then alias arbitrary cells, but every tested tri is
-        // still measured exactly, so a `true` stays sound and the ring
-        // exit below still terminates the walk.
-        let cell = |dx: i64, dy: i64, dz: i64| {
-            [
-                c[0].wrapping_add(dx),
-                c[1].wrapping_add(dy),
-                c[2].wrapping_add(dz),
-            ]
-        };
+        let c = self.key_of(p);
         let mut r: i64 = 0;
         loop {
-            // Chebyshev shell == r, each cell once: full z-faces, then
-            // the x/y face strips over the open z-interval (r == 0
-            // visits the center cell once; at r > 0 the y strips run
-            // the open x-interval so shared edges meet once).
-            if r == 0 {
-                if self.test_cell(p, c, bar2, seen, stamp) {
-                    return true;
-                }
-            } else {
-                for &dz in &[-r, r] {
-                    for dx in -r..=r {
-                        for dy in -r..=r {
-                            if self.test_cell(p, cell(dx, dy, dz), bar2, seen, stamp) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-                for dz in -(r - 1)..=(r - 1) {
-                    for d in -r..=r {
-                        if self.test_cell(p, cell(r, d, dz), bar2, seen, stamp)
-                            || self.test_cell(p, cell(-r, d, dz), bar2, seen, stamp)
-                        {
-                            return true;
-                        }
-                    }
-                    for d in -(r - 1)..=(r - 1) {
-                        if self.test_cell(p, cell(d, r, dz), bar2, seen, stamp)
-                            || self.test_cell(p, cell(d, -r, dz), bar2, seen, stamp)
-                        {
-                            return true;
-                        }
-                    }
-                }
+            if Self::shell_any(c, r, |key| self.test_cell(p, key, bar2, seen, stamp)) {
+                return true;
             }
             // Remaining rings sit beyond r*h from the query: a bar
             // inside that proves uncovered (score.py's exit rule).
@@ -266,6 +247,110 @@ impl<'v> CoverageGrid<'v> {
             }
             r += 1;
         }
+    }
+
+    /// Query cell key. Wrapping: a query past ~9e18 cells saturates its
+    /// base key; neighbors then alias arbitrary cells, but every tested
+    /// tri is still measured exactly, so a covered `true` stays sound
+    /// and ring exits still terminate the walk.
+    fn key_of(&self, p: &Vector3) -> [i64; 3] {
+        [
+            (p.x() / self.h).floor() as i64,
+            (p.y() / self.h).floor() as i64,
+            (p.z() / self.h).floor() as i64,
+        ]
+    }
+
+    /// Visits the Chebyshev shell at ring `r` around `c`, each cell
+    /// once, in a fixed order: full z-faces, then the x/y face strips
+    /// over the open z-interval (r == 0 visits the center cell once; at
+    /// r > 0 the y strips run the open x-interval so shared edges meet
+    /// once). Stops at, and reports, the first cell `f` accepts.
+    fn shell_any(c: [i64; 3], r: i64, mut f: impl FnMut([i64; 3]) -> bool) -> bool {
+        let cell = |dx: i64, dy: i64, dz: i64| {
+            [
+                c[0].wrapping_add(dx),
+                c[1].wrapping_add(dy),
+                c[2].wrapping_add(dz),
+            ]
+        };
+        if r == 0 {
+            return f(c);
+        }
+        for &dz in &[-r, r] {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    if f(cell(dx, dy, dz)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        for dz in -(r - 1)..=(r - 1) {
+            for d in -r..=r {
+                if f(cell(r, d, dz)) || f(cell(-r, d, dz)) {
+                    return true;
+                }
+            }
+            for d in -(r - 1)..=(r - 1) {
+                if f(cell(d, r, dz)) || f(cell(d, -r, dz)) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Exact squared distance from `p` to the nearest indexed tri, or
+    /// `None` when `max_rings` rings could not prove it (the caller
+    /// scans). Exact means bitwise what a full scan returns: the
+    /// minimum is order-free and taken over a set proven to contain
+    /// the true nearest tri. Proof: keys are exact below `KEY_LIMIT`
+    /// and `fl(x / h)` is within a relative ~1e-16 of `x / h`, so a
+    /// tri whose cells all sit outside ring `r` (some axis key at
+    /// least `r + 1` cells off) is more than `r * h` away up to that
+    /// rounding; stopping once `((r - 1) * h)^2 >= best` leaves a full
+    /// cell of slack over it.
+    pub(crate) fn nearest_dist2(
+        &self,
+        p: &Vector3,
+        max_rings: i64,
+        seen: &mut [u32],
+        stamp: u32,
+    ) -> Option<f64> {
+        let scaled = [p.x() / self.h, p.y() / self.h, p.z() / self.h];
+        if scaled.iter().any(|k| !(k.abs() < KEY_LIMIT)) {
+            return None;
+        }
+        let c = self.key_of(p);
+        let mut best = f64::INFINITY;
+        for r in 0..=max_rings {
+            Self::shell_any(c, r, |key| {
+                if let Some(list) = self.cells.get(&key) {
+                    for &t in list.iter() {
+                        if seen[t] == stamp {
+                            continue;
+                        }
+                        seen[t] = stamp;
+                        let (a, b, c) = self.tris[t];
+                        let d2 = AutoRemesher::point_triangle_dist2(
+                            p,
+                            &self.verts[a],
+                            &self.verts[b],
+                            &self.verts[c],
+                        );
+                        if d2 < best {
+                            best = d2;
+                        }
+                    }
+                }
+                false
+            });
+            if r >= 1 && ((r - 1) as f64 * self.h).powi(2) >= best {
+                return Some(best);
+            }
+        }
+        None
     }
 }
 
@@ -403,9 +488,13 @@ impl AutoRemesher {
 
     /// Per-working-vertex distance to the extracted surface (quads
     /// triangulate as fans, matching `bench/score.py`): empty quads give
-    /// infinity (total failure). Each quad triangle carries an AABB
-    /// reject so covered verts skip far triangles cheaply. Pure function
-    /// of its inputs (fixed iteration order, f64).
+    /// infinity (total failure). Outputs of [`COVERAGE_SCAN_TRIS`]+ fan
+    /// tris index into a `CoverageGrid` and answer each vertex with its
+    /// exact nearest-distance walk; vertices the walk cannot settle
+    /// (and small or degenerate outputs) take the full scan, where each
+    /// quad triangle carries an AABB reject so far triangles are cheap.
+    /// Both paths return bitwise the same minimum, so the gaps are a
+    /// pure function of the inputs either way (f64).
     pub(crate) fn coverage_gaps(
         working: &[Vector3],
         quad_vertices: &[Vector3],
@@ -415,18 +504,15 @@ impl AutoRemesher {
             return vec![f64::INFINITY; working.len()];
         }
         // Flatten quad fans once, with AABBs.
-        let mut tris: Vec<(usize, usize, usize, [f64; 6])> = Vec::new();
-        for q in quads {
-            for k in 1..q.len().saturating_sub(1) {
-                let (a, b, c) = (q[0], q[k], q[k + 1]);
-                if a >= quad_vertices.len() || b >= quad_vertices.len() || c >= quad_vertices.len()
-                {
-                    continue;
-                }
-                let pa = &quad_vertices[a];
-                let pb = &quad_vertices[b];
-                let pc = &quad_vertices[c];
-                tris.push((
+        let (fan, total) = CoverageIndex::fan(quad_vertices, quads);
+        if fan.is_empty() {
+            return vec![f64::INFINITY; working.len()];
+        }
+        let tris: Vec<(usize, usize, usize, [f64; 6])> = fan
+            .iter()
+            .map(|&(a, b, c)| {
+                let (pa, pb, pc) = (&quad_vertices[a], &quad_vertices[b], &quad_vertices[c]);
+                (
                     a,
                     b,
                     c,
@@ -438,54 +524,82 @@ impl AutoRemesher {
                         pa.y().max(pb.y()).max(pc.y()),
                         pa.z().max(pb.z()).max(pc.z()),
                     ],
-                ));
+                )
+            })
+            .collect();
+        let grid = if fan.len() >= COVERAGE_SCAN_TRIS {
+            let h = 2.0 * total / fan.len() as f64;
+            if h.is_finite() && h > 0.0 {
+                CoverageGrid::build(quad_vertices, fan, h)
+            } else {
+                None
             }
-        }
-        if tris.is_empty() {
-            return vec![f64::INFINITY; working.len()];
-        }
+        } else {
+            None
+        };
+        let mut seen = vec![0u32; tris.len()];
+        let mut stamp: u32 = 0;
         let mut gaps = Vec::with_capacity(working.len());
         for p in working.iter() {
-            let mut best = f64::INFINITY;
-            for (a, b, c, bb) in tris.iter() {
-                // AABB reject against the running best.
-                let dx = if p.x() < bb[0] {
-                    bb[0] - p.x()
-                } else if p.x() > bb[3] {
-                    p.x() - bb[3]
-                } else {
-                    0.0
-                };
-                let dy = if p.y() < bb[1] {
-                    bb[1] - p.y()
-                } else if p.y() > bb[4] {
-                    p.y() - bb[4]
-                } else {
-                    0.0
-                };
-                let dz = if p.z() < bb[2] {
-                    bb[2] - p.z()
-                } else if p.z() > bb[5] {
-                    p.z() - bb[5]
-                } else {
-                    0.0
-                };
-                if dx * dx + dy * dy + dz * dz >= best {
+            if let Some(grid) = &grid {
+                stamp = stamp.wrapping_add(1).max(1);
+                if stamp == 1 {
+                    seen.fill(0);
+                }
+                if let Some(best) = grid.nearest_dist2(p, NEAREST_MAX_RINGS, &mut seen, stamp) {
+                    gaps.push(best.sqrt());
                     continue;
                 }
-                let d2 = Self::point_triangle_dist2(
-                    p,
-                    &quad_vertices[*a],
-                    &quad_vertices[*b],
-                    &quad_vertices[*c],
-                );
-                if d2 < best {
-                    best = d2;
-                }
             }
-            gaps.push(best.sqrt());
+            gaps.push(Self::scan_nearest_dist2(p, quad_vertices, &tris).sqrt());
         }
         gaps
+    }
+
+    /// Full-scan nearest squared distance over AABB-tagged fan tris
+    /// (AABB reject against the running best; order-free minimum).
+    pub(crate) fn scan_nearest_dist2(
+        p: &Vector3,
+        quad_vertices: &[Vector3],
+        tris: &[(usize, usize, usize, [f64; 6])],
+    ) -> f64 {
+        let mut best = f64::INFINITY;
+        for (a, b, c, bb) in tris.iter() {
+            let dx = if p.x() < bb[0] {
+                bb[0] - p.x()
+            } else if p.x() > bb[3] {
+                p.x() - bb[3]
+            } else {
+                0.0
+            };
+            let dy = if p.y() < bb[1] {
+                bb[1] - p.y()
+            } else if p.y() > bb[4] {
+                p.y() - bb[4]
+            } else {
+                0.0
+            };
+            let dz = if p.z() < bb[2] {
+                bb[2] - p.z()
+            } else if p.z() > bb[5] {
+                p.z() - bb[5]
+            } else {
+                0.0
+            };
+            if dx * dx + dy * dy + dz * dz >= best {
+                continue;
+            }
+            let d2 = Self::point_triangle_dist2(
+                p,
+                &quad_vertices[*a],
+                &quad_vertices[*b],
+                &quad_vertices[*c],
+            );
+            if d2 < best {
+                best = d2;
+            }
+        }
+        best
     }
 
     /// Bbox diagonal of `points` (0 when empty or fully degenerate);
