@@ -14,8 +14,13 @@ import math
 import os
 import re
 import sys
+import tempfile
 
 import bpy
+from mathutils import Matrix
+
+# Where the add-on writes bake PNGs for an unsaved blend.
+TMP = tempfile.gettempdir()
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                      "..", ".."))
@@ -125,11 +130,11 @@ def main():
         # base at the local origin (feet at origin), while the object
         # rotation stands it upright in world — the exact setup whose
         # remesh tipped over (bug 1) and then flipped upside down (bug 2).
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="SELECT")
-        bpy.ops.transform.rotate(value=math.pi / 2, orient_axis="X")
-        bpy.ops.transform.translate(value=(0.0, 1.0, 0.0))
-        bpy.ops.object.mode_set(mode="OBJECT")
+        # Direct mesh transform (rotate, then translate), not edit-mode
+        # transform operators: those need a 3D-view context and silently
+        # no-op without one (bpy-as-a-module, some --background setups).
+        tall.data.transform(Matrix.Translation((0.0, 1.0, 0.0))
+                            @ Matrix.Rotation(math.pi / 2, 4, "X"))
         tall.rotation_euler = (math.pi / 2, 0, 0)
         bpy.context.view_layer.update()
 
@@ -288,7 +293,7 @@ def main():
                            for i in e.vertices)
         n_sel = sum(1 for e in guide_mesh.edges if e.select)
         check(n_sel >= 4, f"guide ring selection ({n_sel} edges)")
-        guides_path = "/tmp/retopoforge_test_guides.txt"
+        guides_path = os.path.join(TMP, "retopoforge_test_guides.txt")
         if os.path.exists(guides_path):
             os.remove(guides_path)
         result = bpy.ops.retopoforge.export_guides(filepath=guides_path)
@@ -355,7 +360,7 @@ def main():
         bpy.ops.object.select_all(action="DESELECT")
         guide_obj.select_set(True)
         bpy.context.view_layer.objects.active = guide_obj
-        empty_path = "/tmp/retopoforge_test_guides_empty.txt"
+        empty_path = os.path.join(TMP, "retopoforge_test_guides_empty.txt")
         if os.path.exists(empty_path):
             os.remove(empty_path)
         check_cancel("guides export without selection",
@@ -381,7 +386,7 @@ def main():
                                    for i in e.vertices)
         n_sharp = sum(1 for e in sharp_mesh.edges if e.use_edge_sharp)
         check(n_sharp >= 4, f"sharp ring marking ({n_sharp} edges)")
-        features_path = "/tmp/retopoforge_test_features.txt"
+        features_path = os.path.join(TMP, "retopoforge_test_features.txt")
         if os.path.exists(features_path):
             os.remove(features_path)
         result = bpy.ops.retopoforge.export_features(filepath=features_path)
@@ -391,7 +396,7 @@ def main():
               f"features file written ({features_path})")
         # Deterministic chain tracing: a second export of the same flags
         # is byte-identical.
-        features_again = "/tmp/retopoforge_test_features_again.txt"
+        features_again = os.path.join(TMP, "retopoforge_test_features_again.txt")
         result = bpy.ops.retopoforge.export_features(filepath=features_again)
         check("FINISHED" in result, "second export_features finished")
         with open(features_path, "rb") as f, open(features_again, "rb") as g:
@@ -459,7 +464,7 @@ def main():
         bpy.ops.object.select_all(action="DESELECT")
         sharp_obj.select_set(True)
         bpy.context.view_layer.objects.active = sharp_obj
-        empty_feat = "/tmp/retopoforge_test_features_empty.txt"
+        empty_feat = os.path.join(TMP, "retopoforge_test_features_empty.txt")
         if os.path.exists(empty_feat):
             os.remove(empty_feat)
         check_cancel("features export without marking",
@@ -488,7 +493,7 @@ def main():
         params.density_vertex_group = "DensityTest"
         params.density_min = 0.25
         params.density_max = 4.0
-        dens_path = "/tmp/retopoforge_test_density.txt"
+        dens_path = os.path.join(TMP, "retopoforge_test_density.txt")
         if os.path.exists(dens_path):
             os.remove(dens_path)
         result = bpy.ops.retopoforge.export_density(filepath=dens_path)
@@ -557,7 +562,7 @@ def main():
         dens_obj.select_set(True)
         bpy.context.view_layer.objects.active = dens_obj
         params.density_vertex_group = "NoSuchGroup"
-        missing_path = "/tmp/retopoforge_test_density_missing.txt"
+        missing_path = os.path.join(TMP, "retopoforge_test_density_missing.txt")
         if os.path.exists(missing_path):
             os.remove(missing_path)
         check_cancel("density export with missing group",
@@ -587,6 +592,40 @@ def main():
         params.apply_modifiers = False
         params.density_enabled = False
         params.density_vertex_group = ""
+
+        # Apply Modifiers bakes the stack into the exported mesh, so the
+        # result must not keep it live (a Mirror would mirror the mirrored
+        # remesh again). Keep Original leaves the source's stack alone.
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=1.0)
+        mirror_obj = bpy.context.active_object
+        # Off-center mesh data, so the mirror adds a separate twin cube.
+        mirror_obj.data.transform(Matrix.Translation((1.5, 0.0, 0.0)))
+        mirror_obj.modifiers.new("MirrorX", "MIRROR")
+        params.apply_modifiers = True
+        params.keep_original = True
+        params.target_quads = 100
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"mirror remesh finished (got {result})")
+        mirror_copy = bpy.data.objects.get(f"{mirror_obj.name}_retopo")
+        check(mirror_copy is not None and len(mirror_copy.modifiers) == 0,
+              "applied modifiers cleared on the remeshed copy")
+        check(len(mirror_obj.modifiers) == 1,
+              "keep-original source keeps its modifier stack")
+        # Forget the run above (recall would restore keep_original=True).
+        blob = json.loads(bpy.context.scene.retopoforge_recall)
+        blob.pop(mirror_obj.name)
+        bpy.context.scene.retopoforge_recall = json.dumps(blob)
+        params.keep_original = False
+        bpy.ops.object.select_all(action="DESELECT")
+        mirror_obj.hide_viewport = False
+        mirror_obj.select_set(True)
+        bpy.context.view_layer.objects.active = mirror_obj
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result, f"mirror swap finished (got {result})")
+        check(len(mirror_obj.modifiers) == 0,
+              "applied modifiers cleared after an in-place remesh")
+        params.apply_modifiers = False
 
         # --- Generate LODs: fresh object so rung counts are unaffected by
         # the remeshes above; only it may be selected (the operator runs on
@@ -637,7 +676,7 @@ def main():
 
         # --- Bake assist: two-tone subdivided-cube high, remeshed low via
         # the existing remesh op; the diffuse bake must finish and land
-        # non-uniform pixels in a PNG next to the (unsaved -> /tmp) blend.
+        # non-uniform pixels in a PNG next to the (unsaved -> temp dir) blend.
         bpy.ops.object.select_all(action="DESELECT")
         bpy.ops.mesh.primitive_cube_add(size=2.0)
         high = bpy.context.active_object
@@ -677,7 +716,7 @@ def main():
         # phase-A skip asserts (which check map files do NOT exist).
         for stale in ("diffuse", "normal", "roughness", "metallic", "ao",
                       "emission"):
-            stale_path = os.path.join("/tmp", f"{low.name}_{stale}.png")
+            stale_path = os.path.join(TMP, f"{low.name}_{stale}.png")
             if os.path.isfile(stale_path):
                 os.remove(stale_path)
 
@@ -686,11 +725,37 @@ def main():
         bpy.context.view_layer.objects.active = high  # ACTIVE is HIGH
         params.bake_size = 256
         params.bake_normal = True
+        scene = bpy.context.scene
+        engine_before = scene.render.engine
+        samples_before = scene.cycles.samples
+        extrusion_before = scene.render.bake.cage_extrusion
         result = bpy.ops.retopoforge.bake_textures()
         check("FINISHED" in result, f"bake finished (got {result})")
+        check(scene.render.engine == engine_before
+              and scene.cycles.samples == samples_before
+              and scene.render.bake.cage_extrusion == extrusion_before,
+              "bake restored engine, samples and extrusion")
+        check(bpy.data.images[f"{low.name}_normal"]
+              .colorspace_settings.name == "Non-Color",
+              "normal map baked as Non-Color data")
+        check(bpy.data.images[f"{low.name}_diffuse"]
+              .colorspace_settings.name == "sRGB",
+              "diffuse map baked as sRGB color")
+        low_mat = low.data.materials[0]
+        low_bsdf = next(n for n in low_mat.node_tree.nodes
+                        if n.type == "BSDF_PRINCIPLED")
+        base_links = low_bsdf.inputs["Base Color"].links
+        check(len(base_links) == 1
+              and base_links[0].from_node.image
+              == bpy.data.images[f"{low.name}_diffuse"],
+              "diffuse map wired into LOW's Base Color")
+        normal_links = low_bsdf.inputs["Normal"].links
+        check(len(normal_links) == 1
+              and normal_links[0].from_node.type == "NORMAL_MAP",
+              "normal map wired through a Normal Map node")
         check(len(low.data.uv_layers) > 0, "low got Smart-UV layers")
-        diff_path = os.path.join("/tmp", f"{low.name}_diffuse.png")
-        norm_path = os.path.join("/tmp", f"{low.name}_normal.png")
+        diff_path = os.path.join(TMP, f"{low.name}_diffuse.png")
+        norm_path = os.path.join(TMP, f"{low.name}_normal.png")
         check(os.path.isfile(diff_path), f"diffuse png saved ({diff_path})")
         check(os.path.isfile(norm_path), f"normal png saved ({norm_path})")
         check(diff_path in bpy.context.scene.retopoforge_last_report,
@@ -707,10 +772,10 @@ def main():
             bpy.data.images.remove(probe)
         # Full PBR: AO always bakes; roughness/metallic/emission skip
         # with a note when the HIGH source doesn't use those sockets.
-        ao_path = os.path.join("/tmp", f"{low.name}_ao.png")
+        ao_path = os.path.join(TMP, f"{low.name}_ao.png")
         check(os.path.isfile(ao_path), f"ao png saved ({ao_path})")
         for skipped in ("roughness", "metallic", "emission"):
-            skip_path = os.path.join("/tmp", f"{low.name}_{skipped}.png")
+            skip_path = os.path.join(TMP, f"{low.name}_{skipped}.png")
             check(not os.path.isfile(skip_path),
                   f"{skipped} skipped without source maps ({skip_path})")
             check(f"{low.name}: {skipped} skipped" in
@@ -735,14 +800,24 @@ def main():
         low.select_set(True)
         high.select_set(True)
         bpy.context.view_layer.objects.active = high
+        nodes_before = len(low.data.materials[0].node_tree.nodes)
         result = bpy.ops.retopoforge.bake_textures()
         check("FINISHED" in result, f"pbr bake finished (got {result})")
+        check(not any(i.name.startswith(f"{low.name}_diffuse.")
+                      for i in bpy.data.images),
+              "re-bake reuses the map images (no .001 copies)")
+        check(len(low.data.materials[0].node_tree.nodes)
+              == nodes_before + 3,
+              "re-bake adds only the three newly baked map nodes")
+        check(bpy.data.images[f"{low.name}_metallic"]
+              .colorspace_settings.name == "Non-Color",
+              "metallic map baked as Non-Color data")
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
-            pbr_path = os.path.join("/tmp", f"{low.name}_{name}.png")
+            pbr_path = os.path.join(TMP, f"{low.name}_{name}.png")
             check(os.path.isfile(pbr_path), f"{name} png saved ({pbr_path})")
         for name in ("roughness", "metallic", "emission"):
-            pbr_path = os.path.join("/tmp", f"{low.name}_{name}.png")
+            pbr_path = os.path.join(TMP, f"{low.name}_{name}.png")
             probe = bpy.data.images.load(pbr_path)
             try:
                 px = list(probe.pixels)
@@ -753,7 +828,7 @@ def main():
                 bpy.data.images.remove(probe)
             os.remove(pbr_path)
         for name in ("diffuse", "normal", "ao"):
-            os.remove(os.path.join("/tmp", f"{low.name}_{name}.png"))
+            os.remove(os.path.join(TMP, f"{low.name}_{name}.png"))
         check(not any("_metallic_src" in o.name for o in bpy.data.objects),
               "metallic rewire duplicate deleted after bake")
         check(len(bpy.data.materials) == mats_before,
@@ -788,7 +863,7 @@ def main():
         params.bake_cage = None
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
-            p = os.path.join("/tmp", f"{low.name}_{name}.png")
+            p = os.path.join(TMP, f"{low.name}_{name}.png")
             if os.path.isfile(p):
                 os.remove(p)
 
@@ -834,7 +909,7 @@ def main():
         params.bake_texel_density = 0.0
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
-            p = os.path.join("/tmp", f"{low.name}_{name}.png")
+            p = os.path.join(TMP, f"{low.name}_{name}.png")
             if os.path.isfile(p):
                 os.remove(p)
 
@@ -870,11 +945,25 @@ def main():
         params.target_quads = 100
         params.keep_original = False
         params.bake_size = 256
+        # A saved entry with keep_original off: the remesh leg's recall
+        # must not turn the chain into an in-place swap of HIGH. A cage
+        # left over from another bake cannot match the fresh LOW, so the
+        # chain must bake without it.
+        retopoforge.save_recall_entry(bpy.context, high2.name, params)
+        high2_polys = len(high2.data.polygons)
+        params.bake_cage = bad_cage
         bpy.ops.object.select_all(action="DESELECT")
         high2.select_set(True)
         bpy.context.view_layer.objects.active = high2
         result = bpy.ops.retopoforge.remesh_and_bake()
         check("FINISHED" in result, f"one-click finished (got {result})")
+        check(len(high2.data.polygons) == high2_polys,
+              "one-click left HIGH's mesh intact despite recall")
+        recalled = json.loads(bpy.context.scene.retopoforge_recall)
+        check(recalled[high2.name]["keep_original"] is False,
+              "one-click did not save its forced keep_original")
+        check(params.bake_cage == bad_cage, "one-click left the cage setting")
+        params.bake_cage = None
         retopo = bpy.data.objects.get(f"{high2.name}_retopo")
         check(retopo is not None, "one-click produced a _retopo object")
         check(len(retopo.data.polygons) < len(high2.data.polygons),
@@ -885,10 +974,10 @@ def main():
               "active=HIGH restored after one-click")
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
-            oc_path = os.path.join("/tmp", f"{retopo.name}_{name}.png")
+            oc_path = os.path.join(TMP, f"{retopo.name}_{name}.png")
             check(os.path.isfile(oc_path), f"one-click {name} png saved")
         probe = bpy.data.images.load(
-            os.path.join("/tmp", f"{retopo.name}_diffuse.png"))
+            os.path.join(TMP, f"{retopo.name}_diffuse.png"))
         try:
             spread = max(probe.pixels) - min(probe.pixels)
             check(spread > 0.05,
@@ -900,7 +989,7 @@ def main():
               "one-click report has remesh + bake lines")
         for name in ("diffuse", "normal", "roughness", "metallic", "ao",
                      "emission"):
-            os.remove(os.path.join("/tmp", f"{retopo.name}_{name}.png"))
+            os.remove(os.path.join(TMP, f"{retopo.name}_{name}.png"))
 
         # --- Direct UV projection: HIGH UVs copied onto the hugging
         # LOW per-face (seams survive); out-of-range faces keep UVs.
@@ -923,6 +1012,26 @@ def main():
         check("FINISHED" in result, f"project uvs finished (got {result})")
         after = [tuple(v.vector) for v in low.data.uv_layers.active.uv]
         check(before != after, "projection rewrote LOW UVs")
+
+        def uv_world_ratios(o):
+            uv = o.data.uv_layers.active.uv
+            ratios = []
+            for poly in o.data.polygons:
+                lv = [uv[li].vector for li in poly.loop_indices]
+                area = sum(abs((b.x - lv[0].x) * (c.y - lv[0].y)
+                               - (c.x - lv[0].x) * (b.y - lv[0].y)) / 2.0
+                           for b, c in zip(lv[1:], lv[2:]))
+                ratios.append(area / poly.area)
+            return sorted(ratios)
+
+        high_ratio = uv_world_ratios(high)[len(high.data.polygons) // 2]
+        low_ratios = uv_world_ratios(low)
+        low_ratio = low_ratios[len(low_ratios) // 2]
+        # Each LOW corner samples its own nearest HIGH point; sampling one
+        # HIGH face per LOW face clamps the corners and shrinks the UVs.
+        check(abs(low_ratio / high_ratio - 1.0) < 0.2,
+              f"projected UVs keep HIGH's texel scale "
+              f"(median uv/world {low_ratio:.4f} vs {high_ratio:.4f})")
         check(all(-0.1 <= c <= 1.1 for uv in after for c in uv),
               "projected UVs stay near the tile")
         nfaces = len(low.data.polygons)
