@@ -101,7 +101,7 @@ impl Default for Config {
 }
 
 /// What `main` should do after parsing.
-#[allow(clippy::large_enum_variant)] // Boxing the big variant would penalize the hot path; accepted.
+#[allow(clippy::large_enum_variant)] // Built once per process; boxing `Config` buys nothing.
 pub(crate) enum Action {
     Help {
         /// `--help --all`: append expert flag detail.

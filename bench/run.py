@@ -16,10 +16,12 @@ Usage:
                                      # use this deform baseline (default:
                                      # deform_<check-basename> next to --check)
 
-Baselines are per-platform: sparse solves differ between Accelerate
-(macOS) and libstdc++ (Linux), so counts can disagree beyond the gates
-(the item-6 native-decimator flip unified 9/10 cases; dragon/tiny still
-differs, 686 vs 689).
+Baselines are per-platform: the engine is pure Rust now, but float
+results still differ between macOS (arm64) and Linux (x86_64) -- std's
+transcendentals call the platform libm and faer picks arch-specific
+SIMD kernels (different summation order) -- so counts can disagree
+beyond the gates (the item-6 native-decimator flip unified 9/10 cases;
+dragon/tiny still differs, 686 vs 689).
 macOS CI checks baseline.json, Linux CI checks baseline-linux.json;
 regenerate each on its own platform, never mix. The deform baseline
 follows the same rule (bench/deform_baseline.json next to

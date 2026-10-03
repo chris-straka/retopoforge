@@ -35,7 +35,12 @@ through `~/SWE/wrapforge`).
 ## Checks
 
 - `cd rust && cargo fmt --all --check && cargo test --locked --release`
-  must be green with zero warnings.
+  must be green with zero warnings. The bitwise oracles and CLI goldens
+  are pinned on macOS arm64 (the only CI that runs `cargo test`). On
+  Linux x86_64 about 11 test binaries fail on platform float bits alone
+  (last-ulp libm differences in acos/atan2, x86's negative default NaN,
+  and the counts those shift), so on Linux compare against a run of the
+  unchanged tree instead of expecting green.
 - CLI contract goldens (`tests/fixtures/cli_golden/`): after an intended
   CLI or engine output change, regenerate with
   `UPDATE_GOLDENS=1 cargo test --release -p retopo --test cli_contract`
