@@ -21,9 +21,17 @@ Topology first, rig second:
   with HLL presets (`hll_hero`, `hll_stalker`), a deform-bones-only GLB
   export for Godot, and a deterministic landmark detector + metarig
   fitter. The production rigger.
-- **unirig-mac** (`~/SWE/blender/unirig-mac`): UniRig (SIGGRAPH 2025) ported to
-  Apple Silicon CPU. Works on the M4 mini (hero ~1.5 min skeleton +
-  ~45 s skin). Optional joint-hint source only; no code merge.
+- **skintokens** (`~/SWE/blender/skintokens`, local repo): SkinTokens /
+  TokenRig (VAST-AI, MIT code and weights), UniRig's successor, on the
+  M4's GPU (~35-55 s per character, skeleton and weights in one pass).
+  The ML rigger since 2026-10-05: weightforge's ML candidate
+  (`weights fix --skintokens`) and rigforge's joint-hint source
+  (`skintokens joints`). On the genforge rehearsal Andras its weights
+  score 47.9/100 raw and 61.6 after weightforge's fix, against UniRig's
+  10.1 / 33.6 on the same mesh (`skintokens/docs/evaluation.md`); none
+  pass the gate yet (shoulder and hip stretch at the extreme ROM poses).
+- **unirig-mac** (`~/SWE/blender/unirig-mac`): retired 2026-10-05 in
+  favor of skintokens; kept for reference, not deleted.
 
 ## Bake-off verdict (2026-09-30, `~/SWE/rigforge/docs/bakeoff/final.md`)
 
@@ -49,7 +57,7 @@ a face rig are required, and UniRig cannot produce them.
   worth building: geodesic voxel binding (Dionne & de Lasa 2013) for
   creatures and robust weight transfer with inpainting (Abdrashitov et
   al. 2023) for pieces.
-- **License check**: the earlier version of this note called UniRig
-  MIT (code + weights); the pipeline doc calls it effectively
-  GPL-3.0-or-later because of its shape encoder. Verify before shipping
-  anything that depends on its output beyond hints.
+- **License check**: UniRig and SkinTokens are MIT (code + weights), but
+  both run a shape encoder derived from Michelangelo (GPL-3.0). Running
+  them locally and shipping only the rigs is fine; distributing the tools
+  would need GPL compliance (`skintokens/PROVENANCE.md`).
