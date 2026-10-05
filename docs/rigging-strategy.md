@@ -21,7 +21,7 @@ Topology first, rig second:
   with HLL presets (`hll_hero`, `hll_stalker`), a deform-bones-only GLB
   export for Godot, and a deterministic landmark detector + metarig
   fitter. The production rigger.
-- **unirig-mac** (`~/SWE/unirig-mac`): UniRig (SIGGRAPH 2025) ported to
+- **unirig-mac** (`~/SWE/blender/unirig-mac`): UniRig (SIGGRAPH 2025) ported to
   Apple Silicon CPU. Works on the M4 mini (hero ~1.5 min skeleton +
   ~45 s skin). Optional joint-hint source only; no code merge.
 
