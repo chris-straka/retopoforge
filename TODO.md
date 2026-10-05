@@ -322,6 +322,15 @@ when comparing back ends.
       projection), same-named CORNER layer, range gate + report
       counts. Headless green (non-uniform transfer, far-away fill,
       color-less HIGH cancels).
+## genforge adapter (2026-10-05)
+
+- [x] `tools/genforge_adapter.sh repair-topology` (README "genforge
+      adapter"): remesh + bake + reskin to the class budget for
+      genforge's character chain; `blender/tests/test_genforge_adapter.py`.
+- [ ] Bake rays use the extension's 0.05 m extrusion; thin, close parts
+      (fingers against a leg) can pick up the neighbour. Scale it with
+      model size if it shows on real characters.
+
 ## Rigging (separate repos, see docs/rigging-strategy.md)
 
 Character rigging lives outside this repo: `~/SWE/rigforge` (Rigify

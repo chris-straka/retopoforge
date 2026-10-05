@@ -185,6 +185,39 @@ cube, and asserts the mesh was replaced, is mostly quads, keeps the
 object transform bit-exact, records a report, and leaves no temp
 objects. It skips (exit 0) when no `retopo` binary is available.
 
+### genforge adapter (repair-topology)
+
+genforge's `gen character` chain rebuilds a character that fails its
+budget check (P_VERTS, P_TRIS, P_TEX_SIZE, P_TEX_NORMAL) with
+
+```bash
+tools/genforge_adapter.sh repair-topology IN.glb OUT.glb RESULT.json \
+    [--class humanoid|quadruped|custom]
+```
+
+Each skinned mesh over budget (or without a normal map) is remeshed by
+the installed `retopo` CLI to a target from the class budget (rfcheck's
+hero 10k verts / 15k tris / 1024 px; monster 12k / 20k / 1024),
+smart-UV'd, baked (color + normal from the original, Cycles CPU), and
+reskinned from the original (nearest-face weight transfer, 4
+influences, normalized); the armature, bone names and clips are kept
+(glTF import without bind-pose guessing, so a translated root node
+round-trips exactly). Textures over budget on untouched meshes are
+scaled down. `RESULT.json` follows genforge's adapter schema
+(`{"ok", "outputs", "tool": "retopoforge", ...}`; exit 0 within budget,
+1 still over or a step failed, 2 error with no result). Test:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background \
+    --factory-startup --python blender/tests/test_genforge_adapter.py
+```
+
+Measured 2026-10-05 on a real 22-bone, 9-clip textured character from
+the owner's AI corpus: 10,395 -> 6,657 glTF verts (12,616 -> 11,074
+tris; 6,632 on an earlier run: the tiling varies run to run), 2048 px
+albedo -> 1024 px color + normal, rfcheck hero-class
+clean, 6 s on an M4; turntable matches the original's colors.
+
 The extension is GPL-3.0-or-later, as Blender requires; the Rust engine
 stays MIT — the extension talks to it only as a subprocess over OBJ
 files. See [docs/architecture.md](docs/architecture.md) and
