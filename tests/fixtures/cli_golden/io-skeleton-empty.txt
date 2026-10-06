@@ -1,0 +1,6 @@
+exit: Some(2)
+--- stdout ---
+
+--- stderr ---
+retopo: error: --skeleton file 'CASE/shared/empty-skeleton.txt' holds no bones.
+

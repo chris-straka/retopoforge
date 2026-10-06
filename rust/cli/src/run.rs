@@ -8,7 +8,9 @@
 //! the CLI contract goldens.
 
 use crate::args::Config;
-use crate::constraint_files::{Constraints, parse_density_file, parse_guides_file};
+use crate::constraint_files::{
+    Constraints, parse_density_file, parse_guides_file, parse_skeleton_file,
+};
 use crate::error::CliError;
 use crate::error::os_reason;
 use crate::format::g_format;
@@ -181,6 +183,45 @@ fn check_density_len(density: &[f64], vertices: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Fold `--skeleton` into the density mask for one loaded mesh at one
+/// target: the crease field is measured on the welded mesh the engine
+/// sees (so it never has a count mismatch) against the nominal quad edge
+/// of this target. Returns the mask to hand the engine.
+fn density_with_skeleton(
+    constraints: &Constraints,
+    vertices: &[Vector3],
+    triangles: &[Vec<usize>],
+    target_quads: usize,
+    verbose: bool,
+) -> Vec<f64> {
+    if constraints.skeleton.is_empty() {
+        return constraints.density.clone();
+    }
+    let nominal = retopo_core::skeleton::nominal_edge_length(vertices, triangles, target_quads);
+    let (field, asks) = retopo_core::skeleton::skeleton_density_field(
+        vertices,
+        triangles,
+        &constraints.skeleton,
+        nominal,
+    );
+    if verbose {
+        eprintln!(
+            "  skeleton: {} bones, {} sibling creases, nominal edge {nominal:.4}",
+            constraints.skeleton.len(),
+            asks.len()
+        );
+        for (crease, ask) in &asks {
+            eprintln!(
+                "  crease bone {}: depth {:.4}, wants edges >= {:.4}, density x{ask:.2}",
+                crease.bone,
+                crease.depth,
+                crease.edge_length()
+            );
+        }
+    }
+    retopo_core::skeleton::combine_fields(&constraints.density, &field)
+}
+
 /// Apply the CLI configuration to a fresh remesher. `target_triangles`
 /// is the precomputed `2 * target_quads` (kept at the call sites: the
 /// single and multi paths cast from different integer types).
@@ -230,13 +271,20 @@ fn remesh_loaded_mesh(
         return result;
     }
 
+    let density = density_with_skeleton(
+        constraints,
+        vertices,
+        triangles,
+        target_quads.max(0) as usize,
+        config.verbose,
+    );
     let mut remesher = AutoRemesher::new(vertices, triangles);
     configure_remesher(
         &mut remesher,
         config,
         constraints.guides.clone(),
         constraints.features.clone(),
-        &constraints.density,
+        &density,
         (target_quads as usize).wrapping_mul(2),
     );
     let progress_state = Mutex::new(ProgressState::default());
@@ -411,6 +459,11 @@ fn load_constraints(config: &Config, batch: bool) -> Result<Constraints, CliErro
             "retopo: error: --density needs a single input mesh, not a batch directory.",
         ));
     }
+    if batch && config.skeleton.is_some() {
+        return Err(CliError::usage(
+            "retopo: error: --skeleton needs a single input mesh, not a batch directory.",
+        ));
+    }
     let mut constraints = Constraints::default();
     if let Some(path) = &config.guides {
         parse_guides_file(path, &mut constraints.guides, "--guides")?;
@@ -420,6 +473,9 @@ fn load_constraints(config: &Config, batch: bool) -> Result<Constraints, CliErro
     }
     if let Some(path) = &config.density {
         parse_density_file(path, &mut constraints.density)?;
+    }
+    if let Some(path) = &config.skeleton {
+        parse_skeleton_file(path, &mut constraints.skeleton)?;
     }
     Ok(constraints)
 }
@@ -779,6 +835,15 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
         error.emit();
         return 2;
     }
+    if let Some(path) = &config.skeleton {
+        if let Err(error) = parse_skeleton_file(path, &mut constraints.skeleton) {
+            error.emit();
+            return 2;
+        }
+        if !config.quiet {
+            eprintln!("Skeleton bones: {}", constraints.skeleton.len());
+        }
+    }
 
     let loaded: LoadedMesh = match load_mesh(&config.input) {
         Ok(loaded) => loaded,
@@ -829,13 +894,20 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
         return 1;
     }
 
+    let density = density_with_skeleton(
+        &constraints,
+        &loaded.vertices,
+        &loaded.triangles,
+        config.target_quads.max(0) as usize,
+        config.verbose,
+    );
     let mut remesher = AutoRemesher::new(&loaded.vertices, &loaded.triangles);
     configure_remesher(
         &mut remesher,
         config,
         constraints.guides,
         constraints.features,
-        &constraints.density,
+        &density,
         (config.target_quads as usize).wrapping_mul(2),
     );
     let progress_state = Mutex::new(ProgressState::default());

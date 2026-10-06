@@ -1,0 +1,6 @@
+exit: Some(2)
+--- stdout ---
+
+--- stderr ---
+retopo: error: cannot open --skeleton file 'CASE/shared/no-skeleton.txt': no such file or directory.
+

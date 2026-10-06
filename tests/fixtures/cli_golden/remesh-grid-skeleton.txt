@@ -1,0 +1,13 @@
+exit: Some(0)
+artifacts:
+out.obj present
+report: absent
+counts:
+out.obj quads=249 nonquads=2 verts=252
+Islands: 1
+Failed islands: 0
+Quads: 249
+Non-quads: 2
+Vertices: 252
+diagnostics:
+retopo: warning: island 0 failed the coverage check (11 working verts uncovered) and recovered on retry 2 (4 verts uncovered).

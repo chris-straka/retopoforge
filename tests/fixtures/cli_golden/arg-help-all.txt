@@ -49,6 +49,10 @@ Constraints (single-file and --lods runs only):
   --density <file>         Local density multipliers, one per input
                            vertex in OBJ v-line order (1.0 =
                            unchanged). '#' starts a comment
+  --skeleton <file>        Rig skeleton: one 'hx hy hz tx ty tz
+                           parent bend_degrees' bone per line;
+                           creases between sibling limbs too fine
+                           for the skin blend get wider edges
   --dipoles <off|auto>     Extraordinary verts on sharp --density
                            steps (default: auto)
 

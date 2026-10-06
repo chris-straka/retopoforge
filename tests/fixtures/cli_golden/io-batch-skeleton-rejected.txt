@@ -1,0 +1,6 @@
+exit: Some(2)
+--- stdout ---
+
+--- stderr ---
+retopo: error: --skeleton needs a single input mesh, not a batch directory.
+

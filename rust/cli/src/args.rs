@@ -64,6 +64,7 @@ pub(crate) struct Config {
     pub(crate) guides: Option<PathBuf>,
     pub(crate) features: Option<PathBuf>,
     pub(crate) density: Option<PathBuf>,
+    pub(crate) skeleton: Option<PathBuf>,
     pub(crate) dipoles: DipoleConfig,
     pub(crate) emit_uvs: bool,
     pub(crate) quiet: bool,
@@ -91,6 +92,7 @@ impl Default for Config {
             guides: None,
             features: None,
             density: None,
+            skeleton: None,
             dipoles: DipoleConfig::automatic(),
             emit_uvs: false,
             quiet: false,
@@ -316,6 +318,7 @@ const LONG_FLAGS: &[&str] = &[
     "quiet",
     "report",
     "sharp-edge",
+    "skeleton",
     "smooth-normal",
     "symmetry",
     "target-quads",
@@ -496,6 +499,9 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
             "--density" => {
                 config.density = Some(take_value(inline, &mut rest, "--density")?.into());
             }
+            "--skeleton" => {
+                config.skeleton = Some(take_value(inline, &mut rest, "--skeleton")?.into());
+            }
             "--dipoles" => {
                 let text = take_value(inline, &mut rest, "--dipoles")?;
                 match text.as_str() {
@@ -635,6 +641,10 @@ pub(crate) fn print_usage(all: bool) {
         "  --density <file>         Local density multipliers, one per input\n",
         "                           vertex in OBJ v-line order (1.0 =\n",
         "                           unchanged). '#' starts a comment\n",
+        "  --skeleton <file>        Rig skeleton: one 'hx hy hz tx ty tz\n",
+        "                           parent bend_degrees' bone per line;\n",
+        "                           creases between sibling limbs too fine\n",
+        "                           for the skin blend get wider edges\n",
         "  --dipoles <off|auto>     Extraordinary verts on sharp --density\n",
         "                           steps (default: auto)\n",
         "\n",

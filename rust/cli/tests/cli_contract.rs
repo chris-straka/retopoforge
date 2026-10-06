@@ -1367,6 +1367,73 @@ fn io_failure_paths() {
     );
     io_case(
         &bins,
+        "skeleton-missing",
+        &|_| {
+            let fx = fixtures_dir();
+            vec![
+                "-i".into(),
+                fx.join("nasty-single-tetra.obj")
+                    .to_string_lossy()
+                    .to_string(),
+                "-o".into(),
+                "SIDE/out.obj".into(),
+                "--target-quads".into(),
+                "50".into(),
+                "--skeleton".into(),
+                "SHARED/no-skeleton.txt".into(),
+            ]
+        },
+        &mut failures,
+    );
+    io_case(
+        &bins,
+        "skeleton-malformed",
+        &|shared| {
+            let fx = fixtures_dir();
+            // A parent that is not an earlier bone.
+            std::fs::write(
+                shared.join("bad-skeleton.txt"),
+                "# bones\n0 0 0 0 0 1 -1 0\n0 0 1 0 0 2 5 90\n",
+            )
+            .unwrap();
+            vec![
+                "-i".into(),
+                fx.join("nasty-single-tetra.obj")
+                    .to_string_lossy()
+                    .to_string(),
+                "-o".into(),
+                "SIDE/out.obj".into(),
+                "--target-quads".into(),
+                "50".into(),
+                "--skeleton".into(),
+                "SHARED/bad-skeleton.txt".into(),
+            ]
+        },
+        &mut failures,
+    );
+    io_case(
+        &bins,
+        "skeleton-empty",
+        &|shared| {
+            let fx = fixtures_dir();
+            std::fs::write(shared.join("empty-skeleton.txt"), "# nothing\n").unwrap();
+            vec![
+                "-i".into(),
+                fx.join("nasty-single-tetra.obj")
+                    .to_string_lossy()
+                    .to_string(),
+                "-o".into(),
+                "SIDE/out.obj".into(),
+                "--target-quads".into(),
+                "50".into(),
+                "--skeleton".into(),
+                "SHARED/empty-skeleton.txt".into(),
+            ]
+        },
+        &mut failures,
+    );
+    io_case(
+        &bins,
         "output-unwritable",
         &|_| {
             let fx = fixtures_dir();
@@ -1541,6 +1608,29 @@ fn io_failure_paths() {
                 "SIDE/out".into(),
                 "--density".into(),
                 "SHARED/d.txt".into(),
+            ]
+        },
+        &mut failures,
+    );
+    io_case(
+        &bins,
+        "batch-skeleton-rejected",
+        &|shared| {
+            let fx = fixtures_dir();
+            std::fs::create_dir_all(shared.join("indir")).unwrap();
+            std::fs::copy(
+                fx.join("nasty-single-tetra.obj"),
+                shared.join("indir/a.obj"),
+            )
+            .unwrap();
+            std::fs::write(shared.join("s.txt"), "0 0 0 0 0 1 -1 0\n").unwrap();
+            vec![
+                "-i".into(),
+                "SHARED/indir".into(),
+                "-o".into(),
+                "SIDE/out".into(),
+                "--skeleton".into(),
+                "SHARED/s.txt".into(),
             ]
         },
         &mut failures,
@@ -1878,6 +1968,25 @@ fn remesh_contract() {
             let shared = shared_dir(side);
             write_grid_density(&shared.join("density.txt"), 16, 16);
             grid_args(side, &["--quiet", "--density", "SHARED/density.txt"])
+        },
+        &|side| vec![side.join("out.obj")],
+        &|_| None,
+        &mut failures,
+    ));
+    rows.push(remesh_case(
+        &bins,
+        "grid-skeleton",
+        &|side| {
+            // Two sibling bones on a flat sheet: the sheet never splits
+            // into a loop of its own, so no crease is found and the run
+            // must match a plain remesh (README "Skeleton density").
+            let shared = shared_dir(side);
+            std::fs::write(
+                shared.join("skeleton.txt"),
+                "# hx hy hz tx ty tz parent bend\n8 8 0 8 12 0 -1 0\n6 8 0 6 2 0 0 90\n10 8 0 10 2 0 0 90\n",
+            )
+            .unwrap();
+            grid_args(side, &["--quiet", "--skeleton", "SHARED/skeleton.txt"])
         },
         &|side| vec![side.join("out.obj")],
         &|_| None,

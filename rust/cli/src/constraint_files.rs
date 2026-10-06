@@ -1,5 +1,5 @@
-//! Constraint files: `--guides`/`--features` polylines and `--density`
-//! multipliers.
+//! Constraint files: `--guides`/`--features` polylines, `--density`
+//! multipliers and the `--skeleton` bone list.
 //!
 //! Guide files hold one `x y z` point per line, blank lines separate
 //! polylines, `#` starts a comment. Density files hold one multiplier
@@ -9,6 +9,7 @@
 
 use crate::error::CliError;
 use crate::error::os_reason;
+use retopo_core::skeleton::Bone;
 use retopo_core::vector3::Vector3;
 use std::path::Path;
 
@@ -18,6 +19,7 @@ pub(crate) struct Constraints {
     pub(crate) guides: Vec<Vec<Vector3>>,
     pub(crate) features: Vec<Vec<Vector3>>,
     pub(crate) density: Vec<f64>,
+    pub(crate) skeleton: Vec<Bone>,
 }
 
 /// Split file bytes into `getline`-style lines: split on `\n`, drop the
@@ -217,6 +219,67 @@ pub(crate) fn parse_density_file(path: &Path, multipliers: &mut Vec<f64>) -> Res
     if multipliers.is_empty() {
         return Err(CliError::usage(format!(
             "retopo: error: --density file '{path}' holds no multipliers."
+        )));
+    }
+    Ok(())
+}
+
+/// Parse a `--skeleton` file: one bone per line, `hx hy hz tx ty tz
+/// parent bend_degrees` (head and tail in the mesh's frame, the 0-based
+/// line index of the parent bone or -1 for a root, and how far the joint
+/// at the head bends). Same comment/blank rules as the other constraint
+/// files; a parent must refer to an earlier bone.
+pub(crate) fn parse_skeleton_file(path: &Path, bones: &mut Vec<Bone>) -> Result<(), CliError> {
+    bones.clear();
+    let path = path.display().to_string();
+    let data = std::fs::read(&path).map_err(|err| {
+        CliError::usage(format!(
+            "retopo: error: cannot open --skeleton file '{path}': {}.",
+            os_reason(&err)
+        ))
+    })?;
+    for (index, raw) in split_lines(&data).iter().enumerate() {
+        let line_no = index + 1;
+        let line = strip_comment(raw);
+        if is_blank_line(line) {
+            continue;
+        }
+        let tokens = split_c_tokens(line);
+        let mut values = [0.0f64; 8];
+        let mut ok = tokens.len() == 8;
+        if ok {
+            for (k, token) in tokens.iter().enumerate() {
+                match parse_double_token(token) {
+                    Some(v) if v.is_finite() => values[k] = v,
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+        let parent = values[6];
+        if ok {
+            ok = trailing_blank_after(line, 8)
+                && parent.fract() == 0.0
+                && (parent == -1.0 || (parent >= 0.0 && (parent as usize) < bones.len()));
+        }
+        if !ok {
+            let prefix = format!(
+                "retopo: error: --skeleton file '{path}' line {line_no} expects 'hx hy hz tx ty tz parent bend_degrees' (parent: an earlier bone's index or -1), got '"
+            );
+            return Err(raw_error(prefix, line));
+        }
+        bones.push(Bone {
+            head: Vector3::new(values[0], values[1], values[2]),
+            tail: Vector3::new(values[3], values[4], values[5]),
+            parent: (parent >= 0.0).then_some(parent as usize),
+            bend_degrees: values[7],
+        });
+    }
+    if bones.is_empty() {
+        return Err(CliError::usage(format!(
+            "retopo: error: --skeleton file '{path}' holds no bones."
         )));
     }
     Ok(())

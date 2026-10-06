@@ -1,0 +1,6 @@
+exit: Some(2)
+--- stdout ---
+
+--- stderr ---
+retopo: error: --skeleton file 'CASE/shared/bad-skeleton.txt' line 3 expects 'hx hy hz tx ty tz parent bend_degrees' (parent: an earlier bone's index or -1), got '0 0 1 0 0 2 5 90'
+
