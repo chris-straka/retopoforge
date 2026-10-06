@@ -2,7 +2,7 @@
 # genforge adapter entry (repair-topology): runs tools/genforge_adapter.py
 # in headless Blender with the extension from this checkout and `retopo`
 # ($RETOPO_BIN, this checkout's release build, then PATH). Contract and exit codes are documented there:
-#   tools/genforge_adapter.sh repair-topology IN.glb OUT.glb RESULT.json [--class humanoid|quadruped|custom]
+#   tools/genforge_adapter.sh repair-topology IN.glb OUT.glb RESULT.json [--class humanoid|quadruped|custom] [--guides FILE] [--features FILE]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

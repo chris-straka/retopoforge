@@ -6,7 +6,7 @@ check stage finds the mesh over the class budget (P_VERTS, P_TRIS) or
 the textures off-budget (P_TEX_SIZE, P_TEX_NORMAL). Contract:
 
     tools/genforge_adapter.sh repair-topology IN.glb OUT.glb RESULT.json \\
-        [--class humanoid|quadruped|custom]
+        [--class humanoid|quadruped|custom] [--guides FILE] [--features FILE]
 
 (the .sh wrapper runs this inside headless Blender with the extension
 from this checkout and `retopo`: $RETOPO_BIN, this checkout's release
@@ -21,6 +21,14 @@ original (nearest face, max 4 influences, normalized) and the new mesh
 keeps the original's armature, so bone names, hierarchy and animations
 are untouched. Meshes already within budget pass through. Textures over
 the budget on untouched meshes are scaled down.
+
+`--guides FILE` / `--features FILE` (the CLI's polyline format: `x y z`
+per line in the mesh's local frame, blank line between polylines; the
+extension's Flow Guides > Export Guide Strokes writes one) are the
+owner's drawn flow lines and hard edges. They are passed to `retopo` for
+every rebuilt mesh, and they make every skinned mesh rebuild even when
+it is within budget (the owner asked for this remesh). Every `retopo`
+argv is recorded in RESULT.json (`repair-topology.retopo_calls`).
 
 Budgets follow rfcheck's classes: humanoid -> hero (10,000 verts,
 15,000 tris, 1024 px), quadruped/custom -> monster (12,000 / 20,000 /
@@ -65,11 +73,15 @@ def parse(argv):
     if stage != "repair-topology":
         raise AdapterError(f"unknown adapter stage {stage!r} (retopoforge has repair-topology)")
     klass = "humanoid"
+    hints = {}
     rest = argv[4:]
     i = 0
     while i < len(rest):
         if rest[i] == "--class" and i + 1 < len(rest):
             klass = rest[i + 1]
+            i += 2
+        elif rest[i] in ("--guides", "--features") and i + 1 < len(rest):
+            hints[rest[i]] = os.path.abspath(rest[i + 1])
             i += 2
         else:
             raise AdapterError(f"unknown flag {rest[i]!r}")
@@ -77,7 +89,38 @@ def parse(argv):
         raise AdapterError(f"--class must be humanoid|quadruped|custom, got {klass!r}")
     if not os.path.isfile(src):
         raise AdapterError(f"input not found: {src}")
-    return src, out, result, klass
+    for flag, path in hints.items():
+        if not os.path.isfile(path):
+            raise AdapterError(f"{flag} file not found: {path}")
+    return src, out, result, klass, hints
+
+
+def pass_hints(retopoforge, hints, calls):
+    """Hand the owner's guide/feature files to every retopo call the
+    extension makes, and record each argv. The extension builds its
+    constraint args per target (from edit-mode selections, which a headless
+    import has none of), so the files are appended there."""
+    build = retopoforge.constraint_args_for_target
+
+    def with_hints(params, obj, input_path, tmpdir, tag):
+        args, notes = build(params, obj, input_path, tmpdir, tag)
+        for flag, path in hints.items():
+            if flag not in args:
+                args += [flag, path]
+        return args, notes
+
+    retopoforge.constraint_args_for_target = with_hints
+    real = retopoforge.subprocess
+
+    class Recorder:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def run(self, args, *a, **kw):
+            calls.append([str(x) for x in args])
+            return real.run(args, *a, **kw)
+
+    retopoforge.subprocess = Recorder()
 
 
 def glb_counts(path):
@@ -283,7 +326,7 @@ def relative(path, base):
 def run_adapter(argv):
     """Work in this Blender session; returns (exit code, payload or None)."""
     try:
-        src, out, result, klass = parse(argv)
+        src, out, result, klass, hints = parse(argv)
         before_counts = glb_counts(src)
     except AdapterError as exc:
         print(f"genforge_adapter: {exc}", file=sys.stderr)
@@ -307,6 +350,8 @@ def run_adapter(argv):
     # The extension's operator reads the binary from its preferences.
     prefs = bpy.context.preferences.addons[retopoforge.__name__].preferences
     prefs.retopo_binary = binary
+    retopo_calls = []
+    pass_hints(retopoforge, hints, retopo_calls)
     try:
         # No bind-pose guessing: with it, a skeleton under a translated
         # root node comes back lifted by that translation on export.
@@ -325,7 +370,7 @@ def run_adapter(argv):
             verts, tris = before_counts.get(obj.data.name, before_counts.get(obj.name, (0, 0)))
             over = verts > budget["verts"] or tris > budget["tris"]
             needs_normal = obj.find_armature() is not None and not has_normal_map(obj)
-            if obj.find_armature() is not None and (over or needs_normal):
+            if obj.find_armature() is not None and (over or needs_normal or hints):
                 rebuild(obj, budget, rebuilt)
             elif max_image_size(obj) > budget["tex"]:
                 for slot in obj.material_slots:
@@ -343,7 +388,7 @@ def run_adapter(argv):
             "tool": "retopoforge",
             "stage": "repair-topology",
             "reason": str(exc),
-            "repair-topology": {"budget": budget_name, "rebuilt": rebuilt},
+            "repair-topology": {"budget": budget_name, "rebuilt": rebuilt, "retopo_calls": retopo_calls},
         }
         write_result(result, payload)
         return 1, payload
@@ -374,6 +419,8 @@ def run_adapter(argv):
         "rebuilt": rebuilt,
         "scaled_images": scaled,
         "retopo": binary,
+        "hints": {flag.lstrip("-"): path for flag, path in hints.items()},
+        "retopo_calls": retopo_calls,
     }
     payload = {
         "ok": ok,
