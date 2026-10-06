@@ -196,8 +196,14 @@ budget check (P_VERTS, P_TRIS, P_TEX_SIZE, P_TEX_NORMAL) with
 
 ```bash
 tools/genforge_adapter.sh repair-topology IN.glb OUT.glb RESULT.json \
-    [--class humanoid|quadruped|custom]
+    [--class humanoid|quadruped|custom] [--guides FILE] [--features FILE]
 ```
+
+`--guides` and `--features` are passed straight to `retopo` (same polyline
+format as above). genforge sends the guide file an owner attached with
+`gen character guides <asset> FILE`, and the adapter logs the exact `retopo`
+command it ran. When drawing guides in Blender, import the GLB with
+"Guess Original Bind Pose" off, or the mesh shifts and the guides miss.
 
 Each skinned mesh over budget (or without a normal map) is remeshed by
 the installed `retopo` CLI to a target from the class budget (rfcheck's
