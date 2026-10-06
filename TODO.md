@@ -340,6 +340,12 @@ when comparing back ends.
       (fingers against a leg) can pick up the neighbour. Scale it with
       model size if it shows on real characters.
 
+## Flow guides (planned 2026-10-06, see docs/plan-guide-drawing.md)
+
+- [ ] G1 freehand guide strokes on the surface (annotation layer, mirror, preview)
+- [ ] G2 open a genforge character / send guides back in one click
+- [ ] G3 suggested guides from joints, per-mesh guides, density brush via genforge
+
 ## Rigging (separate repos, see docs/rigging-strategy.md)
 
 Character rigging lives outside this repo: `~/SWE/rigforge` (Rigify
