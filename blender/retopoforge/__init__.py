@@ -101,7 +101,8 @@ _RECALL_FLOAT_KEYS = ("sharp_edge", "smooth_normal", "edge_scaling",
                       "adaptivity", "anisotropy",
                       "density_min", "density_max")
 _RECALL_BOOL_KEYS = ("apply_modifiers", "keep_original", "symmetry_enabled",
-                     "guides_enabled", "features_enabled", "density_enabled")
+                     "guides_enabled", "features_enabled", "density_enabled",
+                     "skeleton_enabled")
 _RECALL_STR_KEYS = ("lod_targets", "density_vertex_group")
 _RECALL_MODEL_TYPES = ("ORGANIC", "HARDSURFACE")
 _RECALL_SYMMETRY_PLANES = ("AUTO", "X", "Y", "Z")
@@ -396,6 +397,13 @@ class RETOPOFORGE_PG_params(bpy.types.PropertyGroup):
         description="Vertex group whose weights map to density multipliers",
         default="",
     )
+    skeleton_enabled: BoolProperty(
+        name="Skeleton Density",
+        description=("Use the object's armature: creases between sibling "
+                     "limbs (the groin) get edges wide enough for the skin "
+                     "weights to blend across (passed as --skeleton)"),
+        default=False,
+    )
     density_min: FloatProperty(
         name="Density Min",
         description="Multiplier for weight 0 (CLI clamps outside 0.25-4.0)",
@@ -648,6 +656,113 @@ def count_obj_vertices(filepath):
     return count
 
 
+# Bend range (degrees) per joint role, from weightforge's humanoid
+# range-of-motion set (the deformation gate the rig must pass). Matched in
+# order on the normalized bone name, so "forearm" wins over "arm" and
+# "upleg" over "leg". Any other bone gets GENERIC_BEND_DEGREES, the bend
+# weightforge's generic per-bone poses use for non-humanoid skeletons.
+JOINT_BEND_ROLES = (
+    (("forearm", "lowerarm", "elbow"), 140.0),
+    (("upperarm", "upper_arm", "uparm"), 80.0),
+    (("thigh", "upleg", "upperleg"), 90.0),
+    (("shin", "calf", "lowerleg", "knee"), 140.0),
+    (("clavicle", "shoulder", "collar"), 20.0),
+    (("finger", "thumb", "index", "middle", "ring", "pinky"), 60.0),
+    (("hand", "wrist"), 80.0),
+    (("toe",), 30.0),
+    (("foot", "ankle"), 40.0),
+    (("spine", "chest", "torso", "neck", "head"), 45.0),
+    (("arm",), 80.0),
+    (("leg",), 140.0),
+)
+GENERIC_BEND_DEGREES = 45.0
+
+
+def _bone_role_name(name):
+    lowered = name.lower()
+    for prefix in ("def-", "org-", "mch-", "mixamorig:", "mixamorig_"):
+        if lowered.startswith(prefix):
+            lowered = lowered[len(prefix):]
+    return lowered.replace(" ", "")
+
+
+def joint_bend_degrees(bone_name):
+    """Bend range of the joint at a bone's head, from its role name."""
+    name = _bone_role_name(bone_name)
+    for keys, degrees in JOINT_BEND_ROLES:
+        if any(key in name for key in keys):
+            return degrees
+    return GENERIC_BEND_DEGREES
+
+
+def _is_helper_bone(bone):
+    """Twist/helper bones ride inside their driver: not part of the
+    skeleton retopo sees (motionforge marks them `hll_helper`, or
+    `_twist` names)."""
+    if bone.get("hll_helper") is not None:
+        return True
+    return "twist" in bone.name.lower()
+
+
+def skeleton_bones(obj):
+    """[(local head, local tail, parent index or -1, bend degrees)] for the
+    deforming bones of the armature that deforms `obj`, parents first, in
+    the mesh object's local frame (the --skeleton file frame). A bone's
+    parent is its nearest kept ancestor. Empty without an armature."""
+    arm = obj.find_armature()
+    if arm is None:
+        return []
+    to_local = obj.matrix_world.inverted() @ arm.matrix_world
+    kept = [b for b in arm.data.bones if b.use_deform and not _is_helper_bone(b)]
+    names = {b.name for b in kept}
+
+    def kept_parent(bone):
+        p = bone.parent
+        while p is not None and p.name not in names:
+            p = p.parent
+        return p
+
+    order = []
+    placed = set()
+    pending = list(kept)
+    while pending:
+        rest = []
+        for bone in pending:
+            parent = kept_parent(bone)
+            if parent is None or parent.name in placed:
+                order.append(bone)
+                placed.add(bone.name)
+            else:
+                rest.append(bone)
+        if len(rest) == len(pending):  # cycle guard; cannot happen in Blender
+            order.extend(rest)
+            break
+        pending = rest
+    index = {b.name: i for i, b in enumerate(order)}
+    bones = []
+    for bone in order:
+        parent = kept_parent(bone)
+        bones.append((
+            to_local @ bone.head_local,
+            to_local @ bone.tail_local,
+            index[parent.name] if parent is not None else -1,
+            joint_bend_degrees(bone.name),
+        ))
+    return bones
+
+
+def write_skeleton_file(obj, bones, filepath):
+    """Write bones as a --skeleton file
+    ('hx hy hz tx ty tz parent bend_degrees')."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"# RetopoForge skeleton from the armature of '{obj.name}' "
+                f"({len(bones)} bones)\n")
+        for head, tail, parent, bend in bones:
+            f.write(f"{head.x!r} {head.y!r} {head.z!r} "
+                    f"{tail.x!r} {tail.y!r} {tail.z!r} {parent} {bend!r}\n")
+    return len(bones)
+
+
 def constraint_args_for_target(params, obj, input_path, tmpdir, tag):
     """Build the [--guides file, --features file, --density file] args
     for one remesh target, writing the temp files into tmpdir. Returns
@@ -681,6 +796,15 @@ def constraint_args_for_target(params, obj, input_path, tmpdir, tag):
             features_path = os.path.join(tmpdir, f"features_{tag}.txt")
             write_feature_chains(obj, chains, features_path)
             args += ["--features", features_path]
+    if params.skeleton_enabled:
+        bones = skeleton_bones(obj)
+        if not bones:
+            notes.append(f"{obj.name}: skeleton density on but no armature, "
+                         f"remeshing without it")
+        else:
+            skeleton_path = os.path.join(tmpdir, f"skeleton_{tag}.txt")
+            write_skeleton_file(obj, bones, skeleton_path)
+            args += ["--skeleton", skeleton_path]
     if params.density_enabled:
         group_name = (params.density_vertex_group or "").strip()
         if not group_name:
@@ -2202,6 +2326,9 @@ class RETOPOFORGE_PT_density(bpy.types.Panel):
         drow.prop(params, "density_max")
         layout.operator("retopoforge.export_density",
                         text="Export Density Mask", icon="GROUP_VERTEX")
+        layout.separator()
+        layout.label(text="Armature")
+        layout.prop(params, "skeleton_enabled")
 
 
 class RETOPOFORGE_PT_lods(bpy.types.Panel):

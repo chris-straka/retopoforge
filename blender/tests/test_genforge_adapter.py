@@ -115,6 +115,8 @@ def main():
             written = json.load(f)
         check(written["ok"] is True and written["tool"] == "retopoforge", "result ok, tool name")
         check(written["outputs"] == ["output.glb"], f"outputs relative ({written['outputs']})")
+        rebuilt = written["repair-topology"]["rebuilt"]
+        check(rebuilt and rebuilt[0]["skeleton_bones"] == 2, f"skeleton passed to retopo ({rebuilt})")
         verts, tris = adapter.glb_counts(out)["Body"]
         check(verts <= 10000 and tris <= 15000, f"within hero budget ({verts} verts, {tris} tris)")
         doc, data = glb_json(out)
@@ -143,6 +145,19 @@ def main():
             code, payload = adapter.run_adapter(argv)
             check(code == 2 and payload is None, f"{argv[0]} {argv[-1]}: exit 2, no result")
         check(not any(os.path.exists(os.path.join(work, f"e{i}.json")) for i in (1, 2, 3)), "no stray results")
+        # Joint bend ranges from bone names (humanoid roles, else generic).
+        roles = {
+            "DEF-thigh.L": 90.0,
+            "mixamorig:LeftUpLeg": 90.0,
+            "LeftArm": 80.0,
+            "LeftForeArm": 140.0,
+            "Shin_R": 140.0,
+            "LeftHandIndex1": 60.0,
+            "bone_12": retopoforge.GENERIC_BEND_DEGREES,
+        }
+        for name, want in roles.items():
+            got = retopoforge.joint_bend_degrees(name)
+            check(got == want, f"joint bend {name}: {got}")
         print("RETOPOFORGE_GENFORGE_ADAPTER_OK")
     finally:
         shutil.rmtree(work, ignore_errors=True)

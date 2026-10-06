@@ -9,12 +9,14 @@ the textures off-budget (P_TEX_SIZE, P_TEX_NORMAL). Contract:
         [--class humanoid|quadruped|custom]
 
 (the .sh wrapper runs this inside headless Blender with the extension
-from this checkout and the installed `retopo` CLI).
+from this checkout and `retopo`: $RETOPO_BIN, this checkout's release
+build, then PATH).
 
 Per skinned mesh that is over budget or lacks a normal map: the
 extension's Remesh + Bake All builds a quad mesh (`retopo`, target from
-the budget) and bakes the original's color and normal onto fresh UVs at
-the budget texture size; the skin weights are transferred from the
+the budget, with the input's armature as `--skeleton` so the crease
+between sibling limbs gets edges the skin blend can span) and bakes the
+original's color and normal onto fresh UVs at the budget texture size; the skin weights are transferred from the
 original (nearest face, max 4 influences, normalized) and the new mesh
 keeps the original's armature, so bone names, hierarchy and animations
 are untouched. Meshes already within budget pass through. Textures over
@@ -179,6 +181,14 @@ def rebuild(high, budget, report):
     # Smart UV project: a plain unwrap of a seamless closed body
     # collapses into one degenerate island.
     params.bake_uv_mode = "SMART"
+    # Deformation-aware density from the rig (`retopo --skeleton`): the
+    # crease between sibling limbs (the groin) gets edges wide enough for
+    # the skin weights to blend across, measured from bone lengths, bend
+    # ranges and the mesh (README "Skeleton density").
+    params.skeleton_enabled = True
+    import retopoforge
+
+    bones = retopoforge.skeleton_bones(high)
     # Remesh + Bake All, split in two so the new mesh can be cleaned
     # before the bake (same calls as retopoforge.remesh_and_bake).
     before = set(bpy.data.objects)
@@ -231,6 +241,7 @@ def rebuild(high, budget, report):
         {
             "mesh": name,
             "target_quads": target,
+            "skeleton_bones": len(bones),
             "quads": sum(1 for p in low.data.polygons if len(p.vertices) == 4),
             "faces": len(low.data.polygons),
             "groups": len(low.vertex_groups),
@@ -243,6 +254,19 @@ def rebuild(high, budget, report):
     low.name = name
     low.data.name = name
     return low
+
+
+def retopo_binary(retopoforge):
+    """$RETOPO_BIN, else this checkout's release build (it has the flags
+    this adapter passes, such as --skeleton; an older installed CLI may
+    not), else the extension's lookup (PATH, then build trees)."""
+    explicit = os.environ.get("RETOPO_BIN", "")
+    if explicit and os.path.isfile(explicit) and os.access(explicit, os.X_OK):
+        return explicit
+    built = os.path.join(REPO, "rust", "target", "release", "retopo")
+    if os.path.isfile(built) and os.access(built, os.X_OK):
+        return built
+    return retopoforge.find_retopo_binary("")
 
 
 def write_result(path, payload):
@@ -276,9 +300,13 @@ def run_adapter(argv):
         return 2, None
     import retopoforge
 
-    if not retopoforge.find_retopo_binary(""):
-        print("genforge_adapter: retopo CLI not found (PATH or rust/target)", file=sys.stderr)
+    binary = retopo_binary(retopoforge)
+    if not binary:
+        print("genforge_adapter: retopo CLI not found (RETOPO_BIN, rust/target or PATH)", file=sys.stderr)
         return 2, None
+    # The extension's operator reads the binary from its preferences.
+    prefs = bpy.context.preferences.addons[retopoforge.__name__].preferences
+    prefs.retopo_binary = binary
     try:
         # No bind-pose guessing: with it, a skeleton under a translated
         # root node comes back lifted by that translation on export.
@@ -345,7 +373,7 @@ def run_adapter(argv):
         "after": {k: {"verts": v, "tris": t} for k, (v, t) in after.items()},
         "rebuilt": rebuilt,
         "scaled_images": scaled,
-        "retopo": retopoforge.find_retopo_binary(""),
+        "retopo": binary,
     }
     payload = {
         "ok": ok,
