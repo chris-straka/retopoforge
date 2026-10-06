@@ -327,6 +327,15 @@ when comparing back ends.
 - [x] `tools/genforge_adapter.sh repair-topology` (README "genforge
       adapter"): remesh + bake + reskin to the class budget for
       genforge's character chain; `blender/tests/test_genforge_adapter.py`.
+- [x] Skeleton density (`--skeleton`, README "Skeleton density"):
+      creases between sibling limbs get edges wide enough for the skin
+      blend; the adapter passes the input armature. Groin stretch on the
+      owner's humanoid 3/3 -> 1/3 runs, score 72.9 -> 76.8 mean; the
+      mannequin is byte-identical; a quadruped stays level.
+- [ ] Arms still fail one small finding per run (arm_forward volume /
+      arm_up stretch). Coarsening armpits made volume worse; next lever
+      is weights (weightforge bands measured in distance, not rings) or
+      corrective shapes, not topology.
 - [ ] Bake rays use the extension's 0.05 m extrusion; thin, close parts
       (fingers against a leg) can pick up the neighbour. Scale it with
       model size if it shows on real characters.

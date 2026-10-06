@@ -49,7 +49,7 @@ Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
 `--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,
-`--density <file>`, `--features <file>`, `--uvs [on|off]` (default `off`,
+`--density <file>`, `--features <file>`, `--skeleton <file>`, `--uvs [on|off]` (default `off`,
 bare `--uvs` means on),
 `--lods <q0,q1,...>`,
 `--quiet`/`-q`, `--verbose`, `--help`/`-h`, `--version`/`-v`.
@@ -70,7 +70,11 @@ control; strong localized refinement saturates (~2.3x realized for
 4x asks), mild masks realize nearly fully; single-file and `--lods`
 runs only. `--features` takes a polyline file in the same format as
 `--guides` and marks crisp hard-surface edges (wins ties over guides);
-single-file and `--lods` runs only. `--uvs on` emits remeshed UVs from
+single-file and `--lods` runs only. `--skeleton` takes the rig (one
+`hx hy hz tx ty tz parent bend_degrees` bone per line, parent = earlier
+line index or -1) and sizes the edges at creases between sibling limbs
+(see Skeleton density); it multiplies with `--density`; single-file and
+`--lods` runs only. `--uvs on` emits remeshed UVs from
 the internal
 parameterization (`vt` + `v/vt` corners for OBJ, `TEXCOORD_0` for GLB),
 normalized 0..1 per island. `--input`/`--output` accept `.glb` as well
@@ -200,7 +204,10 @@ the installed `retopo` CLI to a target from the class budget (rfcheck's
 hero 10k verts / 15k tris / 1024 px; monster 12k / 20k / 1024),
 smart-UV'd, baked (color + normal from the original, Cycles CPU), and
 reskinned from the original (nearest-face weight transfer, 4
-influences, normalized); the armature, bone names and clips are kept
+influences, normalized); the remesh gets the input's armature as
+`--skeleton` (see Skeleton density), and the adapter runs this
+checkout's `rust/target/release/retopo` (or `$RETOPO_BIN`) before the
+one on PATH, since an older installed CLI lacks the flag; the armature, bone names and clips are kept
 (glTF import without bind-pose guessing, so a translated root node
 round-trips exactly). Textures over budget on untouched meshes are
 scaled down. `RESULT.json` follows genforge's adapter schema
@@ -222,6 +229,61 @@ The extension is GPL-3.0-or-later, as Blender requires; the Rust engine
 stays MIT — the extension talks to it only as a subprocess over OBJ
 files. See [docs/architecture.md](docs/architecture.md) and
 [blender/README.md](blender/README.md).
+
+## Skeleton density (`--skeleton`)
+
+Deformation-aware density for rigged characters. The skin weights a
+rigger or weight fixer produces blend across a joint over a roughly
+fixed number of edge rings (SkinTokens' transition and weightforge's
+repair bands are both about four rings), so the blend's width in space
+is that ring count times the local edge length. Where a limb's crease
+runs deep, the blend is then too narrow for the sweep and the crease
+edges tear. Measured on a 2 m humanoid from the owner's AI corpus
+(2026-10-05; SkinTokens rig, motionforge standardize, `weights fix`,
+then the weightforge gate, three remesh targets each):
+
+| groin topology | thigh stretch fails | score after fix |
+|---|---|---|
+| default | 3 of 3 runs (5-11 verts) | 72.6-73.2 |
+| 1.6x more quads everywhere* | yes (27 verts) | 67.5 |
+| denser groin and armpits (x4 zones)* | yes, fix refused | 41.6 |
+| `--skeleton` (groin edges 1.2-1.3x longer) | 1 of 3 (3 verts) | 75.7-78.0 |
+
+(*one run each, on the earlier Python SkinTokens runtime, whose
+default-topology runs scored the same 69-73.)
+
+More rings at the groin made it worse; wider, even rings fixed it.
+Coarsening every limb root (armpits too) moved the failure into
+collapsed arm volume and cost a test mannequin 6 points, so the rule
+only sizes the crease between **sibling limbs** (two legs under one
+pelvis, four legs under one body), where one limb swings against a
+still neighbour:
+
+1. For each bone whose parent has another child, slice the mesh
+   perpendicular to the bone, stepping from its pivot toward its tail,
+   until the loop around the bone holds no surface nearer to a sibling
+   limb than to this one. That distance is the crease depth (none when
+   the limb separates within its own radius of the pivot, or never).
+2. The crease asks for edges no shorter than
+   `bend * depth / ((2.5 - 1) * 4)` (radians; 2.5 = the gate's per-edge
+   stretch, 4 = blend rings). Where the nominal quad edge
+   (`sqrt(area / target)`) is shorter, a sphere around the pivot
+   (radius 2x the depth, full strength over the inner half) gets
+   density `(nominal / wanted)^2`, floored at 0.25. The density
+   pipeline keeps the total quad budget.
+
+Everything comes from bone lengths, the hierarchy, bend ranges and the
+mesh; nothing is in units or tuned per character. On the weightforge
+mannequin (legs leave the body at the hip) no crease qualifies and the
+output is byte-identical; on a rigged quadruped the hind legs ask for
+x0.77 and its same-rig scores stay level (31.4-33.8 off, 31.8-34.7 on).
+`--verbose` lists each crease and its ask. The Blender extension writes
+the file from the object's armature (Density panel, *Skeleton Density*;
+bend ranges from bone-name roles, 45 degrees otherwise) and genforge's
+repair-topology adapter turns it on. Limits: limb-to-trunk creases
+(armpits) are left alone, and the humanoid still fails one small arm
+finding in each run (arm_forward volume or arm_up stretch, 4-10 verts);
+that is a weights or corrective-shape job, not topology.
 
 ## Layout
 
