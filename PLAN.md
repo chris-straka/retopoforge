@@ -4,7 +4,7 @@ Written 2026-10-03 at the end of a review session (Claude Code). Read
 `AGENTS.md` and `docs/direction.md` first; this file only records what
 the review found and what is left.
 
-## Done (on main via PR #2, or on branch `claude/wonderful-meitner-7wce5s`)
+## Done (all on main: PR #2, then the branch merge 53b2dd7b on 2026-10-06)
 
 Blender extension (`blender/retopoforge/__init__.py`), all with
 headless-test coverage (221 checks, green on Blender 5.0.1 + 4.5.4 LTS):
@@ -55,13 +55,14 @@ coverage retry chain and native decimator all read correct.
   `bench/run.py --check bench/baseline-linux.json` green with every
   count and deform score identical to the pre-change run (only timings
   moved; dragon/small 5.4s -> 4.7s).
-  Confirm macOS CI (`development` workflow, `cargo test`) is green and
-  `bench/run.py --check bench/baseline.json` passes on the Mac.
+  macOS CI (`development` workflow, `cargo test`) was green on the merge
+  (2026-10-06); `bench/run.py --check bench/baseline.json` on the Mac is
+  still unconfirmed.
 
 ## Next steps (ordered)
 
-1. Open a PR for the branch commits after PR #2 (recall-on-switch,
-   engine coverage changes, this file) once macOS CI is green.
+1. Done 2026-10-06: the branch commits after PR #2 merged to main (Linux
+   tests match main, Blender 5.2.1 headless green, macOS CI green).
 2. Blender, small:
    - Multiple LOW material slots: only slot 0 gets the bake image node,
      so Cycles errors "no active image" on multi-material LOWs. Add the
