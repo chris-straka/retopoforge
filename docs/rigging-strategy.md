@@ -8,7 +8,7 @@ lives outside this repo; this note records how it fits the pipeline.
 Topology first, rig second:
 
 - Humanoids: rig the **base** once with rigforge; every character
-  wrapped onto it (`~/SWE/wrapforge`) inherits the rig and weights,
+  wrapped onto it (`~/SWE/blender/wrapforge`) inherits the rig and weights,
   bones follow the wrap.
 - One-off monsters: retopoforge remesh -> rigforge (`hll_stalker` or a
   new preset) -> weights.
@@ -17,9 +17,9 @@ Topology first, rig second:
 
 ## Tools
 
-- **rigforge** (`~/SWE/rigforge`, GPL-2.0-or-later): Rigify 0.6.10 fork
+- **rigforge** (`~/SWE/blender/rigforge`, GPL-2.0-or-later): Rigify 0.6.10 fork
   with HLL presets (`hll_hero`, `hll_stalker`), a deform-bones-only GLB
-  export for Godot, and a deterministic landmark detector + metarig
+  export for the game (Bevy), and a deterministic landmark detector + metarig
   fitter. The production rigger.
 - **skintokens** (`~/SWE/blender/skintokens`, local repo): SkinTokens /
   TokenRig (VAST-AI, MIT code and weights), UniRig's successor, on the
@@ -33,7 +33,7 @@ Topology first, rig second:
 - **unirig-mac** (`~/SWE/blender/unirig-mac`): retired 2026-10-05 in
   favor of skintokens; kept for reference, not deleted.
 
-## Bake-off verdict (2026-09-30, `~/SWE/rigforge/docs/bakeoff/final.md`)
+## Bake-off verdict (2026-09-30, `~/SWE/blender/rigforge/docs/bakeoff/final.md`)
 
 rigforge won hero and creature quality: 160 deform bones with face,
 fingers and twist bones vs UniRig's 28 body-only joints on the hero and
@@ -49,7 +49,7 @@ a face rig are required, and UniRig cannot produce them.
 - **Mobile bone budget**: 160 deform bones is heavy for mobile skinning.
   Add a game-export profile that drops or merges face/twist bones for
   mobile LODs (one rig, two export profiles), and measure skinning cost
-  in Godot on a target phone.
+  in the game (Bevy) on a target phone.
 - **Weights are the real time sink** (rigforge TODO calls weight
   painting the highest-value item). Humanoids get weights from the base
   via wrapforge. For one-off monsters, a better binding method than

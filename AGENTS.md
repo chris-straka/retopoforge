@@ -11,7 +11,7 @@ individual upstream engine fixes by hand when relevant, bench green.
 
 Scope and next engine work: read `docs/direction.md` first (retopoforge
 is for one-off monsters, accessories, and making new bases; humanoids go
-through `~/SWE/wrapforge`).
+through `~/SWE/blender/wrapforge`).
 
 ## Standing rules
 
