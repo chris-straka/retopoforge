@@ -27,8 +27,9 @@
 //!   borrowing the remesher's member: the boxes are only read through the
 //!   tree after construction, so this is behavior-identical and avoids a
 //!   self-referential struct.
-//! - Non-triangle input faces are skipped (with the same `eprintln!`) instead
-//!   of leaving an orphan face behind: the C++ null-derefs on the orphan in
+//! - Non-triangle input faces are skipped (counted, see `build_anomalies`,
+//!   instead of the C++ per-face stderr line) instead of leaving an orphan
+//!   face behind: the C++ null-derefs on the orphan in
 //!   `averageEdgeLength` before producing any output, so no observable
 //!   behavior changes (out-of-contract input).
 //! - The `bottomVertex` repair in `collapse_edge` checks `bottomFace` twice,
@@ -623,9 +624,22 @@ pub struct IsotropicHalfedgeMesh {
     debug_vertex_index: usize,
     debug_face_index: usize,
     debug_halfedge_index: usize,
+    /// Input faces the constructor skipped for not being triangles.
+    non_triangle_faces: usize,
+    /// Directed edges seen twice (non-manifold or inconsistently
+    /// wound input); the first halfedge keeps the map slot.
+    repeated_halfedges: usize,
 }
 
 impl IsotropicHalfedgeMesh {
+    /// Construction anomalies `(non_triangle_faces, repeated_halfedges)`.
+    /// The C++ printed one stderr line per occurrence; the counts let
+    /// callers report them once, and only when asked to (`--verbose`).
+    #[must_use]
+    pub fn build_anomalies(&self) -> (usize, usize) {
+        (self.non_triangle_faces, self.repeated_halfedges)
+    }
+
     #[inline]
     fn make_halfedge_key(first: usize, second: usize) -> u64 {
         ((first as u64) << 32) | (second as u64)
@@ -678,7 +692,7 @@ impl IsotropicHalfedgeMesh {
         let mut halfedge_map: BTreeMap<u64, usize> = BTreeMap::new();
         for indices in faces {
             if 3 != indices.len() {
-                eprintln!("Found non-triangle, face count:{}", indices.len());
+                mesh.non_triangle_faces += 1;
                 continue;
             }
             let face = mesh.new_face();
@@ -712,7 +726,7 @@ impl IsotropicHalfedgeMesh {
                         slot.insert(halfedge);
                     }
                     Entry::Occupied(_) => {
-                        eprintln!("Found repeated halfedge:{first},{second}");
+                        mesh.repeated_halfedges += 1;
                     }
                 }
             }
@@ -1708,6 +1722,13 @@ impl<'a> IsoRemeshKernel<'a> {
             smooth_triangle_normals: Vec::new(),
             progress_handler: None,
         }
+    }
+
+    /// Halfedge-mesh construction anomalies, see
+    /// [`IsotropicHalfedgeMesh::build_anomalies`].
+    #[must_use]
+    pub fn build_anomalies(&self) -> (usize, usize) {
+        self.halfedge_mesh.build_anomalies()
     }
 
     /// Mirrors `initialAverageEdgeLength`.

@@ -36,6 +36,7 @@ impl AutoRemesher {
         decimated_triangles_out: &mut Vec<Vec<usize>>,
         density_in: &[f64],
         density_out: &mut Vec<f64>,
+        verbose: bool,
     ) {
         // Local density control, default off: every block below is guarded
         // on densityActive, so a run without a mask executes the exact same
@@ -233,6 +234,7 @@ impl AutoRemesher {
             positions_before_remesh.clone_from(vertices);
         }
         let mut isotropic_remesher = IsotropicRemesher::new(vertices, triangles);
+        isotropic_remesher.set_verbose(verbose);
         // NOTE: the C++ re-checks `*progressHandler` (the std::function
         // null state); the only constructed handler is a live closure, so
         // the check is dead and has no counterpart.

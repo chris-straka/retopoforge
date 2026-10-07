@@ -47,6 +47,16 @@ def check_cancel(label, func):
     check("CANCELLED" in result, f"{label} cancels (got {result})")
 
 
+def switch_to(obj):
+    """Make obj the only selected, active object the way a click does;
+    the depsgraph update is where settings recall notices the switch."""
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.context.view_layer.update()
+
+
 def main():
     bpy.ops.preferences.addon_enable(module="retopoforge")
     try:
@@ -205,26 +215,58 @@ def main():
               "recall blob lod_targets")
         print("recall entry:", json.dumps(entry, sort_keys=True))
 
+        check(bpy.context.view_layer.objects.active == recall_obj
+              and recall_obj.select_get(),
+              "remesh leaves the result selected and active")
+
+        # Recall never fires on Remesh: panel edits made with the object
+        # still active are exactly what the do-over uses.
         params.target_quads = 50
         params.model_type = "ORGANIC"
         params.sharp_edge = 120.0
         params.adaptivity = 0.9
         params.apply_modifiers = True
         params.lod_targets = "1,2,3"
-        # The remesh above left nothing selected (the importer selects its
-        # temps, which are then removed), so re-select like a user would.
-        recall_obj.select_set(True)
-        bpy.context.view_layer.objects.active = recall_obj
+        bpy.context.view_layer.update()
+        check(params.target_quads == 50,
+              "panel edits survive while the object stays active")
         result = bpy.ops.retopoforge.remesh()
         check("FINISHED" in result, f"do-over remesh finished (got {result})")
-        check(params.target_quads == 321, "recall restored target_quads")
-        check(params.model_type == "HARDSURFACE", "recall restored model_type")
-        check(abs(params.sharp_edge - 45.0) < 1e-6, "recall restored sharp_edge")
-        check(abs(params.adaptivity - 0.25) < 1e-6, "recall restored adaptivity")
-        check(params.apply_modifiers is False,
+        check(params.target_quads == 50 and params.model_type == "ORGANIC",
+              "do-over used the edited panel values")
+        entry = json.loads(bpy.context.scene.retopoforge_recall)[
+            recall_obj.name]
+        check(entry.get("target_quads") == 50,
+              "recall blob tracks the edited do-over")
+
+        # Switching objects recalls: a never-remeshed object leaves the
+        # panel alone; switching back restores the saved entry.
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(6.0, 0.0, 0.0))
+        neutral = bpy.context.active_object
+        switch_to(neutral)
+        check(params.target_quads == 50,
+              "switching to an object without an entry keeps the panel")
+        params.target_quads = 999
+        params.model_type = "HARDSURFACE"
+        params.sharp_edge = 45.0
+        params.adaptivity = 0.25
+        params.apply_modifiers = False
+        params.lod_targets = "400,200,80"
+        switch_to(recall_obj)
+        check(params.target_quads == 50, "recall restored target_quads")
+        check(params.model_type == "ORGANIC", "recall restored model_type")
+        check(abs(params.sharp_edge - 120.0) < 1e-6,
+              "recall restored sharp_edge")
+        check(abs(params.adaptivity - 0.9) < 1e-6, "recall restored adaptivity")
+        check(params.apply_modifiers is True,
               "recall restored apply_modifiers")
-        check(params.lod_targets == "400,200,80",
-              "recall restored lod_targets")
+        check(params.lod_targets == "1,2,3", "recall restored lod_targets")
+        # Hand the sections below the values they always ran with.
+        params.model_type = "HARDSURFACE"
+        params.sharp_edge = 45.0
+        params.adaptivity = 0.25
+        params.apply_modifiers = False
+        params.lod_targets = "400,200,80"
 
         # --- Symmetry toggle: defaults off, cli_args maps toggle+plane to
         # the CLI --symmetry value, and a remesh with symmetry on finishes
@@ -261,16 +303,16 @@ def main():
         check(sym_entry.get("symmetry_plane") == "X",
               "recall blob symmetry_plane")
         print("symmetry entry:", json.dumps(sym_entry, sort_keys=True))
+        switch_to(neutral)
         params.symmetry_enabled = False
         params.symmetry_plane = "AUTO"
-        sym_obj.select_set(True)
-        bpy.context.view_layer.objects.active = sym_obj
-        result = bpy.ops.retopoforge.remesh()
-        check("FINISHED" in result,
-              f"symmetry do-over remesh finished (got {result})")
+        switch_to(sym_obj)
         check(params.symmetry_enabled is True,
               "recall restored symmetry_enabled")
         check(params.symmetry_plane == "X", "recall restored symmetry_plane")
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"symmetry do-over remesh finished (got {result})")
         # Leave symmetry off so the LOD/bake sections below run unconstrained,
         # exactly as before this toggle existed.
         params.symmetry_enabled = False
@@ -344,14 +386,14 @@ def main():
         check(isinstance(guide_entry, dict), "recall blob has guides entry")
         check(guide_entry.get("guides_enabled") is True,
               "recall blob guides_enabled")
+        switch_to(neutral)
         params.guides_enabled = False
-        guide_obj.select_set(True)
-        bpy.context.view_layer.objects.active = guide_obj
+        switch_to(guide_obj)
+        check(params.guides_enabled is True,
+              "recall restored guides_enabled")
         result = bpy.ops.retopoforge.remesh()
         check("FINISHED" in result,
               f"guides do-over finished (got {result})")
-        check(params.guides_enabled is True,
-              "recall restored guides_enabled")
         params.guides_enabled = False
         os.remove(guides_path)
 
@@ -448,14 +490,14 @@ def main():
         check(isinstance(feat_entry, dict), "recall blob has features entry")
         check(feat_entry.get("features_enabled") is True,
               "recall blob features_enabled")
+        switch_to(neutral)
         params.features_enabled = False
-        sharp_obj.select_set(True)
-        bpy.context.view_layer.objects.active = sharp_obj
+        switch_to(sharp_obj)
+        check(params.features_enabled is True,
+              "recall restored features_enabled")
         result = bpy.ops.retopoforge.remesh()
         check("FINISHED" in result,
               f"features do-over finished (got {result})")
-        check(params.features_enabled is True,
-              "recall restored features_enabled")
         params.features_enabled = False
         os.remove(features_path)
 
@@ -534,6 +576,7 @@ def main():
               "recall blob density_min")
         check(abs(dens_entry.get("density_max", -1) - 4.0) < 1e-9,
               "recall blob density_max")
+        switch_to(neutral)
         params.density_enabled = False
         params.density_vertex_group = ""
         # The mesh swap drops vertex groups (weights lived on the old
@@ -542,15 +585,14 @@ def main():
         stale = dens_obj.vertex_groups.get("DensityTest")
         if stale is not None:
             dens_obj.vertex_groups.remove(stale)
-        dens_obj.select_set(True)
-        bpy.context.view_layer.objects.active = dens_obj
-        result = bpy.ops.retopoforge.remesh()
-        check("FINISHED" in result,
-              f"density do-over finished (got {result})")
+        switch_to(dens_obj)
         check(params.density_enabled is True,
               "recall restored density_enabled")
         check(params.density_vertex_group == "DensityTest",
               "recall restored density group")
+        result = bpy.ops.retopoforge.remesh()
+        check("FINISHED" in result,
+              f"density do-over finished (got {result})")
         params.density_enabled = False
         params.density_vertex_group = ""
         os.remove(dens_path)
@@ -952,9 +994,8 @@ def main():
         retopoforge.save_recall_entry(bpy.context, high2.name, params)
         high2_polys = len(high2.data.polygons)
         params.bake_cage = bad_cage
-        bpy.ops.object.select_all(action="DESELECT")
-        high2.select_set(True)
-        bpy.context.view_layer.objects.active = high2
+        switch_to(neutral)
+        switch_to(high2)  # recall loads the keep_original=False entry
         result = bpy.ops.retopoforge.remesh_and_bake()
         check("FINISHED" in result, f"one-click finished (got {result})")
         check(len(high2.data.polygons) == high2_polys,

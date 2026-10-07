@@ -333,6 +333,7 @@ impl AutoRemesher {
                                     dec_t,
                                     &ctx.density,
                                     &mut ctx.resampled_density,
+                                    this.verbose,
                                 );
                                 let t1 = Instant::now();
                                 resample_time.fetch_add(
