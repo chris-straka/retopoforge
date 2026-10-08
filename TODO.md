@@ -70,7 +70,7 @@ push main from lanes (explicit refspec only); game assets never committed.
 ## Next work (2026-10-01; read docs/direction.md first)
 
 Owner's map of all projects and the cross-project order:
-`~/SWE/games/tools/roadmap.md`. Gate every engine change with
+`~/SWE/games/_tools/roadmap.md`. Gate every engine change with
 `bench/noise.py` + `bench/score.py` distributions (single runs are below
 the noise floor), plus `bench/matched.py` against `bench/quadwild.py`
 when comparing back ends.
