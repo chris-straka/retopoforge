@@ -70,7 +70,7 @@ push main from lanes (explicit refspec only); game assets never committed.
 ## Next work (2026-10-01; read docs/direction.md first)
 
 Owner's map of all projects and the cross-project order:
-`~/SWE/games/_tools/roadmap.md`. Gate every engine change with
+`~/Games/_tools/roadmap.md`. Gate every engine change with
 `bench/noise.py` + `bench/score.py` distributions (single runs are below
 the noise floor), plus `bench/matched.py` against `bench/quadwild.py`
 when comparing back ends.
@@ -349,7 +349,7 @@ when comparing back ends.
 ## Rigging (separate repos, see docs/rigging-strategy.md)
 
 Character rigging lives outside this repo: `~/SWE/rigforge` (Rigify
-fork, heroes/control rigs) and `~/SWE/blender/unirig-mac` (ML rigger Mac
+fork, heroes/control rigs) and `~/Games/_blender/unirig-mac` (ML rigger Mac
 port, creature volume/auto-placement). Toolbox siblings, no contest.
 
 - [ ] Pipeline end-to-end: remeshed mesh → rigged character

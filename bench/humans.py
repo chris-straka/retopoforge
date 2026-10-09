@@ -4,7 +4,7 @@
     python3 bench/humans.py [--tag NAME] [--targets 2000,5000] [--only a,b]
 
 Inputs: the shared CC0 corpus (8 MPFB2 characters in clothes, built by
-~/SWE/blender/weightforge/bench/corpus/fetch.sh into
+~/Games/_blender/weightforge/bench/corpus/fetch.sh into
 $FORGE_BENCH/corpus). For each, bench/humans_blender.py makes a scan-style
 soup (voxel remesh at 1/200 of height + 0.1% noise: one closed dense
 triangle skin with the clothes fused on, like photogrammetry or an AI

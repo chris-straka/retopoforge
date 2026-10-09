@@ -8,20 +8,20 @@ lives outside this repo; this note records how it fits the pipeline.
 Topology first, rig second:
 
 - Humanoids: rig the **base** once with rigforge; every character
-  wrapped onto it (`~/SWE/blender/wrapforge`) inherits the rig and weights,
+  wrapped onto it (`~/Games/_blender/wrapforge`) inherits the rig and weights,
   bones follow the wrap.
 - One-off monsters: retopoforge remesh -> rigforge (`hll_stalker` or a
   new preset) -> weights.
 - Pieces (capes, hair, armor, clothes): weights copied from the body (Data
-  Transfer), see `~/SWE/games/_tools/asset-pipeline.md`.
+  Transfer), see `~/Games/_tools/asset-pipeline.md`.
 
 ## Tools
 
-- **rigforge** (`~/SWE/blender/rigforge`, GPL-2.0-or-later): Rigify 0.6.10 fork
+- **rigforge** (`~/Games/_blender/rigforge`, GPL-2.0-or-later): Rigify 0.6.10 fork
   with HLL presets (`hll_hero`, `hll_stalker`), a deform-bones-only GLB
   export for the game (Bevy), and a deterministic landmark detector + metarig
   fitter. The production rigger.
-- **skintokens** (`~/SWE/blender/skintokens`, local repo): SkinTokens /
+- **skintokens** (`~/Games/_blender/skintokens`, local repo): SkinTokens /
   TokenRig (VAST-AI, MIT code and weights), UniRig's successor, on the
   M4's GPU (~35-55 s per character, skeleton and weights in one pass).
   The ML rigger since 2026-10-05: weightforge's ML candidate
@@ -30,10 +30,10 @@ Topology first, rig second:
   score 47.9/100 raw and 61.6 after weightforge's fix, against UniRig's
   10.1 / 33.6 on the same mesh (`skintokens/docs/evaluation.md`); none
   pass the gate yet (shoulder and hip stretch at the extreme ROM poses).
-- **unirig-mac** (`~/SWE/blender/unirig-mac`): retired 2026-10-05 in
+- **unirig-mac** (`~/Games/_blender/unirig-mac`): retired 2026-10-05 in
   favor of skintokens; kept for reference, not deleted.
 
-## Bake-off verdict (2026-09-30, `~/SWE/blender/rigforge/docs/bakeoff/final.md`)
+## Bake-off verdict (2026-09-30, `~/Games/_blender/rigforge/docs/bakeoff/final.md`)
 
 rigforge won hero and creature quality: 160 deform bones with face,
 fingers and twist bones vs UniRig's 28 body-only joints on the hero and
