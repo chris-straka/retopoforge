@@ -12,7 +12,7 @@ attaches it to a genforge character, and the repair-topology adapter passes
 it to `retopo` (genforge D64-D65, retopoforge 80d3dba).
 
 The gap is drawing them. genforge remeshes from the generated model, often
-1M+ triangles (Andras's Tripo mesh is 1.5M). Picking edges on a mesh that
+1M+ triangles (a Tripo hero mesh is 1.5M). Picking edges on a mesh that
 dense is slow, and its edges rarely run where the flow should go. Getting a
 genforge character into Blender also needs a manual import with "Guess
 Original Bind Pose" off, or the mesh shifts about 1 m and the guides miss.
@@ -86,10 +86,10 @@ send them back, in a few minutes, on any mesh size.
 ## Verification
 
 - **Headless tests:** scripted strokes on fixtures (a cylinder, a torso,
-  Andras). Every exported point lies on the surface (under 1 mm), mirrored
+  a hero mesh). Every exported point lies on the surface (under 1 mm), mirrored
   strokes match, gaps split, the guides layer survives save and reload.
   Covers 4.2 and 5.2.
-- **Real run:** scripted shoulder rings and groin lines on Andras's 1.5M
+- **Real run:** scripted shoulder rings and groin lines on a hero's 1.5M
   Tripo mesh, then genforge rehearsal (free) with and without them.
   Compare weightforge scores, and before/after edge-flow renders that the
   agent looks at itself.

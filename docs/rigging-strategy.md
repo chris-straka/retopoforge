@@ -1,4 +1,4 @@
-# Rigging strategy (HLL character pipeline)
+# Rigging strategy (game character pipeline)
 
 Updated 2026-10-01 (supersedes the 2026-09-30 two-track plan). Rigging
 lives outside this repo; this note records how it fits the pipeline.
@@ -10,7 +10,7 @@ Topology first, rig second:
 - Humanoids: rig the **base** once with rigforge; every character
   wrapped onto it (`~/Games/_blender/wrapforge`) inherits the rig and weights,
   bones follow the wrap.
-- One-off monsters: retopoforge remesh -> rigforge (`hll_stalker` or a
+- One-off monsters: retopoforge remesh -> rigforge (`quadruped_stalker` or a
   new preset) -> weights.
 - Pieces (capes, hair, armor, clothes): weights copied from the body (Data
   Transfer), see `~/Games/_tools/asset-pipeline.md`.
@@ -18,7 +18,7 @@ Topology first, rig second:
 ## Tools
 
 - **rigforge** (`~/Games/_blender/rigforge`, GPL-2.0-or-later): Rigify 0.6.10 fork
-  with HLL presets (`hll_hero`, `hll_stalker`), a deform-bones-only GLB
+  with game presets (`biped_hero`, `quadruped_stalker`), a deform-bones-only GLB
   export for the game (Bevy), and a deterministic landmark detector + metarig
   fitter. The production rigger.
 - **skintokens** (`~/Games/_blender/skintokens`, local repo): SkinTokens /
@@ -26,7 +26,7 @@ Topology first, rig second:
   M4's GPU (~35-55 s per character, skeleton and weights in one pass).
   The ML rigger since 2026-10-05: weightforge's ML candidate
   (`weights fix --skintokens`) and rigforge's joint-hint source
-  (`skintokens joints`). On the genforge rehearsal Andras its weights
+  (`skintokens joints`). On the genforge rehearsal hero its weights
   score 47.9/100 raw and 61.6 after weightforge's fix, against UniRig's
   10.1 / 33.6 on the same mesh (`skintokens/docs/evaluation.md`); none
   pass the gate yet (shoulder and hip stretch at the extreme ROM poses).

@@ -175,7 +175,7 @@ exists in our tree.
 Gap: unmeasured. Their quality reputation rests on the ZRemesher
 lineage plus six years of user consensus, not numbers — and we have
 neither numbers nor a comparison. Difficulty: running a blind
-comparison on our bench models + the Andras game meshes is S (we
+comparison on our bench models + the hero game meshes is S (we
 would need a $15.99 subscription or trial for the reference outputs;
 note the EULA bans using outputs for competing-product development
 and ML training — see section 8 — so get the comparison protocol
@@ -269,7 +269,7 @@ shippable game assets per unit of effort.
 1. Robustness on nasty inputs (weld-on-load, degenerate-tri drop,
    loud island accounting, `--quiet`) — already TODO-scoped, S.
    Unblocks the owner's actual meshes; value is immediate.
-2. Measured quality comparison vs QR on bench + Andras meshes —
+2. Measured quality comparison vs QR on bench + hero game meshes —
    S (+$16 sub or trial). Unblocks every later quality decision;
    do this before any L/XL engine bet. Mind the EULA clauses.
 3. Guide system, phase 1: auto hard-edge detection by angle +

@@ -775,9 +775,9 @@ def joint_bend_degrees(bone_name):
 
 def _is_helper_bone(bone):
     """Twist/helper bones ride inside their driver: not part of the
-    skeleton retopo sees (motionforge marks them `hll_helper`, or
+    skeleton retopo sees (motionforge marks them `helper_bone`, or
     `_twist` names)."""
-    if bone.get("hll_helper") is not None:
+    if bone.get("helper_bone") is not None:
         return True
     return "twist" in bone.name.lower()
 

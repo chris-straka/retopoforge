@@ -8,7 +8,7 @@ posed mesh holds up at its joints.
 
 1. Input: a remeshed (or wrapped) mesh plus a rig. For procedural tests,
    generate both: a tube limb with 2 bones (elbow), a biped mannequin
-   with rigforge `hll_hero`, a quadruped with `hll_stalker`.
+   with rigforge `biped_hero`, a quadruped with `quadruped_stalker`.
 2. Skin with a fixed method (Blender automatic weights for retopoforge
    comparisons, so only topology varies; the method under test when
    testing weights).
@@ -157,6 +157,6 @@ calibration runs scored; no empty regions, no degenerate volumes.
 
 **Future work.** Blender-weights comparison lane (skin the same
 remeshes with Blender automatic weights to isolate topology vs
-skinning effects); rigforge mannequin rigs (`hll_hero`, `hll_stalker`)
+skinning effects); rigforge mannequin rigs (`biped_hero`, `quadruped_stalker`)
 to run the knee/shoulder/neck/spine/jaw poses on limbs instead of the
 synthetic whole-mesh fold.
