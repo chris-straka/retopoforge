@@ -1,5 +1,7 @@
 # retopoforge — agent notes
 
+One rules file only: this `AGENTS.md` is it — never create a `CLAUDE.md` in this folder (Muse ignores it and warns while both exist).
+
 Fork of huxingyi/autoremesher (MIT): a Rust engine (`retopo_core` +
 `retopo_solvers`), the `retopo` CLI, a Blender extension driving the CLI,
 and a benchmark/quality harness. The engine was ported 1:1 from the
