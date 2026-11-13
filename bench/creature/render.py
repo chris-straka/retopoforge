@@ -2,7 +2,12 @@
 
     blender -b --factory-startup -P bench/creature/render.py -- \
         CANDIDATE_RIGGED.glb CANDIDATE.obj OUT_PREFIX [--joint BONE] [--bend 60]
-        [--size 900]
+        [--size 900] [--frame MESH.obj] [--no-wire]
+
+--frame aims the whole view at another mesh's extent (the source), so a
+before/after pair shares one camera; the extent ignores the outer 1% of
+vertices each way (stray hair strands). --no-wire draws clay only (the
+dense source's wireframe would be solid black). RIGGED may be `-`.
 
 Writes OUT_PREFIX.whole.png (clay with the wireframe, three-quarter front
 view) and, when the mesh has a rig, OUT_PREFIX.joint.png: a close-up of
@@ -25,11 +30,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def args():
     a = sys.argv[sys.argv.index("--") + 1:]
-    o = {"joint": None, "bend": 60.0, "size": 900}
+    o = {"joint": None, "bend": 60.0, "size": 900, "frame": None, "wire": True}
     pos = []
     i = 0
     while i < len(a):
-        if a[i].startswith("--"):
+        if a[i] == "--no-wire":
+            o["wire"] = False
+            i += 1
+        elif a[i].startswith("--"):
             o[a[i][2:]] = a[i + 1]
             i += 2
         else:
@@ -112,7 +120,8 @@ def main():
                       for e in c.data.edges])
     wire = c.copy()
     wire.data = c.data.copy()
-    bpy.context.scene.collection.objects.link(wire)
+    if o["wire"]:
+        bpy.context.scene.collection.objects.link(wire)
     wire.data.materials.clear()
     wire.data.materials.append(material("wire", (0.08, 0.09, 0.12)))
     wm = wire.modifiers.new("wire", "WIREFRAME")
@@ -123,7 +132,13 @@ def main():
     bpy.context.view_layer.update()
 
     v = ml.coords(c)
-    lo, hi = v.min(0), v.max(0)
+    if o["frame"]:
+        f_objs = imported(lambda: bpy.ops.wm.obj_import(filepath=o["frame"]))
+        fm = next(x for x in f_objs if x.type == "MESH")
+        v = ml.coords(fm)
+        for x in f_objs:
+            bpy.data.objects.remove(x, do_unlink=True)
+    lo, hi = np.percentile(v, 1, axis=0), np.percentile(v, 99, axis=0)
     ctr, ext = (lo + hi) / 2, float(np.linalg.norm(hi - lo))
     aim(cam, ctr, (-0.55, -1.0, 0.35), ext * 1.05)
     render(prefix + ".whole.png")
@@ -155,12 +170,12 @@ def main():
     amat = np.array(arm.matrix_world)
     pb = arm.pose.bones[pick["bone"]]
     pb.matrix = Matrix((np.linalg.inv(amat) @ mw @ amat).tolist()) @ pb.bone.matrix_local
-    for x in (c, wire):
+    for x in (c, wire) if o["wire"] else (c,):
         if not any(m.type == "ARMATURE" for m in x.modifiers):
             am = x.modifiers.new("Armature", "ARMATURE")
             am.object = arm
     # armature before wireframe on the wire copy
-    while wire.modifiers[0].type != "ARMATURE":
+    while o["wire"] and wire.modifiers[0].type != "ARMATURE":
         bpy.context.view_layer.objects.active = wire
         bpy.ops.object.modifier_move_up(modifier=[m for m in wire.modifiers if m.type == "ARMATURE"][0].name)
     bpy.context.view_layer.update()
@@ -171,4 +186,5 @@ def main():
         f.write(f"{pick['bone']} bent {bend:g} deg\n")
 
 
-main()
+if __name__ == "__main__":
+    main()
