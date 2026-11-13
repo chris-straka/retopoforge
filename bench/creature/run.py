@@ -156,11 +156,13 @@ def stage_guides(s, d, log):
     return os.path.exists(os.path.join(g, "rings.txt"))
 
 
-def cut_retopo(dense, out, tris, extra, log):
+def cut_retopo(dense, out, tris, extra, log, extra_env=None):
     q = max(100, tris // 2)
+    d = os.path.dirname(dense)
     argv = [env("RETOPO"), "--input", dense, "--output", out, "--target-quads", str(q), "--quiet"]
-    argv += shlex.split((extra or "").replace("{dir}", os.path.dirname(dense)))
-    return sh(argv, log, timeout=3600)
+    argv += shlex.split((extra or "").replace("{dir}", d))
+    e = {k: v.replace("{dir}", d) for k, v in (extra_env or {}).items()}
+    return sh(argv, log, timeout=3600, extra_env=e)
 
 
 def cut_blender(how, dense, out, tris, log):
@@ -188,7 +190,8 @@ def one_cut(s, d, tool, tris, a, log):
     for attempt in range(3):
         tmp = f"{out}.try{attempt}.obj"
         if tool.startswith("retopo"):
-            code = cut_retopo(dense, tmp, target, a.retopo_args if tool != "retopo" else "", log)
+            code = cut_retopo(dense, tmp, target, a.retopo_args if tool != "retopo" else "", log,
+                              dict(x.split("=", 1) for x in a.retopo_env) if tool != "retopo" else None)
         else:
             code = cut_blender(tool, dense, tmp, target, log)
         if code != 0 or not os.path.exists(tmp):
@@ -292,6 +295,8 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--tag", default="", help="variant name: the retopo tool becomes retopo.<tag>")
     ap.add_argument("--retopo-args", default="")
+    ap.add_argument("--retopo-env", action="append", default=[],
+                    help="KEY=VALUE for the variant's retopo runs ({dir} is the subject's folder)")
     a = ap.parse_args()
     work = os.path.abspath(a.work)
     subs = subjects(work)
