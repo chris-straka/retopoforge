@@ -67,8 +67,9 @@ def main():
     a = ap.parse_args()
     work = os.path.abspath(a.work)
     subs = a.subjects.split(",") if a.subjects else sorted(
-        os.path.basename(os.path.dirname(p)) for p in glob.glob(os.path.join(work, "*", "ref", "aligned.glb"))
-        if not os.path.basename(os.path.dirname(os.path.dirname(p))).startswith(("a_", "p_")))
+        n for n in (os.path.basename(os.path.dirname(os.path.dirname(p)))
+                    for p in glob.glob(os.path.join(work, "*", "ref", "aligned.glb")))
+        if not n.startswith(("a_", "p_")))
     for s in subs:
         d = os.path.join(work, s)
         o = os.path.join(a.out, s)
