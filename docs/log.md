@@ -74,3 +74,27 @@ Instant Meshes (BSD-3, official 2019 Linux build) and QuadWild+Bi-MDF
 running downloaded binaries was refused by the agent's permission check.
 They wait for the owner. Tripo's own retopology needs paid credits: not
 run.
+
+### Tried: retopo's cut laid back onto the source (bench only, `retopo+lay`)
+
+Each vertex moved to the nearest source point unless that turns a face
+over. Bend on the five creatures: 49.7 -> 53.7, 64.8 -> 66.4, 83.0 ->
+83.6, 68.5 -> 70.3, 74.2 -> 77.1 (better on all five); mean surface
+distance 0.27-0.70% -> lower on all five; surface p95 and worst distance
+almost unchanged (1.40 -> 1.37 on the first). So where retopo puts its
+vertices costs a little; most of its loss is shape it never captured.
+Kept as the reason to build the engine version (`exp/settle`: the same
+projection onto the island's input, plus pulling stray vertices home).
+
+### Found: the horns are lost after the working mesh
+
+The mountain boss lost both horns (worst distance 15.5% of its size).
+Its working mesh (`RETOPO_DUMP_STAGES`, the isotropic stage's output,
+24k triangles) still has both horns and the spines, so they are lost in
+rounding or extraction, not in decimation. Two suspects from the review:
+one-shot rounding collapsing a thin part (finding 6) and extraction
+keeping only the largest piece (finding 8). The second is cheap to test:
+`RETOPO_KEEP_PIECES` on `exp/settle`.
+
+Also learned: the long thin lines in the pictures are hair strands in
+the Tripo source itself (decimate shows them too), not retopo outliers.
