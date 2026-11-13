@@ -1,5 +1,44 @@
 # Direction: what retopoforge is for, and what to build next
 
+## Where retopoforge sits on the creature and prop route (2026-11-13)
+
+Measured on `bench/creature/` (the owner's five new generated
+creatures, each rigged once by the creature route with the same weights
+carried onto every cut; ten HLH props; 10,000 triangles for creatures,
+each prop's own count). Numbers and pictures: `docs/log.md`, round 1.
+
+**Props: never through retopoforge.** HLH's props are built at budget by
+the props kit (`~/Games/_tools/blender/props/`), already clean. Remeshing
+one at its own triangle count only damages it: surface error (p95) 0.3
+to 11.6% of its size, and thin parts lost (the ribcage came back with
+1,370 of 4,160 triangles). A generated prop goes through meshkit's clean
+copy (closed shell, decimate to budget, bake) like any generated mesh.
+
+**Creatures: not through retopoforge today.** The default is meshkit's
+clean copy (closed shell, Blender decimate to the class budget, bake),
+then skintokens' creature route for the rig. On all five creatures plain
+decimate bends better under the creature's own rig (weightforge score
+68-93 against retopo's 50-83) and keeps the shape (surface p95 0.10-0.19%
+against 1.1-3.4%). Retopo today throws stray vertices off the body
+(spikes up to 10% of its size), leaves small holes, melts spines and fur
+into blobs, and splits one connected creature into islands it then drops.
+Its one strength, even rings down a plain limb, does not outweigh that.
+Blender's QuadriFlow refused three of the five creatures outright.
+
+**When that changes.** Retopoforge goes back on the creature route when,
+on this bench, it beats decimate's bend score on most creatures with the
+surface error within 10% of decimate's. The work to get there, in order:
+spikes and holes (output settled on the input surface), joint loops
+(rings cut in and pinned), keeping thin parts (islands, rounding). Each
+is tried in `docs/log.md` and kept only on the keep rule there.
+
+**What retopoforge is for meanwhile:** making a new base mesh for
+wrapforge, by hand (guides, symmetry, density, then cleaned in Blender),
+and one-off hard cases where quads are wanted for hand editing. The
+scope below still holds for that.
+
+---
+
 Date: 2026-10-01. Owner-approved summary. Read this before proposing
 engine work.
 

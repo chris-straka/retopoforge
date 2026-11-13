@@ -48,3 +48,29 @@ loops today.
 Also found: the horned creature is one connected piece, yet retopo split
 it into three islands and dropped two (review finding 11, island split by
 face winding); the spined quadruped's six "islands" were 3-vertex specks.
+
+Fifth creature (mountain boss, biped): retopo 74.2, QuadriFlow 75.1,
+decimate 79.9; surface p95 3.45 / 3.03 / 0.13%.
+
+Hand-made animals (8, artist's rig and mesh as the reference, each tool
+at the artist's own count, 576-4,004 triangles): the bend checker scores
+the artists' own rigs 3.7-21.9, so on low-poly animals the bend score
+says little (the bench-shelf session saw the same on pro characters).
+What the lane does show: retopo collapses thin low-poly limbs at these
+budgets (surface p95 1.3-17.5%; the fox came back at 180 of 576
+triangles), while decimate stays within 0.04-0.23%.
+
+HLH props (10, each at its own count): decimate at the own count is the
+prop itself (0 error); retopo moved the surface 0.31-11.6% (p95) and lost
+parts (ribcage 1,370 of 4,160 triangles); QuadriFlow 0.14-4.6%. Props
+are made at budget by the props kit, so none should go through a
+remesher. Route decision: `docs/direction.md`.
+
+### Outside rivals not run this round
+
+Instant Meshes (BSD-3, official 2019 Linux build) and QuadWild+Bi-MDF
+(GPL-3, official v0.0.2 Linux binaries) were downloaded to f
+(`~/rfwork/third_party/`, URLs, versions and sha256 in its NOTE.md), but
+running downloaded binaries was refused by the agent's permission check.
+They wait for the owner. Tripo's own retopology needs paid credits: not
+run.
