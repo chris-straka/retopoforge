@@ -276,6 +276,13 @@ impl AutoRemesher {
         *vertices = isotropic_remesher.remeshed_vertices().to_vec();
         *triangles = isotropic_remesher.remeshed_triangles().to_vec();
         *ring_tags_out = isotropic_remesher.remeshed_ring_tags().to_vec();
+        if !ring_tags.is_empty() && std::env::var_os("RETOPO_RINGS_DEBUG").is_some() {
+            eprintln!(
+                "rings: {} ring vertices cut in, {} after the isotropic stage",
+                ring_tags.iter().filter(|&&t| t != 0).count(),
+                ring_tags_out.iter().filter(|&&t| t != 0).count()
+            );
+        }
         // Research probe (RETOPO_DUMP_STAGES=dir): stage-1 working mesh.
         // Research probe (kept for item-7 stage analysis); no state
         // touched.

@@ -477,6 +477,28 @@ fn pin_one_integer_per_ring(mesh: &SurfaceMesh, tags: &[u32], constraints: &mut 
         }
         pinned.insert(t);
     }
+    if std::env::var_os("RETOPO_RINGS_DEBUG").is_some() {
+        let mut on = 0usize;
+        let mut marked = 0usize;
+        for c in 0..mesh.corner_count() {
+            let a = mesh.corner_vertex(c);
+            let b = mesh.corner_vertex(mesh.next_corner(c));
+            if a < tags.len() && b < tags.len() && tags[a] != 0 && tags[a] == tags[b] {
+                on += 1;
+                if constraints[c] != EdgeConstraint::ConstraintNone {
+                    marked += 1;
+                }
+            }
+        }
+        let rings: std::collections::HashSet<u32> = tags.iter().copied().filter(|&t| t != 0).collect();
+        eprintln!(
+            "rings: {} rings on the working mesh, {} ring corners, {} marked, {} pinned",
+            rings.len(),
+            on,
+            marked,
+            pinned.len()
+        );
+    }
 }
 
 fn apply_directional_swaps(
