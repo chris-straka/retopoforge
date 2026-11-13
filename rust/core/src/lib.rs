@@ -23,6 +23,7 @@ pub mod vector3;
 // Wave 2 lane: rs-density.
 pub mod density;
 // Deformation-aware density from the rig skeleton (`--skeleton`).
+pub mod settle;
 pub mod skeleton;
 // Wave 2 rs-symmetry lane:
 pub mod symmetry;

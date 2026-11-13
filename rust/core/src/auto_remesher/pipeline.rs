@@ -583,6 +583,16 @@ impl AutoRemesher {
                                     remesher.remeshed_vertex_uvs().to_vec();
                                 thread.remeshed_vertices = remesher.remeshed_vertices().to_vec();
                                 thread.remeshed_quads = remesher.remeshed_quads().to_vec();
+                                // EXPERIMENT (docs/log.md): spikes home,
+                                // output onto the input surface.
+                                if std::env::var_os("RETOPO_SETTLE").is_some() {
+                                    crate::settle::settle_onto_input(
+                                        &mut thread.remeshed_vertices,
+                                        &thread.remeshed_quads,
+                                        &island.input_vertices,
+                                        &island.input_triangles,
+                                    );
+                                }
                                 // Research probe (RETOPO_DUMP_STAGES=dir):
                                 // stage-4 per-island extraction output.
                                 // Research probe (kept for item-7 stage analysis); no state touched.
