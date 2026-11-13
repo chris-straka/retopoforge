@@ -21,6 +21,9 @@ Stages, each skipped when its output exists (delete to redo):
   clean  WORK/<name>/clean.glb          one mesh, facing forward, on the ground
   prep   WORK/<name>/dense.obj, ref_cut.glb   (bench/creature/prep.py)
   ref    WORK/<name>/ref/<name>.glb, .rom.ron  the reference rig, made once
+  guides WORK/<name>/ref/aligned.glb, guides/{skeleton,rings}.txt
+         the rig in the bench frame; retopo's --skeleton and joint-ring
+         --guides made from it (bench/creature/rig_guides.py)
   cut    WORK/<name>/cand/<tool>@<tris>.obj    each tool at the budget
   score  WORK/<name>/score/<tool>@<tris>.json  transfer + metrics + weights check
 
@@ -31,7 +34,8 @@ first cut's triangles are more than 8% off, it cuts again with the target
 scaled by the miss.
 
 Tools: retopo (this repo's CLI; `--retopo-args` adds flags; `--tag` names
-the variant, e.g. tool `retopo.skel`), quadriflow (Blender's QuadriFlow,
+the variant, e.g. tool `retopo.skel`; `{dir}` in the flags is the
+subject's folder: `--retopo-args "--skeleton {dir}/guides/skeleton.txt"`), quadriflow (Blender's QuadriFlow,
 input decimated to max(6x budget, 150k) as meshkit's clean_copy does),
 decimate (Blender collapse: triangles), artist (animals only).
 
@@ -135,10 +139,24 @@ def stage_ref(s, d, log):
     return os.path.exists(rig) and code in (0, 1)
 
 
+def stage_guides(s, d, log):
+    """The reference rig in the bench frame, and retopo inputs made from it."""
+    if s["kind"] == "prop":
+        return True
+    aligned = os.path.join(d, "ref", "aligned.glb")
+    if not os.path.exists(aligned):
+        blender("transfer.py", os.path.join(d, "ref", s["name"] + ".glb"), os.path.join(d, "ref_cut.glb"),
+                os.path.join(d, "ref_cut.glb"), aligned, log=log)
+    g = os.path.join(d, "guides")
+    if not os.path.exists(os.path.join(g, "rings.txt")):
+        blender("rig_guides.py", aligned, os.path.join(d, "dense.obj"), g, log=log)
+    return os.path.exists(os.path.join(g, "rings.txt"))
+
+
 def cut_retopo(dense, out, tris, extra, log):
     q = max(100, tris // 2)
     argv = [env("RETOPO"), "--input", dense, "--output", out, "--target-quads", str(q), "--quiet"]
-    argv += shlex.split(extra or "")
+    argv += shlex.split((extra or "").replace("{dir}", os.path.dirname(dense)))
     return sh(argv, log, timeout=3600)
 
 
@@ -234,7 +252,7 @@ def main():
     ap.add_argument("--subjects", default="")
     ap.add_argument("--tools", default="retopo,quadriflow,decimate")
     ap.add_argument("--tris", default="10000")
-    ap.add_argument("--stages", default="clean,prep,ref,cut,score")
+    ap.add_argument("--stages", default="clean,prep,ref,guides,cut,score")
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--tag", default="", help="variant name: the retopo tool becomes retopo.<tag>")
     ap.add_argument("--retopo-args", default="")
@@ -254,7 +272,8 @@ def main():
         d = os.path.join(work, s["name"])
         os.makedirs(d, exist_ok=True)
         log = os.path.join(d, "bench.log")
-        for st, fn in (("clean", stage_clean), ("prep", stage_prep), ("ref", stage_ref)):
+        for st, fn in (("clean", stage_clean), ("prep", stage_prep), ("ref", stage_ref),
+                       ("guides", stage_guides)):
             if st in stages and not fn(s, d, log):
                 return f"{s['name']}: {st} failed (see {log})"
         return None
