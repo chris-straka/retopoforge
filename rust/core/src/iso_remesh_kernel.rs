@@ -518,6 +518,11 @@ pub struct IsoVertex {
     pub output_index: usize,
     pub featured: bool,
     pub target_edge_length: f64,
+    /// Joint ring this vertex lies on (0: none). A ring is a closed line
+    /// the caller cut into the mesh to come out as a quad edge loop: its
+    /// vertices are featured (never collapsed), never relaxed, and an
+    /// edge between two vertices of one ring is never flipped away.
+    pub ring: u32,
 }
 
 impl Default for IsoVertex {
@@ -537,6 +542,7 @@ impl Default for IsoVertex {
             output_index: 0,
             featured: false,
             target_edge_length: 0.0,
+            ring: 0,
         }
     }
 }
@@ -1019,6 +1025,10 @@ impl IsotropicHalfedgeMesh {
 
         self.vertices[break_point_vertex].featured =
             self.vertices[start_vertex].featured && self.vertices[next_vertex].featured;
+        let ring = self.vertices[start_vertex].ring;
+        if ring != 0 && ring == self.vertices[next_vertex].ring {
+            self.vertices[break_point_vertex].ring = ring;
+        }
 
         let start_target = self.vertices[start_vertex].target_edge_length;
         let next_target = self.vertices[next_vertex].target_edge_length;
@@ -1199,6 +1209,9 @@ impl IsotropicHalfedgeMesh {
         if self.vertices[vertex].is_boundary || self.vertices[vertex].valence <= 0 {
             return;
         }
+        if self.vertices[vertex].ring != 0 {
+            return;
+        }
 
         let mut position = Vector3::default();
         let mut count = 0usize;
@@ -1274,6 +1287,16 @@ impl IsotropicHalfedgeMesh {
 
         let left_vertex = self.halfedges[halfedge].start_vertex;
         let right_vertex = self.halfedges[opposite].start_vertex;
+
+        // A ring edge stays, and no flip may lay a chord across a ring.
+        let ring = self.vertices[left_vertex].ring;
+        if ring != 0 && ring == self.vertices[right_vertex].ring {
+            return false;
+        }
+        let ring = self.vertices[top_vertex].ring;
+        if ring != 0 && ring == self.vertices[bottom_vertex].ring {
+            return false;
+        }
 
         let (valence, is_left_boundary) = self.vertex_valence(left_vertex);
         let left_valence = valence as i32;
@@ -1689,6 +1712,7 @@ pub struct IsoRemeshKernel<'a> {
     initial_average_edge_length: f64,
     target_triangle_count: usize,
     vertex_target_edge_lengths: Option<&'a [f64]>,
+    vertex_ring_tags: Option<&'a [u32]>,
     smooth_normal_degrees: f64,
     smooth_vertex_normals: Vec<Vector3>,
     smooth_vertices: Vec<Vector3>,
@@ -1715,6 +1739,7 @@ impl<'a> IsoRemeshKernel<'a> {
             initial_average_edge_length,
             target_triangle_count: 0,
             vertex_target_edge_lengths: None,
+            vertex_ring_tags: None,
             smooth_normal_degrees: 0.0,
             smooth_vertex_normals: Vec::new(),
             smooth_vertices: Vec::new(),
@@ -1751,6 +1776,11 @@ impl<'a> IsoRemeshKernel<'a> {
     /// Mirrors `setVertexTargetEdgeLengths`.
     pub fn set_vertex_target_edge_lengths(&mut self, target_lengths: &'a [f64]) {
         self.vertex_target_edge_lengths = Some(target_lengths);
+    }
+
+    /// Joint-ring tag per input vertex (0: none); see [`IsoVertex::ring`].
+    pub fn set_vertex_ring_tags(&mut self, tags: &'a [u32]) {
+        self.vertex_ring_tags = Some(tags);
     }
 
     /// Mirrors `setTargetTriangleCount`.
@@ -2086,6 +2116,24 @@ impl<'a> IsoRemeshKernel<'a> {
             ));
         } else {
             self.build_axis_aligned_bounding_box_tree();
+        }
+
+        // Joint rings cut into the input: tag and pin their vertices.
+        if let Some(tags) = self.vertex_ring_tags {
+            let mut vertex = self.halfedge_mesh.move_to_next_vertex(None);
+            let mut vi = 0;
+            while let Some(current) = vertex {
+                if vi >= tags.len() {
+                    break;
+                }
+                if tags[vi] != 0 {
+                    let v = self.halfedge_mesh.vertex_mut(current);
+                    v.ring = tags[vi];
+                    v.featured = true;
+                }
+                vertex = self.halfedge_mesh.move_to_next_vertex(Some(current));
+                vi += 1;
+            }
         }
 
         // Apply per-vertex target edge lengths if provided

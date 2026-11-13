@@ -128,9 +128,18 @@ impl AutoRemesher {
                 .guide_polylines
                 .iter_mut()
                 .chain(self.sharp_polylines.iter_mut())
+                .chain(self.ring_polylines.iter_mut())
             {
                 Self::scale_positions(line, normalize_scale);
             }
+        }
+
+        // Joint rings are features too (frame locks and alignment marks);
+        // the integer that makes each one a loop is added per ring by the
+        // parameterizer from the working mesh's ring tags.
+        if !self.ring_polylines.is_empty() {
+            let rings = self.ring_polylines.clone();
+            self.sharp_polylines.extend(rings);
         }
 
         // Resolve the symmetry plane once for the whole run. Islands share
@@ -334,6 +343,8 @@ impl AutoRemesher {
                                     &ctx.density,
                                     &mut ctx.resampled_density,
                                     this.verbose,
+                                    &this.ring_polylines,
+                                    &mut ctx.ring_tags,
                                 );
                                 let t1 = Instant::now();
                                 resample_time.fetch_add(
@@ -469,6 +480,9 @@ impl AutoRemesher {
                     // stores `&m_guidePolylines` unconditionally).
                     parameterizer.set_guide_polylines(Some(&this.guide_polylines));
                     parameterizer.set_sharp_polylines(Some(&this.sharp_polylines));
+                    if !island.ring_tags.is_empty() {
+                        parameterizer.set_ring_tags(Some(&island.ring_tags));
+                    }
                     if !island.resampled_density.is_empty() {
                         parameterizer.set_density_field(island.resampled_density.clone());
                     }

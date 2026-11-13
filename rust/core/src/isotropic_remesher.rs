@@ -29,6 +29,8 @@ pub struct IsotropicRemesher<'a> {
     #[allow(dead_code)]
     constraint_vertices: Option<&'a HashSet<usize>>,
     vertex_target_edge_lengths: Option<&'a [f64]>,
+    vertex_ring_tags: Option<&'a [u32]>,
+    remeshed_ring_tags: Vec<u32>,
     target_edge_length: f64,
     sharp_edge_degrees: f64,
     smooth_normal_degrees: f64,
@@ -52,6 +54,8 @@ impl<'a> IsotropicRemesher<'a> {
             triangles: triangles.to_vec(),
             constraint_vertices: None,
             vertex_target_edge_lengths: None,
+            vertex_ring_tags: None,
+            remeshed_ring_tags: Vec::new(),
             target_edge_length: 0.0,
             sharp_edge_degrees: 60.0,
             smooth_normal_degrees: 0.0,
@@ -78,6 +82,18 @@ impl<'a> IsotropicRemesher<'a> {
     /// Mirrors `setVertexTargetEdgeLengths`.
     pub fn set_vertex_target_edge_lengths(&mut self, target_lengths: &'a [f64]) {
         self.vertex_target_edge_lengths = Some(target_lengths);
+    }
+
+    /// Joint-ring tag per input vertex (0: none): those vertices stay
+    /// put and their ring's edges are kept (see the kernel's `IsoVertex::ring`).
+    pub fn set_vertex_ring_tags(&mut self, tags: &'a [u32]) {
+        self.vertex_ring_tags = Some(tags);
+    }
+
+    /// Ring tag per remeshed vertex (empty unless tags were set).
+    #[must_use]
+    pub fn remeshed_ring_tags(&self) -> &[u32] {
+        &self.remeshed_ring_tags
     }
 
     /// Mirrors `setTargetEdgeLength`.
@@ -132,6 +148,9 @@ impl<'a> IsotropicRemesher<'a> {
         if let Some(target_lengths) = self.vertex_target_edge_lengths {
             remesher.set_vertex_target_edge_lengths(target_lengths);
         }
+        if let Some(tags) = self.vertex_ring_tags {
+            remesher.set_vertex_ring_tags(tags);
+        }
         remesher.set_sharp_edge_included_angle(180.0 - self.sharp_edge_degrees);
         remesher.set_smooth_normal_degrees(self.smooth_normal_degrees);
         if let Some(handler) = self.progress_handler.take() {
@@ -151,6 +170,9 @@ impl<'a> IsotropicRemesher<'a> {
             output_index += 1;
             self.remeshed_vertices
                 .push(halfedge_mesh.vertex(current).position);
+            if self.vertex_ring_tags.is_some() {
+                self.remeshed_ring_tags.push(halfedge_mesh.vertex(current).ring);
+            }
         }
         let mut face = halfedge_mesh.move_to_next_face(None);
         while let Some(current) = face {

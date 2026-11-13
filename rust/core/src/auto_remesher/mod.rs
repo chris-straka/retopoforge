@@ -185,6 +185,7 @@ pub struct AutoRemesher {
     symmetry_plane: SymmetryPlane,
     guide_polylines: Vec<Vec<Vector3>>,
     sharp_polylines: Vec<Vec<Vector3>>,
+    ring_polylines: Vec<Vec<Vector3>>,
     density_multipliers: Vec<f64>,
     quiet: bool,
     verbose: bool,
@@ -243,6 +244,7 @@ impl AutoRemesher {
             symmetry_plane: SymmetryPlane::default(),
             guide_polylines: Vec::new(),
             sharp_polylines: Vec::new(),
+            ring_polylines: Vec::new(),
             density_multipliers: Vec::new(),
             quiet: false,
             verbose: false,
@@ -379,6 +381,14 @@ impl AutoRemesher {
     /// sharp/feature constraints for hard-surface props; default off).
     pub fn set_sharp_polylines(&mut self, sharps: Vec<Vec<Vector3>>) {
         self.sharp_polylines = sharps;
+    }
+
+    /// Joint rings (closed polylines) the output must carry as edge
+    /// loops: cut into each island's working mesh, kept through the
+    /// isotropic stage, aligned like features and pinned to one integer
+    /// isoline each (`crate::rings`). Empty (the default) changes nothing.
+    pub fn set_ring_polylines(&mut self, rings: Vec<Vec<Vector3>>) {
+        self.ring_polylines = rings;
     }
 
     /// Mirrors `setFeaturePolylines` (the CLI-flag-spelled alias of

@@ -30,6 +30,8 @@ pub(crate) struct IslandContext {
     // plus the same mask carried onto the resampled island vertices.
     pub(crate) density: Vec<f64>,
     pub(crate) resampled_density: Vec<f64>,
+    // Joint-ring tag per working-mesh vertex (empty: no rings).
+    pub(crate) ring_tags: Vec<u32>,
 }
 
 impl Default for IslandContext {
@@ -48,6 +50,7 @@ impl Default for IslandContext {
             symmetry_plane: SymmetryPlane::default(),
             density: Vec::new(),
             resampled_density: Vec::new(),
+            ring_tags: Vec::new(),
         }
     }
 }

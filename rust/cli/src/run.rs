@@ -238,6 +238,14 @@ fn configure_remesher(
     remesher.set_symmetry_plane(config.symmetry.plane());
     remesher.set_guide_polylines(guides);
     remesher.set_sharp_polylines(features);
+    // EXPERIMENT (joint rings, docs/log.md): RETOPO_RINGS=<polyline file>.
+    if let Some(path) = std::env::var_os("RETOPO_RINGS") {
+        let mut rings = Vec::new();
+        match parse_guides_file(std::path::Path::new(&path), &mut rings, "RETOPO_RINGS") {
+            Ok(()) => remesher.set_ring_polylines(rings),
+            Err(_) => eprintln!("retopo: warning: RETOPO_RINGS could not be read; no rings"),
+        }
+    }
     remesher.set_density_multipliers(density);
     remesher.set_dipoles(config.dipoles);
     if config.edge_scaling > 0.0 {

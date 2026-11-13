@@ -61,6 +61,7 @@ impl AutoRemesher {
             .guide_polylines
             .iter_mut()
             .chain(self.sharp_polylines.iter_mut())
+            .chain(self.ring_polylines.iter_mut())
         {
             Self::scale_positions(line, inv);
         }

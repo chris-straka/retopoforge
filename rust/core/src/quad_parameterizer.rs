@@ -443,6 +443,42 @@ fn compute_corner_constraints(
     corner_constraints
 }
 
+/// One integer per joint ring: the first ring edge (both ends tagged with
+/// the same ring) that already carries an alignment mark is upgraded to
+/// the full integer mark, on both of its corners. The alignment marks
+/// chain the ring into one isoline; this pin makes that isoline integer,
+/// i.e. a quad edge loop. Pinning every ring edge instead over-constrains
+/// the cover (see the `EdgeConstraint` docs).
+fn pin_one_integer_per_ring(mesh: &SurfaceMesh, tags: &[u32], constraints: &mut [EdgeConstraint]) {
+    let mut pinned = std::collections::HashSet::new();
+    for c in 0..mesh.corner_count() {
+        let a = mesh.corner_vertex(c);
+        let b = mesh.corner_vertex(mesh.next_corner(c));
+        if a >= tags.len() || b >= tags.len() {
+            continue;
+        }
+        let t = tags[a];
+        if t == 0 || tags[b] != t || pinned.contains(&t) {
+            continue;
+        }
+        let full = match constraints[c] {
+            EdgeConstraint::AlignU => EdgeConstraint::ConstraintU,
+            EdgeConstraint::AlignV => EdgeConstraint::ConstraintV,
+            _ => continue,
+        };
+        constraints[c] = full;
+        let o = mesh.opposite_corner(c);
+        if o != SurfaceMesh::NPOS {
+            constraints[o] = match constraints[o] {
+                EdgeConstraint::AlignU => EdgeConstraint::ConstraintU,
+                EdgeConstraint::AlignV => EdgeConstraint::ConstraintV,
+                other => other,
+            };
+        }
+        pinned.insert(t);
+    }
+}
+
 fn apply_directional_swaps(
     mesh: &SurfaceMesh,
     field_before_brush: &[Vector3],
@@ -1615,6 +1651,43 @@ impl QuadParameterizer {
         density_field: &[f64],
         dipoles: DipoleConfig,
     ) -> Option<ParameterizeResult> {
+        Self::parameterize_with_rings(
+            vertices,
+            triangles,
+            guidance,
+            scaling,
+            hard_edge_degrees,
+            face_scaling,
+            face_scaling_u,
+            face_scaling_v,
+            progress_handler,
+            sharps,
+            density_field,
+            dipoles,
+            None,
+        )
+    }
+
+    /// [`Self::parameterize`] with joint-ring tags per vertex
+    /// (`crate::rings`): each ring's first marked edge gets the integer
+    /// pin, the rest stay alignment marks, so the ring lands on one
+    /// integer isoline.
+    #[allow(clippy::too_many_arguments)]
+    pub fn parameterize_with_rings(
+        vertices: &[Vector3],
+        triangles: &[Vec<usize>],
+        guidance: &[Vector3],
+        scaling: f64,
+        hard_edge_degrees: f64,
+        face_scaling: &[f64],
+        face_scaling_u: &[f64],
+        face_scaling_v: &[f64],
+        progress_handler: Option<&ProgressHandler>,
+        sharps: Option<&[Vec<Vector3>]>,
+        density_field: &[f64],
+        dipoles: DipoleConfig,
+        ring_tags: Option<&[u32]>,
+    ) -> Option<ParameterizeResult> {
         let progress = |fraction: f32, name: &str| {
             if let Some(p) = progress_handler {
                 p(fraction, name);
@@ -1656,8 +1729,11 @@ impl QuadParameterizer {
         progress(0.14, "Computing corner rotations");
         // `mut` only for the dipole insertion below (no-op unless configured).
         let mut rotation = compute_corner_rotations(&mesh, &field, &normals);
-        let corner_constraints =
+        let mut corner_constraints =
             compute_corner_constraints(&mesh, &field, &normals, hard_edge_degrees, sharps);
+        if let Some(tags) = ring_tags {
+            pin_one_integer_per_ring(&mesh, tags, &mut corner_constraints);
+        }
         if track_directional_scale {
             apply_directional_swaps(
                 &mesh,

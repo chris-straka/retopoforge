@@ -274,6 +274,7 @@ pub struct Parameterizer<'a> {
     symmetry_plane: SymmetryPlane,
     guide_polylines: Option<&'a [Vec<Vector3>]>,
     sharp_polylines: Option<&'a [Vec<Vector3>]>,
+    ring_tags: Option<&'a [u32]>,
     density_field: Vec<f64>,
     // Dipole insertion has no C++ counterpart: the engine-leaf default
     // is off (differential oracles pin the no-dipole path without
@@ -317,6 +318,7 @@ impl<'a> Parameterizer<'a> {
             symmetry_plane: SymmetryPlane::default(),
             guide_polylines: None,
             sharp_polylines: None,
+            ring_tags: None,
             density_field: Vec::new(),
             dipoles: DipoleConfig::off(),
             dipole_flips: 0,
@@ -394,6 +396,12 @@ impl<'a> Parameterizer<'a> {
     /// Mirrors `setFeaturePolylines` (the CLI-flag-spelled alias).
     pub fn set_feature_polylines(&mut self, sharps: Option<&'a [Vec<Vector3>]>) {
         self.sharp_polylines = sharps;
+    }
+
+    /// Joint-ring tag per vertex (`crate::rings`): one integer pinned per
+    /// ring so its edges land on a quad edge loop. `None`: no rings.
+    pub fn set_ring_tags(&mut self, tags: Option<&'a [u32]>) {
+        self.ring_tags = tags;
     }
 
     /// Mirrors `setDensityField`.
@@ -727,7 +735,7 @@ impl<'a> Parameterizer<'a> {
         } else {
             Some(&snapped_sharps)
         };
-        let cover = QuadParameterizer::parameterize(
+        let cover = QuadParameterizer::parameterize_with_rings(
             self.vertices,
             self.triangles,
             &field,
@@ -741,6 +749,7 @@ impl<'a> Parameterizer<'a> {
             // Raw mask for the dipole insertion (no-op unless configured).
             &density,
             self.dipoles,
+            self.ring_tags,
         );
         let cover = match cover {
             Some(cover) => cover,

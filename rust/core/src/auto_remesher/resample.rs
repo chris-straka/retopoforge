@@ -37,6 +37,8 @@ impl AutoRemesher {
         density_in: &[f64],
         density_out: &mut Vec<f64>,
         verbose: bool,
+        ring_polylines: &[Vec<Vector3>],
+        ring_tags_out: &mut Vec<u32>,
     ) {
         // Local density control, default off: every block below is guarded
         // on densityActive, so a run without a mask executes the exact same
@@ -229,6 +231,26 @@ impl AutoRemesher {
         adaptive_field_time_us
             .fetch_add(t_field_start.elapsed().as_micros() as i64, Ordering::SeqCst);
 
+        // Joint rings: cut into the working mesh before the isotropic stage
+        // keeps them (empty rings: nothing runs, the default path is
+        // unchanged).
+        let mut ring_tags: Vec<u32> = Vec::new();
+        if !ring_polylines.is_empty() && !triangles.is_empty() {
+            let mut sum = 0.0;
+            let mut n = 0usize;
+            for t in triangles.iter() {
+                for i in 0..t.len() {
+                    sum += (vertices[t[i]] - vertices[t[(i + 1) % t.len()]]).length();
+                    n += 1;
+                }
+            }
+            let edge = if n > 0 { (sum / n as f64).max(voxel_size) } else { voxel_size };
+            ring_tags = crate::rings::embed_rings(vertices, triangles, ring_polylines, edge);
+            if !vertex_target_lengths.is_empty() {
+                vertex_target_lengths.resize(vertices.len(), voxel_size);
+            }
+        }
+
         let mut positions_before_remesh = Vec::new();
         if density_usable {
             positions_before_remesh.clone_from(vertices);
@@ -247,9 +269,13 @@ impl AutoRemesher {
         }
         isotropic_remesher.set_sharp_edge_degrees(sharp_edge_degrees);
         isotropic_remesher.set_smooth_normal_degrees(smooth_normal_degrees);
+        if !ring_tags.is_empty() {
+            isotropic_remesher.set_vertex_ring_tags(&ring_tags);
+        }
         isotropic_remesher.remesh();
         *vertices = isotropic_remesher.remeshed_vertices().to_vec();
         *triangles = isotropic_remesher.remeshed_triangles().to_vec();
+        *ring_tags_out = isotropic_remesher.remeshed_ring_tags().to_vec();
         // Research probe (RETOPO_DUMP_STAGES=dir): stage-1 working mesh.
         // Research probe (kept for item-7 stage analysis); no state
         // touched.
