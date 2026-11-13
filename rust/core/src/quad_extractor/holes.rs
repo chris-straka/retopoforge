@@ -267,6 +267,21 @@ impl<'a> QuadExtractor<'a> {
                 biggest = index;
             }
         }
+        // EXPERIMENT (RETOPO_KEEP_PIECES=n, docs/log.md): keep every piece
+        // of at least n faces, not only the largest; a horn or claw cut
+        // loose by the non-manifold eraser is otherwise deleted.
+        if let Some(min) = std::env::var("RETOPO_KEEP_PIECES").ok().and_then(|s| s.parse::<usize>().ok()) {
+            let before: usize = quads_islands.iter().map(|i| i.len()).sum();
+            let mut kept = Vec::new();
+            for (index, island) in quads_islands.iter_mut().enumerate() {
+                if index == biggest || island.len() >= min {
+                    kept.append(island);
+                }
+            }
+            let changed = kept.len() != before;
+            self.remeshed_polygons = kept;
+            return changed;
+        }
         self.remeshed_polygons = std::mem::take(&mut quads_islands[biggest]);
         true
     }
