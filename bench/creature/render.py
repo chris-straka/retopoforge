@@ -140,7 +140,7 @@ def main():
             bpy.data.objects.remove(x, do_unlink=True)
     lo, hi = np.percentile(v, 1, axis=0), np.percentile(v, 99, axis=0)
     ctr, ext = (lo + hi) / 2, float(np.linalg.norm(hi - lo))
-    aim(cam, ctr, (-0.55, -1.0, 0.35), ext * 1.05)
+    aim(cam, ctr, (-0.55, -1.0, 0.35), ext * 1.35)
     render(prefix + ".whole.png")
 
     if arm is None:

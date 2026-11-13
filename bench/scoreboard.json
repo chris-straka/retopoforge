@@ -54,7 +54,24 @@
         "creature_worst": 5.33,
         "joint_loops": 0.056
       },
-      "changed": "First round on the new creature bench (each creature rigged once, every mesh bent on that rig). Retopoforge as it stood loses to plain decimate: it drops horns and spines, melts fur, and makes no rings at joints."
+      "changed": "First round on the new creature bench (each creature rigged once, every mesh bent on that rig). Retopoforge as it stood loses to plain decimate: it drops horns and spines, melts fur, and makes no rings at joints.",
+      "pictures": [
+        {
+          "before": "~/Games/hlh/tmp/retopoforge/r1/abyss_horned/before.jpg",
+          "after": "~/Games/hlh/tmp/retopoforge/r1/abyss_horned/after.jpg",
+          "caption": "Horned creature: the download (left) and retopoforge at 10,000 triangles (right). Hands and claws come out as stumps."
+        },
+        {
+          "both": "~/Games/hlh/tmp/retopoforge/r1/abyss_horned/joint.jpg",
+          "caption": "One joint bent 60 degrees: retopoforge (left), plain decimate (right)."
+        }
+      ],
+      "video": [
+        {
+          "file": "~/Games/hlh/tmp/retopoforge/r1/abyss_horned/clip.mp4",
+          "caption": "Horned creature moving on its rig: retopoforge (left), plain decimate (right)."
+        }
+      ]
     }
   ]
 }

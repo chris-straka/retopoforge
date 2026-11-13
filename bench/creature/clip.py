@@ -72,7 +72,7 @@ def main():
         for x in f_objs:
             bpy.data.objects.remove(x, do_unlink=True)
     lo, hi = np.percentile(v, 1, axis=0), np.percentile(v, 99, axis=0)
-    rd.aim(cam, (lo + hi) / 2, (-0.55, -1.0, 0.35), float(np.linalg.norm(hi - lo)) * 1.05)
+    rd.aim(cam, (lo + hi) / 2, (-0.55, -1.0, 0.35), float(np.linalg.norm(hi - lo)) * 1.35)
 
     words = ("leg", "arm", "tail", "neck", "wing")
 
