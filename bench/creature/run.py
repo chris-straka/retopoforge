@@ -7,7 +7,10 @@
 
 WORK/subjects.tsv lists the subjects, one a line:
     name <tab> kind <tab> source [<tab> budget]
-kind is `tripo` (a generated model: cleaned with motionforge's
+kind is `pro` (a professionally made rigged game mesh, a GLB: it is
+degraded into what a generator gives, smoothed one Catmull-Clark level
+and voxel-fused, every tool remeshes that, and the pro's own mesh and rig
+are the truth, scored as tool `artist`), `tripo` (a generated model: cleaned with motionforge's
 tripo_to_glb, rigged once with skintokens' creature route), `animal` (a
 hand-made rigged animal: `source` is its folder with truth.glb and
 bare.glb from skintokens' tools/bench/prep_truth.py; the artist's rig is
@@ -110,6 +113,9 @@ def stage_clean(s, d, log):
     elif s["kind"] == "animal":
         shutil.copyfile(os.path.join(s["source"], "bare.glb"), out)
         code = 0
+    elif s["kind"] == "pro":
+        shutil.copyfile(s["source"], out)
+        code = 0
     else:
         shutil.copyfile(s["source"], out)
         code = 0
@@ -120,8 +126,10 @@ def stage_prep(s, d, log):
     if os.path.exists(os.path.join(d, "dense.obj")):
         return True
     ref = "18000" if s["kind"] == "tripo" else "0"
-    sub = "2" if s["kind"] == "animal" else "0"
-    blender("prep.py", os.path.join(d, "clean.glb"), d, "--ref-tris", ref, "--subdivide", sub, log=log)
+    sub = "2" if s["kind"] == "animal" else "1" if s["kind"] == "pro" else "0"
+    fuse = "0.003" if s["kind"] in ("animal", "pro") else "0"
+    blender("prep.py", os.path.join(d, "clean.glb"), d, "--ref-tris", ref, "--subdivide", sub, "--fuse", fuse,
+            log=log)
     return os.path.exists(os.path.join(d, "dense.obj"))
 
 
@@ -131,6 +139,10 @@ def stage_ref(s, d, log):
     if s["kind"] == "prop" or os.path.exists(rig):
         return True
     os.makedirs(rd, exist_ok=True)
+    if s["kind"] == "pro":
+        shutil.copyfile(s["source"], rig)
+        shutil.copyfile(s["source"], os.path.join(d, "ref_cut.glb"))
+        return True
     if s["kind"] == "animal":
         shutil.copyfile(os.path.join(s["source"], "truth.glb"), rig)
         # the artist's mesh is its own reference cut (same vertices)
@@ -183,6 +195,8 @@ def one_cut(s, d, tool, tris, a, log):
         code = blender("lay.py", base, dense, out, log=log)
         return out if code == 0 and os.path.exists(out) else None
     if tool == "artist":
+        if s["kind"] not in ("animal", "pro"):
+            return None
         code = blender("cut.py", "artist", os.path.join(d, "clean.glb"), out, str(tris), log=log)
         return out if code == 0 and os.path.exists(out) else None
     target = tris
@@ -227,7 +241,7 @@ def one_score(s, d, cand, log):
             res["error"] = "transfer failed"
             json.dump(res, open(out, "w"), indent=1)
             return out
-        blender("metrics.py", rigged, os.path.join(d, "dense.obj"), mj, cand, log=log)
+        blender("metrics.py", rigged, os.path.join(d, "dense.obj"), mj, cand, *pro_args(s, d, cand), log=log)
         rom = os.path.join(d, "ref", s["name"] + ".rom.ron")
         argv = [env("WEIGHTS"), "check", rigged, "--json", "--no-clips"]
         if os.path.exists(rom):
@@ -250,6 +264,14 @@ def one_score(s, d, cand, log):
     return out
 
 
+def pro_args(s, d, cand):
+    """The pro mesh to compare edge flow with (animal and pro subjects)."""
+    if s["kind"] not in ("animal", "pro") or not s["tris"]:
+        return []
+    pro = os.path.join(d, "cand", f"artist@{s['tris']}.obj")
+    return ["--pro", pro] if os.path.exists(pro) else []
+
+
 def remetrics(s, d, cand, log):
     """Re-measure an existing score's metrics (after metrics.py changed),
     keeping its cut, its carried rig and its bend score."""
@@ -265,7 +287,7 @@ def remetrics(s, d, cand, log):
     if s["kind"] == "prop":
         blender("metrics.py", cand, os.path.join(d, "dense.obj"), mj, "--no-poses", log=log)
     elif os.path.exists(rigged):
-        blender("metrics.py", rigged, os.path.join(d, "dense.obj"), mj, cand, log=log)
+        blender("metrics.py", rigged, os.path.join(d, "dense.obj"), mj, cand, *pro_args(s, d, cand), log=log)
     res = json.load(open(out))
     if os.path.exists(mj):
         res["metrics"] = json.load(open(mj))
@@ -328,7 +350,7 @@ def main():
     for s in subs:
         d = os.path.join(work, s["name"])
         for tool in tools:
-            if tool == "artist" and s["kind"] != "animal":
+            if tool == "artist" and s["kind"] not in ("animal", "pro"):
                 continue
             for t in ([s["tris"]] if s["tris"] else budgets):
                 jobs.append((s, d, tool, t))

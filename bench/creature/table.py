@@ -4,6 +4,11 @@
     bench/creature/table.py WORK [--tools a,b,c] [--json out.json]
     bench/creature/table.py WORK --compare A B
 
+On pro and animal subjects (a professional mesh is the truth, tool
+`artist`), `pro-loops%` is the share of the pro's ringed joints the
+candidate also rings, and `flow` the edge-flow angle against the pro
+mesh (metrics.py --pro).
+
 The first form prints, per kind of subject (tripo, animal, prop), the
 median of each score per tool, then one row per subject and tool.
 `--compare A B` lines tool B up against tool A subject by subject: per
@@ -27,6 +32,8 @@ SCORES = [
     ("joint_loops_mean", "loops", True),
     ("joints_ringed_pct", "ringed%", True),
     ("joint_poles_mean", "poles", False),
+    ("loop_recall", "pro-loops%", True),
+    ("flow_deg", "flow", False),
     ("posed_flips", "pflips", False),
     ("rest_flips", "rflips", False),
     ("dist_p95", "d95%", False),
@@ -36,7 +43,7 @@ SCORES = [
     ("open_edges", "open", False),
     ("tris", "tris", None),
 ]
-RIGGED = {"bend", "joint_loops_mean", "joints_ringed_pct", "joint_poles_mean", "posed_flips"}
+RIGGED = {"bend", "joint_loops_mean", "joints_ringed_pct", "joint_poles_mean", "posed_flips", "loop_recall"}
 
 
 def load(work):
@@ -52,6 +59,17 @@ def load(work):
             m["bend_fails"] = b.get("fails")
         tool, _, tris = r["cand"].partition("@")
         rows[(r["subject"], tool)] = {"kind": r["kind"], "budget": int(tris or 0), **m}
+    # loops where the pro has them: share of the artist's ringed joints
+    # that the candidate also rings
+    for (subj, tool), r in rows.items():
+        art = rows.get((subj, "artist"))
+        if not art or tool == "artist":
+            continue
+        want = [j for j, x in (art.get("joints") or {}).items() if x.get("loops", 0) >= 1]
+        have = r.get("joints") or {}
+        if want:
+            r["loop_recall"] = round(100.0 * sum(1 for j in want if have.get(j, {}).get("loops", 0) >= 1)
+                                     / len(want), 1)
     return rows
 
 

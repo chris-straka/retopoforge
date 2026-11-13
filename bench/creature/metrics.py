@@ -2,6 +2,7 @@
 
     blender -b --factory-startup -P bench/creature/metrics.py -- \
         CANDIDATE_RIGGED.glb DENSE.obj OUT.json [CANDIDATE.obj] [--bend 60] [--no-poses]
+        [--pro PRO.obj]
 
 CANDIDATE_RIGGED.glb comes from bench/creature/transfer.py (candidate mesh,
 the reference armature, weights carried over); DENSE.obj is the source.
@@ -21,6 +22,10 @@ radius. Writes one JSON object:
       angle between each candidate face's normal and the source's normal
       where a ray along the face normal (either way, the nearer hit, 5% of
       the diagonal at most; else the nearest point) meets it, degrees
+  flow_deg (with --pro PRO.obj, a professional mesh of the same body)
+      mean angle between each of the candidate's quad edges and the
+      nearer of the two edge directions of the pro quad under it, folded
+      to 0-45 degrees: 0 is the pro's edge flow, 45 unrelated to it
   rest_flips
       candidate faces whose normal points against the source's there
       (> 90 deg)
@@ -55,12 +60,15 @@ from metrics_lib import coords, face_lists, imported, newell, with_faces_of  # n
 
 def args():
     a = sys.argv[sys.argv.index("--") + 1:]
-    o = {"bend": 60.0, "poses": True}
+    o = {"bend": 60.0, "poses": True, "pro": None}
     pos = []
     i = 0
     while i < len(a):
         if a[i] == "--bend":
             o["bend"] = float(a[i + 1])
+            i += 2
+        elif a[i] == "--pro":
+            o["pro"] = a[i + 1]
             i += 2
         elif a[i] == "--no-poses":
             o["poses"] = False
@@ -171,6 +179,46 @@ def main():
     out["ndev_mean"] = round(float(ang.mean()), 3)
     out["ndev_p95"] = round(pct(ang, 95), 3)
     out["rest_flips"] = flips
+
+    # ---- edge flow against a professional mesh of the same body
+    if opt["pro"]:
+        p_objs = imported(lambda: bpy.ops.wm.obj_import(filepath=opt["pro"]))
+        pm = next(x for x in p_objs if x.type == "MESH")
+        pv = coords(pm)
+        pf = face_lists(pm.data)
+        quads = [f for f in pf if len(f) == 4]
+        if quads:
+            pbvh = BVHTree.FromPolygons([tuple(x) for x in pv], quads)
+            qn, _, _ = newell(pv, quads)
+            dirs0 = np.array([pv[f[1]] - pv[f[0]] for f in quads])
+            dirs1 = np.array([pv[f[2]] - pv[f[1]] for f in quads])
+            angs = []
+            for f in cf:
+                if len(f) != 4:
+                    continue
+                for k in range(4):
+                    a_, b_ = cv[f[k]], cv[f[(k + 1) % 4]]
+                    hit = pbvh.find_nearest(tuple((a_ + b_) / 2))
+                    if hit[0] is None:
+                        continue
+                    q = hit[2]
+                    n = qn[q]
+                    e = b_ - a_
+                    e = e - n * np.dot(e, n)
+                    best = 90.0
+                    for dd in (dirs0[q], dirs1[q]):
+                        dd = dd - n * np.dot(dd, n)
+                        den = np.linalg.norm(e) * np.linalg.norm(dd)
+                        if den == 0:
+                            continue
+                        c = abs(np.dot(e, dd)) / den
+                        best = min(best, math.degrees(math.acos(min(1.0, c))))
+                    if best < 90.0:
+                        angs.append(min(best, 90.0 - best))
+            if angs:
+                out["flow_deg"] = round(float(np.mean(angs)), 3)
+        for x in p_objs:
+            bpy.data.objects.remove(x, do_unlink=True)
 
     if arm is None:
         out["joints"] = {}
