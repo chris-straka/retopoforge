@@ -1,0 +1,60 @@
+{
+  "format": "scoreboard/1",
+  "tool": "retopoforge",
+  "does": "Turns a dense generated model into a light mesh of four-sided faces that a game can animate.",
+  "headline": "creature_bend",
+  "metrics": {
+    "creature_bend": {
+      "label": "Bends well (creatures)",
+      "unit": "",
+      "better": "higher",
+      "means": "How cleanly the owner's five new creatures bend at 10,000 triangles, each on its own rig and range of motion (weightforge's score, 0-100, middle of five). Higher is better.",
+      "flat_within": 1.0
+    },
+    "creature_shape": {
+      "label": "Shape error (creatures)",
+      "unit": "%",
+      "better": "lower",
+      "means": "How far the new mesh strays from the download, as a share of the creature's size (95th percentile, middle of five). Under 0.3 is hard to see.",
+      "flat_within": 0.05
+    },
+    "creature_worst": {
+      "label": "Worst shape error",
+      "unit": "%",
+      "better": "lower",
+      "means": "The farthest the new mesh strays from the download (middle of five creatures). A lost horn, claw or spine shows up here.",
+      "flat_within": 0.2
+    },
+    "joint_loops": {
+      "label": "Rings at joints",
+      "unit": "",
+      "better": "higher",
+      "means": "Closed edge rings around each limb near its joint (0 to 3 per joint, averaged; middle of five creatures). Rings let a knee or elbow bend without folding; 2 or more is good.",
+      "flat_within": 0.05
+    }
+  },
+  "reference": {
+    "label": "Blender Decimate (today's route)",
+    "values": {
+      "creature_bend": 79.9,
+      "creature_shape": 0.156,
+      "creature_worst": 0.477,
+      "joint_loops": 0.0
+    },
+    "means": "Plain Blender decimate to the same 10,000 triangles, rigged and scored the same way: what meshkit's clean copy uses today."
+  },
+  "rounds": [
+    {
+      "round": "r1",
+      "date": "2026-11-13",
+      "commit": "df177472",
+      "values": {
+        "creature_bend": 68.5,
+        "creature_shape": 1.4,
+        "creature_worst": 5.33,
+        "joint_loops": 0.056
+      },
+      "changed": "First round on the new creature bench (each creature rigged once, every mesh bent on that rig). Retopoforge as it stood loses to plain decimate: it drops horns and spines, melts fur, and makes no rings at joints."
+    }
+  ]
+}

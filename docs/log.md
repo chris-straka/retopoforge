@@ -105,3 +105,31 @@ keeping only the largest piece (finding 8). The second is cheap to test:
 
 Also learned: the long thin lines in the pictures are hair strands in
 the Tripo source itself (decimate shows them too), not retopo outliers.
+
+## Round 2 (2026-11-13, running)
+
+New lanes (owner's request for quality benchmarks):
+
+- **pro**: 14 professional rigged meshes (Quaternius UBC male and female,
+  knight, eight Quaternius/Khronos animals: CC0; Cesium Man: CC-BY 4.0;
+  Blender Studio's Phileas: CC-BY; the owner's MPFB base: CC0), benchmark
+  use only. Each is smoothed one level and voxel-fused (0.3% of its size)
+  into what a generator gives; every tool remeshes that at the pro's own
+  triangle count, and the result is compared with the pro: rings where
+  the pro rings (`pro-loops%`), edge flow against the pro's quads
+  (`flow`, 0-45 degrees), poles, and bending on the pro's own rig.
+- **character**: four of the owner's generated characters, each cut by
+  every tool, carrying the human route's rig (fitted onto our cut), then
+  given the game's clips (`clips_humanoid.glb`, `motionforge animate`)
+  and checked on those clips.
+
+Experiments in the queue: settle onto the input (`exp/settle`,
+RETOPO_SETTLE), keep detached pieces (RETOPO_KEEP_PIECES), hard joint
+rings (`exp/joint-rings`), symmetry snap fix (`exp/symmetry-snap`),
+`--skeleton` density, soft ring guides, and the parked patch back end
+(`agent/patch-backend`, `--backend patch`), which won worst-case distance
+on 10-02 (2.27% against 5.21%+) and is measured here on creatures before
+any work to land it.
+
+Not possible this round: QuadWild with forced joint rings (the downloaded
+QuadWild binaries may not be run without the owner's say).
