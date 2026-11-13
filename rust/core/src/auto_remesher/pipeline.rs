@@ -895,7 +895,25 @@ impl AutoRemesher {
         // halves), so the vertex constraint runs once on the merged output,
         // not per island.
         if self.symmetry_plane.valid() && !self.remeshed_vertices.is_empty() {
-            Symmetry::symmetrize_vertices(&mut self.remeshed_vertices, &self.symmetry_plane);
+            if std::env::var_os("RETOPO_OLD_SYMMETRY_SNAP").is_some() {
+                Symmetry::symmetrize_vertices(&mut self.remeshed_vertices, &self.symmetry_plane);
+            } else {
+                let (mut sum, mut n) = (0.0f64, 0usize);
+                for q in &self.remeshed_quads {
+                    for k in 0..q.len() {
+                        let a = self.remeshed_vertices[q[k]];
+                        let b = self.remeshed_vertices[q[(k + 1) % q.len()]];
+                        sum += (a - b).length();
+                        n += 1;
+                    }
+                }
+                let half_edge = if n > 0 { 0.5 * sum / n as f64 } else { 0.0 };
+                Symmetry::symmetrize_vertices_within(
+                    &mut self.remeshed_vertices,
+                    &self.symmetry_plane,
+                    half_edge,
+                );
+            }
         }
 
         let t_merge_end = Instant::now();

@@ -434,6 +434,52 @@ impl Symmetry {
     /// Snap vertices to exact mirror symmetry: every vertex ends up either
     /// exactly mirrored by a partner or exactly on the plane (mirrors
     /// `Symmetry::symmetrizeVertices`).
+    /// Output snap for a layout that may differ left and right: a vertex
+    /// pairs only with a mutual nearest mirror partner closer than
+    /// `max_radius` (half an output edge from the caller); a vertex on
+    /// the plane (its own partner) snaps onto it; anything else stays
+    /// where the remesher put it. [`Self::symmetrize_vertices`] pairs at
+    /// any distance and stacks a second vertex onto a taken partner's
+    /// mirror, which folds faces where the two sides were rounded
+    /// differently (review 2026-11-13, finding 7).
+    pub fn symmetrize_vertices_within(vertices: &mut [Vector3], plane: &SymmetryPlane, max_radius: f64) {
+        if !plane.valid() || vertices.is_empty() || !(max_radius > 0.0) {
+            return;
+        }
+        let axis = plane.axis as usize;
+        let diagonal = bounding_diagonal(vertices);
+        let grid = PointGrid::new(vertices, partner_cell_size(vertices, diagonal));
+        let original = vertices.to_vec();
+        let partner: Vec<Option<usize>> = original
+            .iter()
+            .map(|p| grid.nearest(&Self::mirror_point(p, plane), max_radius))
+            .collect();
+        for i in 0..original.len() {
+            let Some(j) = partner[i] else { continue };
+            if j == i {
+                vertices[i][axis] = plane.offset;
+                continue;
+            }
+            if partner[j] != Some(i) || j < i {
+                continue;
+            }
+            let mut first = original[i];
+            let mut second = original[j];
+            for c in 0..3 {
+                if c == axis {
+                    continue;
+                }
+                let mean = 0.5 * (first[c] + second[c]);
+                first[c] = mean;
+                second[c] = mean;
+            }
+            first[axis] = 0.5 * (first[axis] + plane.offset.mul_add(2.0, -second[axis]));
+            second[axis] = plane.offset.mul_add(2.0, -first[axis]);
+            vertices[i] = first;
+            vertices[j] = second;
+        }
+    }
+
     pub fn symmetrize_vertices(vertices: &mut Vec<Vector3>, plane: &SymmetryPlane) {
         if !plane.valid() || vertices.is_empty() {
             return;
