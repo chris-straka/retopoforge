@@ -6,13 +6,16 @@
         [--tag NAME] [--retopo-args "..."]
 
 WORK/subjects.tsv lists the subjects, one a line:
-    name <tab> kind <tab> source
+    name <tab> kind <tab> source [<tab> budget]
 kind is `tripo` (a generated model: cleaned with motionforge's
 tripo_to_glb, rigged once with skintokens' creature route), `animal` (a
 hand-made rigged animal: `source` is its folder with truth.glb and
 bare.glb from skintokens' tools/bench/prep_truth.py; the artist's rig is
 the reference and the artist's own mesh is scored as tool `artist`), or
-`prop` (a GLB, no rig: no bend scores).
+`prop` (a GLB, no rig: no bend scores). A budget on the line (an
+animal's own triangle count) replaces --tris for that subject. An animal's
+low-poly mesh is smoothed two Catmull-Clark levels to make the dense
+source.
 
 Stages, each skipped when its output exists (delete to redo):
   clean  WORK/<name>/clean.glb          one mesh, facing forward, on the ground
@@ -110,7 +113,8 @@ def stage_prep(s, d, log):
     if os.path.exists(os.path.join(d, "dense.obj")):
         return True
     ref = "18000" if s["kind"] == "tripo" else "0"
-    blender("prep.py", os.path.join(d, "clean.glb"), d, "--ref-tris", ref, log=log)
+    sub = "2" if s["kind"] == "animal" else "0"
+    blender("prep.py", os.path.join(d, "clean.glb"), d, "--ref-tris", ref, "--subdivide", sub, log=log)
     return os.path.exists(os.path.join(d, "dense.obj"))
 
 
@@ -217,8 +221,10 @@ def subjects(work):
     with open(os.path.join(work, "subjects.tsv")) as f:
         for line in f:
             if line.strip() and not line.startswith("#"):
-                n, k, src = line.rstrip("\n").split("\t")[:3]
-                rows.append({"name": n, "kind": k, "source": os.path.expanduser(src)})
+                cols = line.rstrip("\n").split("\t")
+                n, k, src = cols[:3]
+                rows.append({"name": n, "kind": k, "source": os.path.expanduser(src),
+                             "tris": int(cols[3]) if len(cols) > 3 and cols[3] else None})
     return rows
 
 
@@ -264,7 +270,7 @@ def main():
         for tool in tools:
             if tool == "artist" and s["kind"] != "animal":
                 continue
-            for t in budgets:
+            for t in ([s["tris"]] if s["tris"] else budgets):
                 jobs.append((s, d, tool, t))
 
     def go(j):
