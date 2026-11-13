@@ -4,19 +4,26 @@ Newest round first. Scores come from `bench/creature/` (README there):
 the owner's generated creatures and HLH props, plus hand-made rigged
 animals as the topology reference. Subjects are named by kind only.
 
-## The keep rule
+## The keep rule (owner, 2026-11-13, replaces the first one)
 
-A change to the engine or its defaults is kept only when, against the
-version before it on the same set (`bench/creature/table.py --compare`):
+"Some tools are better for different characters", "we might just be
+doing the benchmarks wrong", "we should be improving and not trying and
+dropping":
 
-- on the rigged subjects it is better on more subjects than worse for at
-  least one of: bend score (weightforge on the creature's own range of
-  motion), loops at joints, poles at joints, flipped faces in the bent
-  poses;
-- it is worse on more subjects than better for none of them;
-- its median two-sided surface distance (p95) is at most 10% higher;
-- and the before/after pictures (wireframe on the creature, a bent joint)
-  agree with the numbers.
+1. A method that wins on some models stays. The tool learns to choose per
+   model by measurable reasons, and the log says where each method wins.
+2. A promising method that loses gets worked on: find why, fix it, run it
+   again. Parking one needs the reason and what it would take.
+3. When the score and the pictures disagree, the benchmark is fixed first.
+
+The comparison itself (`bench/creature/table.py --compare A B`) still
+reports, per score, on how many models B is better and worse; that now
+feeds rule 1 (where B wins) instead of a single keep/drop verdict.
+
+The main score comes from professional ground truth where there is one:
+hand-made game creatures and characters (CC0/CC-BY, benchmark use only),
+turned into what a generator gives (dense, triangulated, parts fused),
+remeshed, and compared with the pro mesh and bent with the pro's rig.
 
 ## Round 1 (2026-11-13): review, bench, baseline
 
