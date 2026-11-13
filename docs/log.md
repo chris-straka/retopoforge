@@ -133,3 +133,21 @@ any work to land it.
 
 Not possible this round: QuadWild with forced joint rings (the downloaded
 QuadWild binaries may not be run without the owner's say).
+
+### Settle onto the input (engine, `exp/settle`, RETOPO_SETTLE): working, partial
+
+Four creatures so far: bend 49.7 -> 53.7, 64.8 -> 66.4, 83.0 -> 83.6,
+68.5 -> 70.2; surface p95 down a little on each. Identical to the
+bench-only `retopo+lay`, so the stray-vertex pass found nothing the
+plain projection didn't fix on these; the gain is vertex placement.
+
+### Symmetry (`--symmetry x`) and the snap fix (`exp/symmetry-snap`)
+
+The engine accepted the mirror plane on one of five creatures (the horned
+one); on the other four it judged them not symmetric enough and ran
+plain (identical numbers). On the horned one: old snap bend 85.1, posed
+flips 1,021, surface p95 2.06%; bounded mutual snap 84.2, 297, 1.74%;
+no symmetry 83.0, 286, 1.72%. The old snap's damage (vertices dragged to
+far partners) shows as the flips and the shape error; the fix removes it
+and keeps most of symmetry's bend gain. One model only: kept on its
+branch until more symmetric subjects (the pro lane's humans) are scored.
