@@ -7,7 +7,11 @@
 
 WORK/subjects.tsv lists the subjects, one a line:
     name <tab> kind <tab> source [<tab> budget]
-kind is `pro` (a professionally made rigged game mesh, a GLB: it is
+kind is `character` (one of the owner's generated characters; source is
+`MODEL.fbx|RIG.glb`: the download and the human route's rig, fitted onto
+our own cut of the body; with $CLIPS set, every candidate gets the
+game's clips through `motionforge animate` and is checked on them),
+`pro` (a professionally made rigged game mesh, a GLB: it is
 degraded into what a generator gives, smoothed one Catmull-Clark level
 and voxel-fused, every tool remeshes that, and the pro's own mesh and rig
 are the truth, scored as tool `artist`), `tripo` (a generated model: cleaned with motionforge's
@@ -107,7 +111,10 @@ def stage_clean(s, d, log):
     out = os.path.join(d, "clean.glb")
     if os.path.exists(out):
         return True
-    if s["kind"] == "tripo":
+    if s["kind"] == "character":
+        code = sh([env("BLENDER"), "-b", "--factory-startup", "-P", env("TRIPO_TO_GLB"), "--",
+                   s["source"].split("|")[0], out, "--tris", "300000", "--convention", "+x"], log)
+    elif s["kind"] == "tripo":
         code = sh([env("BLENDER"), "-b", "--factory-startup", "-P", env("TRIPO_TO_GLB"), "--",
                    s["source"], out, "--tris", "300000", "--convention", "+x"], log)
     elif s["kind"] == "animal":
@@ -125,7 +132,7 @@ def stage_clean(s, d, log):
 def stage_prep(s, d, log):
     if os.path.exists(os.path.join(d, "dense.obj")):
         return True
-    ref = "18000" if s["kind"] == "tripo" else "0"
+    ref = "18000" if s["kind"] in ("tripo", "character") else "0"
     sub = "2" if s["kind"] == "animal" else "1" if s["kind"] == "pro" else "0"
     fuse = "0.003" if s["kind"] in ("animal", "pro") else "0"
     blender("prep.py", os.path.join(d, "clean.glb"), d, "--ref-tris", ref, "--subdivide", sub, "--fuse", fuse,
@@ -139,6 +146,11 @@ def stage_ref(s, d, log):
     if s["kind"] == "prop" or os.path.exists(rig):
         return True
     os.makedirs(rd, exist_ok=True)
+    if s["kind"] == "character":
+        # the human route's rig; transfer.py fits it onto our own cut of the
+        # same body (bounding box and quarter turns: different vertices)
+        shutil.copyfile(s["source"].split("|")[1], rig)
+        return True
     if s["kind"] == "pro":
         shutil.copyfile(s["source"], rig)
         shutil.copyfile(s["source"], os.path.join(d, "ref_cut.glb"))
@@ -246,6 +258,14 @@ def one_score(s, d, cand, log):
         argv = [env("WEIGHTS"), "check", rigged, "--json", "--no-clips"]
         if os.path.exists(rom):
             argv += ["--poses", rom]
+        if s["kind"] == "character" and os.environ.get("CLIPS"):
+            # the game's clips on this candidate, then the check samples them
+            moving = os.path.join(sd, name + ".moving.glb")
+            sh([env("MOTIONFORGE_BIN"), "animate", "--input", rigged, "--clips", os.environ["CLIPS"],
+                "--output", moving], log)
+            if os.path.exists(moving):
+                argv = [env("WEIGHTS"), "check", moving, "--json"]
+                res["clips"] = True
         r = subprocess.run(argv, capture_output=True, text=True, timeout=3600)
         try:
             w = json.loads(r.stdout)
