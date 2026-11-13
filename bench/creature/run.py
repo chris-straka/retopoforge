@@ -38,7 +38,9 @@ Tools: retopo (this repo's CLI; `--retopo-args` adds flags; `--tag` names
 the variant, e.g. tool `retopo.skel`; `{dir}` in the flags is the
 subject's folder: `--retopo-args "--skeleton {dir}/guides/skeleton.txt"`), quadriflow (Blender's QuadriFlow,
 input decimated to max(6x budget, 150k) as meshkit's clean_copy does),
-decimate (Blender collapse: triangles), artist (animals only).
+decimate (Blender collapse: triangles), artist (animals only). Any tool
+with `+lay` appended is that tool's cut laid back onto the source
+(bench/creature/lay.py), e.g. `retopo+lay`.
 
 Environment: BLENDER, RETOPO, WEIGHTS, and for the `ref` stage the
 creature route's (CREATURE_ROUTE, CREATURE_RIG_BIN, SKINTOKENS_BIN,
@@ -172,6 +174,12 @@ def one_cut(s, d, tool, tris, a, log):
     if os.path.exists(out):
         return out
     dense = os.path.join(d, "dense.obj")
+    if tool.endswith("+lay"):
+        base = one_cut(s, d, tool[:-4], tris, a, log)
+        if not base:
+            return None
+        code = blender("lay.py", base, dense, out, log=log)
+        return out if code == 0 and os.path.exists(out) else None
     if tool == "artist":
         code = blender("cut.py", "artist", os.path.join(d, "clean.glb"), out, str(tris), log=log)
         return out if code == 0 and os.path.exists(out) else None
