@@ -7,7 +7,8 @@ quadriflow  Blender's QuadriFlow at TRIS/2 quads; the input is first
             decimated to max(6 x TRIS, 150k) triangles (as meshkit's
             clean_copy does), and quadriflow's mesh is laid back onto the
             source surface (nearest point), so its rounded shape does not
-            count against it
+            count against it. A surface QuadriFlow refuses (open,
+            non-manifold) gets Blender's voxel remesh first.
 decimate    Blender's collapse decimate to TRIS triangles
 artist      IN is the artist's GLB: its mesh, welded, triangles paired back
             into quads (TRIS ignored)
@@ -55,11 +56,25 @@ def main():
         bpy.ops.object.select_all(action="DESELECT")
         ob.select_set(True)
         bpy.context.view_layer.objects.active = ob
-        r = bpy.ops.object.quadriflow_remesh(mode="FACES", target_faces=tris // 2, use_mesh_symmetry=False,
-                                             use_preserve_sharp=False, use_preserve_boundary=False,
-                                             smooth_normals=False, seed=0)
-        if "FINISHED" not in r:
-            raise SystemExit("cut: quadriflow failed")
+        def qf():
+            try:
+                return "FINISHED" in bpy.ops.object.quadriflow_remesh(
+                    mode="FACES", target_faces=tris // 2, use_mesh_symmetry=False, use_preserve_sharp=False,
+                    use_preserve_boundary=False, smooth_normals=False, seed=0)
+            except RuntimeError:
+                return False
+        if not qf():
+            # QuadriFlow wants a closed, consistently wound surface: give it
+            # Blender's voxel remesh of the source (0.25% of the largest side)
+            ob.data.remesh_voxel_size = 0.0025 * max(ob.dimensions)
+            bpy.ops.object.voxel_remesh()
+            if len(ob.data.polygons) > pre:
+                m = ob.modifiers.new("d", "DECIMATE")
+                m.ratio = pre / len(ob.data.polygons)
+                bpy.ops.object.modifier_apply(modifier=m.name)
+            print("CUT quadriflow: voxel shell first")
+            if not qf():
+                raise SystemExit("cut: quadriflow failed")
         sv = [v.co.copy() for v in src_copy.data.vertices]
         bvh = BVHTree.FromPolygons(sv, [tuple(p.vertices) for p in src_copy.data.polygons])
         for v in ob.data.vertices:
