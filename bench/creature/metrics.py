@@ -19,9 +19,11 @@ radius. Writes one JSON object:
       the source, a fixed sample of source vertices to the candidate)
   ndev_mean, ndev_p95
       angle between each candidate face's normal and the source's normal
-      at the nearest point, degrees
+      where a ray along the face normal (either way, the nearer hit, 5% of
+      the diagonal at most; else the nearest point) meets it, degrees
   rest_flips
-      candidate faces whose normal points against the source's (> 90 deg)
+      candidate faces whose normal points against the source's there
+      (> 90 deg)
   joints: per joint (a bone with skin whose head is its parent's tail)
       loops   closed edge loops that ring the limb within one limb radius
               of the joint (they go once round the bone's axis, stay
@@ -145,10 +147,23 @@ def main():
     ang = []
     flips = 0
     for k in range(len(cf)):
-        hit = sbvh.find_nearest(tuple(cc[k]))
-        if hit[0] is None or ca[k] == 0:
+        if ca[k] == 0:
             continue
-        dot = float(np.dot(cn[k], np.array(hit[1])))
+        # the source surface this face stands for: the nearer hit of a ray
+        # along its normal either way (the nearest point lands on the far
+        # side of thin parts: horns, ears, wings)
+        o, n = Vector(cc[k]), Vector(cn[k])
+        best = None
+        for dirn in (n, -n):
+            hit = sbvh.ray_cast(o - dirn * 1e-7 * diag, dirn, 0.05 * diag)
+            if hit[0] is not None and (best is None or hit[3] < best[3]):
+                best = hit
+        if best is None:
+            hit = sbvh.find_nearest(tuple(cc[k]))
+            if hit[0] is None:
+                continue
+            best = hit
+        dot = float(np.dot(cn[k], np.array(best[1])))
         ang.append(math.degrees(math.acos(max(-1.0, min(1.0, dot)))))
         if dot < 0:
             flips += 1

@@ -26,6 +26,7 @@ Stages, each skipped when its output exists (delete to redo):
          --guides made from it (bench/creature/rig_guides.py)
   cut    WORK/<name>/cand/<tool>@<tris>.obj    each tool at the budget
   score  WORK/<name>/score/<tool>@<tris>.json  transfer + metrics + weights check
+  remetrics  (only when asked) re-measure existing scores' metrics in place
 
 Every tool cuts the same dense.obj; every candidate gets the reference's
 weights the same way (bench/creature/transfer.py), so only topology
@@ -238,6 +239,29 @@ def one_score(s, d, cand, log):
     return out
 
 
+def remetrics(s, d, cand, log):
+    """Re-measure an existing score's metrics (after metrics.py changed),
+    keeping its cut, its carried rig and its bend score."""
+    name = os.path.basename(cand)[:-4]
+    sd = os.path.join(d, "score")
+    out = os.path.join(sd, name + ".json")
+    if not os.path.exists(out):
+        return
+    mj = os.path.join(sd, name + ".metrics.json")
+    rigged = os.path.join(sd, name + ".rigged.glb")
+    if os.path.exists(mj):
+        os.remove(mj)
+    if s["kind"] == "prop":
+        blender("metrics.py", cand, os.path.join(d, "dense.obj"), mj, "--no-poses", log=log)
+    elif os.path.exists(rigged):
+        blender("metrics.py", rigged, os.path.join(d, "dense.obj"), mj, cand, log=log)
+    res = json.load(open(out))
+    if os.path.exists(mj):
+        res["metrics"] = json.load(open(mj))
+        res.pop("error", None)
+    json.dump(res, open(out, "w"), indent=1, sort_keys=True)
+
+
 def subjects(work):
     rows = []
     with open(os.path.join(work, "subjects.tsv")) as f:
@@ -304,7 +328,9 @@ def main():
             cand = one_cut(s, d, tool, t, a, log)
         if not cand or not os.path.exists(cand):
             return f"{s['name']} {tool}@{t}: no cut"
-        if "score" in stages:
+        if "remetrics" in stages:
+            remetrics(s, d, cand, log)
+        if "score" in stages or "remetrics" in stages:
             p = one_score(s, d, cand, log)
             r = json.load(open(p))
             m = r.get("metrics", {})
