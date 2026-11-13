@@ -8,7 +8,8 @@ quadriflow  Blender's QuadriFlow at TRIS/2 quads; the input is first
             clean_copy does), and quadriflow's mesh is laid back onto the
             source surface (nearest point), so its rounded shape does not
             count against it. A surface QuadriFlow refuses (open,
-            non-manifold) gets Blender's voxel remesh first.
+            non-manifold) gets Blender's voxel remesh first, its voxel
+            sized so the shell has about that many faces.
 decimate    Blender's collapse decimate to TRIS triangles
 artist      IN is the artist's GLB: its mesh, welded, triangles paired back
             into quads (TRIS ignored)
@@ -66,12 +67,11 @@ def main():
         if not qf():
             # QuadriFlow wants a closed, consistently wound surface: give it
             # Blender's voxel remesh of the source (0.25% of the largest side)
-            ob.data.remesh_voxel_size = 0.0025 * max(ob.dimensions)
+            # sized from the area so it lands near `pre` faces with no
+            # decimation (a collapse would break the closed surface again)
+            area = sum(p.area for p in ob.data.polygons)
+            ob.data.remesh_voxel_size = max((area / pre) ** 0.5, 1e-4 * max(ob.dimensions))
             bpy.ops.object.voxel_remesh()
-            if len(ob.data.polygons) > pre:
-                m = ob.modifiers.new("d", "DECIMATE")
-                m.ratio = pre / len(ob.data.polygons)
-                bpy.ops.object.modifier_apply(modifier=m.name)
             print("CUT quadriflow: voxel shell first")
             if not qf():
                 raise SystemExit("cut: quadriflow failed")

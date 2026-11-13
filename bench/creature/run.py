@@ -29,9 +29,9 @@ Stages, each skipped when its output exists (delete to redo):
 
 Every tool cuts the same dense.obj; every candidate gets the reference's
 weights the same way (bench/creature/transfer.py), so only topology
-differs. A tool's count is calibrated once toward the budget: if the
-first cut's triangles are more than 8% off, it cuts again with the target
-scaled by the miss.
+differs. A tool's count is calibrated toward the budget: while a cut's
+triangles are more than 8% off, it cuts again (up to three tries) with
+the target scaled by the miss, and keeps the try closest to the budget.
 
 Tools: retopo (this repo's CLI; `--retopo-args` adds flags; `--tag` names
 the variant, e.g. tool `retopo.skel`; `{dir}` in the flags is the
@@ -175,20 +175,24 @@ def one_cut(s, d, tool, tris, a, log):
         code = blender("cut.py", "artist", os.path.join(d, "clean.glb"), out, str(tris), log=log)
         return out if code == 0 and os.path.exists(out) else None
     target = tris
-    for attempt in range(2):
-        tmp = out + ".tmp.obj"
+    tries = []
+    for attempt in range(3):
+        tmp = f"{out}.try{attempt}.obj"
         if tool.startswith("retopo"):
             code = cut_retopo(dense, tmp, target, a.retopo_args if tool != "retopo" else "", log)
         else:
             code = cut_blender(tool, dense, tmp, target, log)
         if code != 0 or not os.path.exists(tmp):
-            return None
+            break
         got, _ = obj_census(tmp)
-        os.replace(tmp, out)
+        tries.append((abs(got - tris), attempt, tmp))
         if abs(got - tris) <= 0.08 * tris or got == 0:
             break
         target = max(200, int(target * tris / got))
-        os.replace(out, out + ".first.obj")
+    if not tries:
+        return None
+    # the try closest to the budget (a tool's count need not grow with its target)
+    os.replace(min(tries)[2], out)
     return out
 
 
