@@ -1,0 +1,159 @@
+{
+ "about": "Hand-made quad meshes from ~/Games/_refs used as the artist truth (benchmark use only). Blender Human Base Meshes v1.4.1: CC0 (Dan Ulrich, Julien Kaspar, Paul Kotelevets). Quaternius Fantasy Props MegaKit: CC0.",
+ "cases": [
+  {
+   "name": "head_realistic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-head_animation_realistic",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "head_stylized",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-head_stylized",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "head_generic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Head - Generic Topology",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "skull_planar",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Skull - Planar",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "hand_realistic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Hand  - Realistic",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "hand_stylized",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Hand - Stylized ",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "foot_realistic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Foot - Realistic",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "foot_stylized",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Foot - Stylized ",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "eye_realistic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Eye - Realistic",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "femur",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-skeletion.leg_femur.L",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "hip",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-skeletion.hip",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "ribcage",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-skeletion.ripcage",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "scapula",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-skeletion.shoulder_scapula.L",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "anvil",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Anvil.fbx",
+   "kind": "hard",
+   "set": "fast"
+  },
+  {
+   "name": "sword",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Sword_Bronze.fbx",
+   "kind": "hard",
+   "set": "fast"
+  },
+  {
+   "name": "key",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Key_Gold.fbx",
+   "kind": "hard",
+   "set": "fast"
+  },
+  {
+   "name": "cauldron",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Cauldron.fbx",
+   "kind": "hard",
+   "set": "fast"
+  },
+  {
+   "name": "barrel",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Barrel.fbx",
+   "kind": "hard",
+   "set": "fast"
+  },
+  {
+   "name": "axe",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Axe_Bronze.fbx",
+   "kind": "hard",
+   "set": "fast"
+  },
+  {
+   "name": "bag",
+   "file": "quaternius-fantasy-props-megakit/Exports/FBX/Bag.fbx",
+   "kind": "organic",
+   "set": "fast"
+  },
+  {
+   "name": "body_male_realistic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-body_male_realistic",
+   "kind": "organic",
+   "set": "full"
+  },
+  {
+   "name": "body_female_stylized",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "GEO-body_female_stylized",
+   "kind": "organic",
+   "set": "full"
+  },
+  {
+   "name": "skull_realistic",
+   "file": "blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend",
+   "object": "Skull - Realistic",
+   "kind": "organic",
+   "set": "full"
+  }
+ ]
+}
