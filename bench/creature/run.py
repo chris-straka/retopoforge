@@ -46,6 +46,9 @@ the variant, e.g. tool `retopo.skel`; `{dir}` in the flags is the
 subject's folder: `--retopo-args "--skeleton {dir}/guides/skeleton.txt"`), quadriflow (Blender's QuadriFlow,
 input decimated to max(6x budget, 150k) as meshkit's clean_copy does),
 decimate (Blender collapse: triangles), artist (animals only). Any tool
+`instant` (Instant Meshes, $INSTANT_MESHES) and `quadwild` (QuadWild +
+Bi-MDF, $QUADWILD = the release folder) are outside rivals run as black
+boxes. Any tool
 with `+lay` appended is that tool's cut laid back onto the source
 (bench/creature/lay.py), e.g. `retopo+lay`.
 
@@ -74,14 +77,14 @@ def env(name, default=None):
     return v
 
 
-def sh(cmd, log, timeout=3600, extra_env=None):
+def sh(cmd, log, timeout=3600, extra_env=None, cwd=None):
     t = time.time()
     e = dict(os.environ, **(extra_env or {}))
     with open(log, "a") as f:
         f.write("$ " + " ".join(shlex.quote(c) for c in cmd) + "\n")
         f.flush()
         try:
-            r = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=timeout, env=e)
+            r = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=timeout, env=e, cwd=cwd)
             code = r.returncode
         except subprocess.TimeoutExpired:
             code = 124
@@ -189,6 +192,52 @@ def cut_retopo(dense, out, tris, extra, log, extra_env=None):
     return sh(argv, log, timeout=3600, extra_env=e)
 
 
+def cut_instant(dense, out, tris, log):
+    """Instant Meshes (BSD-3, black box) in batch mode: pure quads."""
+    return sh([env("INSTANT_MESHES"), "-o", out, "-f", str(max(50, tris // 2)), "-d", dense], log, timeout=3600)
+
+
+def cut_quadwild(dense, out, tris, log):
+    """QuadWild + Bi-MDF (GPL-3, black box): its organic prep once per
+    subject (cached), then quantization with scaleFact set so the quad
+    count lands near the budget (count ~ 1/scaleFact^2, from a probe)."""
+    import math
+    import re
+    qw = env("QUADWILD")
+    work = os.path.join(os.path.dirname(dense), "qw")
+    os.makedirs(work, exist_ok=True)
+    src = os.path.join(work, "src.obj")
+    rem = os.path.join(work, "src_rem_p0.obj")
+    if not os.path.exists(rem):
+        shutil.copyfile(dense, src)
+        sh([os.path.join(qw, "quadwild"), src, "2", "config/prep_config/basic_setup_Organic.txt"], log,
+           timeout=7200, cwd=qw)
+        if not os.path.exists(rem):
+            return 1
+
+    def quantize(scale, tag):
+        cfg = open(os.path.join(qw, "config/main_config/flow_noalign_lemon.txt")).read()
+        cfg = re.sub(r"(?m)^scaleFact .*$", f"scaleFact {scale:.6g}", cfg)
+        cp = os.path.join(work, "main.txt")
+        open(cp, "w").write(cfg)
+        sh([os.path.join(qw, "quad_from_patches"), rem, tag, cp], log, timeout=7200, cwd=qw)
+        res = rem[:-4] + f"_{tag}_quadrangulation_smooth.obj"
+        return res if os.path.exists(res) else None
+
+    base_f = os.path.join(work, "base.txt")
+    if not os.path.exists(base_f):
+        probe = quantize(1.0, "1")
+        open(base_f, "w").write(str(obj_census(probe)[1] if probe else 0))
+    base = int(open(base_f).read() or 0)
+    if base <= 0:
+        return 1
+    res = quantize(math.sqrt(base / max(1, tris // 2)), str(tris + 2))
+    if not res:
+        return 1
+    shutil.copyfile(res, out)
+    return 0
+
+
 def cut_blender(how, dense, out, tris, log):
     return blender("cut.py", how, dense, out, str(tris), log=log)
 
@@ -215,7 +264,11 @@ def one_cut(s, d, tool, tris, a, log):
     tries = []
     for attempt in range(3):
         tmp = f"{out}.try{attempt}.obj"
-        if tool.startswith("retopo"):
+        if tool == "instant":
+            code = cut_instant(dense, tmp, target, log)
+        elif tool == "quadwild":
+            code = cut_quadwild(dense, tmp, target, log)
+        elif tool.startswith("retopo"):
             code = cut_retopo(dense, tmp, target, a.retopo_args if tool != "retopo" else "", log,
                               dict(x.split("=", 1) for x in a.retopo_env) if tool != "retopo" else None)
         else:
