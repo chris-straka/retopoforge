@@ -2,7 +2,7 @@
   "format": "scoreboard/1",
   "tool": "retopoforge",
   "does": "Turns a dense generated model into a light mesh of four-sided faces that a game can animate.",
-  "headline": "creature_bend",
+  "headline": "artist_rings",
   "metrics": {
     "creature_bend": {
       "label": "Bends well (creatures)",
@@ -31,17 +31,30 @@
       "better": "higher",
       "means": "Closed edge rings around each limb near its joint (0 to 3 per joint, averaged; middle of five creatures). Rings let a knee or elbow bend without folding; 2 or more is good.",
       "flat_within": 0.05
+    },
+    "artist_rings": {
+      "label": "Loops where artists put them",
+      "unit": "%",
+      "better": "higher",
+      "means": "Given only the shape of 20 hand-made meshes (heads, hands, feet, bones, props), the share of the artist's closed edge rings the remesh also has, at the artist's own face count. 100 is the artist's own mesh.",
+      "flat_within": 3.0
+    },
+    "artist_shape": {
+      "label": "Shape error (artist set)",
+      "unit": "%",
+      "better": "lower",
+      "means": "How far the remesh strays from the shape (95th percentile, middle of 20). Lost thin parts show here.",
+      "flat_within": 0.4
     }
   },
   "reference": {
-    "label": "Blender Decimate (today's route)",
+    "label": "QuadWild + Bi-MDF (free research remesher)",
     "values": {
-      "creature_bend": 79.9,
-      "creature_shape": 0.156,
-      "creature_worst": 0.477,
-      "joint_loops": 0.0
+      "artist_rings": 32.2,
+      "artist_shape": 0.72,
+      "creature_bend": 79.9
     },
-    "means": "Plain Blender decimate to the same 10,000 triangles, rigged and scored the same way: what meshkit's clean copy uses today."
+    "means": "QuadWild on the same 20 meshes and counts; creature bend reference stays Blender Decimate (79.9)."
   },
   "rounds": [
     {
@@ -70,6 +83,38 @@
         {
           "file": "~/Games/hlh/tmp/retopoforge/r1/abyss_horned/clip.mp4",
           "caption": "Horned creature moving on its rig: retopoforge (left), plain decimate (right)."
+        }
+      ]
+    },
+    {
+      "round": "r4",
+      "date": "2026-11-13",
+      "commit": "ea55df30",
+      "values": {
+        "artist_rings": 32.1,
+        "artist_shape": 1.67
+      },
+      "changed": "A finer working mesh, odd faces turned into quads, exact face counts: rings where artists put them 22.5% -> 32.1% (level with QuadWild), edge flow the closest of all tools; still loses thin separate parts.",
+      "pictures": [
+        {
+          "both": "~/Games/hlh/tmp/retopoforge/r4/r4_closeups.jpg",
+          "crop": [
+            0,
+            0,
+            1,
+            0.34
+          ],
+          "caption": "Face at 10,500 quads: artist, retopoforge, QuadWild, QuadriFlow"
+        },
+        {
+          "both": "~/Games/hlh/tmp/retopoforge/r4/r4_closeups.jpg",
+          "crop": [
+            0,
+            0.33,
+            1,
+            0.34
+          ],
+          "caption": "Hand: artist, retopoforge (79% of the artist's rings), QuadWild, QuadriFlow"
         }
       ]
     }

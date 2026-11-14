@@ -248,3 +248,42 @@ On one creature the rings cost 9% of the triangles on retopo's quads and
 Engine experiments (settle, hard rings v2, keep-pieces, patch back end)
 and the wider rival runs were stopped to free the machine; their branches
 and partial results stand as logged above.
+
+## Round 4 (2026-11-13): the artist bench and the fast loop
+
+Owner's goal restated: a general quad remesher better than the paid tool,
+proven against the free rivals. Headline: **rings the artist has** (share
+of a hand-made mesh's closed edge loops the remesh also has), given only
+the shape. Fast set: 20 hand-made meshes (Blender's CC0 base meshes:
+heads, hands, feet, eye, bones; Quaternius CC0 props), `bench/artist/`,
+about a minute a run on this Mac. Noise floor from jittered seeds: rings
+about +-3 points, shape p95 about +-0.4%.
+
+| idea | rings % | flow deg | shape p95 % | worst % | odd/model | verdict |
+|---|---|---|---|---|---|---|
+| baseline (count-matched) | 22.5 | 13.6 | 1.97 | 4.96 | 3.6 | - |
+| settle onto input | +2 | same | -0.08 | same | same | gain gone once the mesh below is finer; left on `exp/settle` |
+| keep detached pieces | same | same | same | same | +1 | no effect; left on `exp/settle` |
+| finer working mesh (2x) | 30.3 | 11.9 | 2.09 | 4.0 | 2.2 | **kept** (CLI default `--working-refinement 2`) |
+| odd faces paired into quads | same | same | same | same | 5.3 -> 2.2 | **kept** (default; `--keep-odd-faces`) |
+| second run when count misses 8% | fair counts | | | | | **kept** (default; `--no-exact-count`); without it the finer mesh overshot hard pieces 2.5x |
+| coverage bar from expected quads | +1 on every seed | | -0.4 (seed 0) | 3.8 | | **kept** |
+
+Lesson: an earlier "win" came from overshooting the quad count on hard
+pieces; every comparison is now count-matched.
+
+Rivals on the same 20 (now ours = last row): QuadWild rings 32.2%, flow
+13.1, poles 0.65x the artist's, odd 0, shape p95 0.72%, count 1.19x;
+QuadriFlow rings 3.5%, flow 15.4, 3 of 20 silently not remeshed. Ours:
+rings 32.1%, flow 11.8 (best), poles 0.96x, odd 2.2, shape 1.67%.
+Whole male body (10.5k quads): ours rings 40% / flow 9.5 / shape p95
+0.06%; QuadWild 23% / 12.0 / 0.17%; QuadriFlow 0.3% / 14.1 / 0.36%.
+
+Where we lose: thin separate parts (key bow, ribcage ribs, femur ball)
+still collapse; QuadWild keeps them (shape 0.7 vs 1.7%). Artists put
+far more quads in the face and fewer on limbs; every tool is uniform.
+Next: a fallback for islands whose retries all fail; density where
+curvature and features are; poles at QuadWild's level.
+
+Game-character matrix (rings pass, tears on clips): its first run used a
+stale checkout on f and is void; f went offline before the re-run.
