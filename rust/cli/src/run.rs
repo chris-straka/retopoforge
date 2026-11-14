@@ -990,6 +990,16 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
 
     let mut input_islands: Vec<Vec<Vec<usize>>> = Vec::new();
     MeshSeparator::split_to_islands(&loaded.triangles, &mut input_islands);
+    if config.verbose {
+        let counts = remesher.island_output_quad_counts();
+        for (i, island) in input_islands.iter().enumerate() {
+            eprintln!(
+                "  island {i}: {} input triangles, {} quads out",
+                island.len(),
+                counts.get(i).map_or("?".to_string(), |q| q.to_string())
+            );
+        }
+    }
     let failed_islands = dropped_island_count(
         remesher.island_output_quad_counts(),
         &input_islands,

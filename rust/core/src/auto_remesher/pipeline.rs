@@ -637,10 +637,22 @@ impl AutoRemesher {
                         &thread.remeshed_quads,
                     );
                     let attempt_diag = Self::bbox_diag(&island.vertices);
+                    // With a refined working mesh the bar comes from the
+                    // quads this island should have (its working triangles
+                    // per output quad), never from what it produced: a thin
+                    // island that collapsed to a 6-quad stub otherwise gets
+                    // a bar as wide as itself and passes (artist bench: the
+                    // key's bow, half a ribcage's ribs).
+                    let expected_quads = if this.working_refinement > 1.0 {
+                        let r = this.working_refinement;
+                        (triangles.len() as f64 / (2.0 * r * r * Self::YIELD_COMPENSATION)) as usize
+                    } else {
+                        0
+                    };
                     let (working_failed, working_uncovered) = Self::coverage_failed(
                         &attempt_gaps,
                         attempt_diag,
-                        thread.remeshed_quads.len(),
+                        thread.remeshed_quads.len().max(expected_quads),
                         triangles,
                         island.vertices.len(),
                     );

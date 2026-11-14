@@ -13,6 +13,8 @@ prints the summary. Tools:
               `--args` and `--env` passed on (any name starting retopo)
   quadriflow  Blender's QuadriFlow (Blender's own tool in the add-on bar)
   decimate    Blender's collapse decimate to twice the quad count
+  instant     Instant Meshes (BSD-3, black box, $INSTANT_MESHES)
+  quadwild    QuadWild + Bi-MDF (GPL-3, black box, $QUADWILD)
 
 The fast set (about twenty cases of 300 to 4,000 quads) runs in a few
 minutes on three cores; `--set full` adds the big bodies and skull to
@@ -77,6 +79,59 @@ def jitter(dense, seed, folder, name):
     return out
 
 
+class _Done:
+    def __init__(self, code):
+        self.returncode = code
+
+
+def quadwild(dense, out, quads, work):
+    """QuadWild + Bi-MDF (GPL-3, black box, $QUADWILD = release folder):
+    organic prep, then quantization with scaleFact from a probe so the
+    count lands near the target (two tries)."""
+    import math
+    import re
+    import shutil
+    qw = os.environ["QUADWILD"]
+    os.makedirs(work, exist_ok=True)
+    src = os.path.join(work, "src.obj")
+    rem = os.path.join(work, "src_rem_p0.obj")
+    if not os.path.exists(rem):
+        shutil.copyfile(dense, src)
+        subprocess.run([os.path.join(qw, "quadwild"), src, "2", "config/prep_config/basic_setup_Organic.txt"],
+                       cwd=qw, capture_output=True, timeout=1800)
+    if not os.path.exists(rem):
+        return _Done(1)
+
+    def quantize(scale, tag):
+        cfg = open(os.path.join(qw, "config/main_config/flow_noalign_lemon.txt")).read()
+        cfg = re.sub(r"(?m)^scaleFact .*$", f"scaleFact {scale:.6g}", cfg)
+        cp = os.path.join(work, "main.txt")
+        open(cp, "w").write(cfg)
+        subprocess.run([os.path.join(qw, "quad_from_patches"), rem, tag, cp], cwd=qw, capture_output=True,
+                       timeout=1800)
+        res = rem[:-4] + f"_{tag}_quadrangulation_smooth.obj"
+        if not os.path.exists(res):
+            return None, 0
+        return res, sum(1 for line in open(res) if line.startswith("f ") and len(line.split()) == 5)
+
+    probe, base = quantize(1.0, "1")
+    if not probe or not base:
+        return _Done(1)
+    scale = math.sqrt(base / quads)
+    best = None
+    for k in range(2):
+        res, got = quantize(scale, str(10 + k))
+        if not res:
+            break
+        if best is None or abs(got - quads) < abs(best[1] - quads):
+            best = (res, got)
+        scale *= math.sqrt(max(1, got) / quads)
+    if not best:
+        return _Done(1)
+    shutil.copyfile(best[0], out)
+    return _Done(0)
+
+
 def cut(case_dir, out, tool, a):
     case = json.load(open(os.path.join(case_dir, "case.json")))
     dense = os.path.join(case_dir, "dense.obj")
@@ -90,6 +145,11 @@ def cut(case_dir, out, tool, a):
         argv += shlex.split(a.args)
         env = dict(os.environ, **dict(x.split("=", 1) for x in a.env))
         r = subprocess.run(argv, capture_output=True, text=True, timeout=600, env=env)
+    elif tool == "instant":
+        r = subprocess.run([os.environ["INSTANT_MESHES"], "-o", out, "-f", str(quads), "-d", dense],
+                           capture_output=True, text=True, timeout=900)
+    elif tool == "quadwild":
+        r = quadwild(dense, out, quads, os.path.join(a.out, "_qw", case["name"]))
     else:
         script = os.path.join(a.out, "_cut.py")
         open(script, "w").write(QF)
