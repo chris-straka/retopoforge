@@ -10,7 +10,8 @@ WORK/subjects.tsv lists the subjects, one a line:
 kind is `character` (one of the owner's generated characters; source is
 `MODEL.fbx|RIG.glb`: the download and the human route's rig, fitted onto
 our own cut of the body; with $CLIPS set, every candidate gets the
-game's clips through `motionforge animate` and is checked on them),
+game's clips copied on by bone name (bench/creature/clips_onto.py: the
+clip file is on the same standard skeleton) and is checked on them),
 `pro` (a professionally made rigged game mesh, a GLB: it is
 degraded into what a generator gives, smoothed one Catmull-Clark level
 and voxel-fused, every tool remeshes that, and the pro's own mesh and rig
@@ -323,8 +324,7 @@ def one_score(s, d, cand, log):
         if s["kind"] == "character" and os.environ.get("CLIPS"):
             # the game's clips on this candidate, then the check samples them
             moving = os.path.join(sd, name + ".moving.glb")
-            sh([env("MOTIONFORGE_BIN"), "animate", "--input", rigged, "--clips", os.environ["CLIPS"],
-                "--output", moving], log)
+            sh(["python3", os.path.join(HERE, "clips_onto.py"), rigged, os.environ["CLIPS"], moving], log)
             if os.path.exists(moving):
                 argv = [env("WEIGHTS"), "check", moving, "--json"]
                 res["clips"] = True

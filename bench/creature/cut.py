@@ -37,7 +37,10 @@ def main():
     if len(meshes) > 1:
         bpy.ops.object.join()
     ob = bpy.context.view_layer.objects.active
+    bpy.context.view_layer.update()
+    world = ob.matrix_world.copy()  # a node above (a turn, a scale) counts
     ob.parent = None
+    ob.matrix_world = world
     ob.modifiers.clear()
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     n = len(ob.data.polygons)
@@ -57,6 +60,19 @@ def main():
         bpy.ops.object.select_all(action="DESELECT")
         ob.select_set(True)
         bpy.context.view_layer.objects.active = ob
+        # Blender refuses a mesh with any edge shorter than 1e-4 units
+        # ("needs to be manifold"), which a dense one-unit creature always
+        # has: work at 100 units across, then scale back.
+        up = 100.0 / max(ob.dimensions)
+        for v in ob.data.vertices:
+            v.co *= up
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=2e-4)
+        bm.to_mesh(ob.data)
+        bm.free()
+        ob.data.update()
+
         def qf():
             try:
                 return "FINISHED" in bpy.ops.object.quadriflow_remesh(
@@ -75,6 +91,8 @@ def main():
             print("CUT quadriflow: voxel shell first")
             if not qf():
                 raise SystemExit("cut: quadriflow failed")
+        for v in ob.data.vertices:
+            v.co /= up
         sv = [v.co.copy() for v in src_copy.data.vertices]
         bvh = BVHTree.FromPolygons(sv, [tuple(p.vertices) for p in src_copy.data.polygons])
         for v in ob.data.vertices:

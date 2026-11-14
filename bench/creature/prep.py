@@ -58,7 +58,10 @@ def only_mesh():
         bpy.ops.object.join()
     ob = bpy.context.view_layer.objects.active
     # world transform baked in, armature (if any) dropped
+    bpy.context.view_layer.update()
+    world = ob.matrix_world.copy()  # a node above (a turn, a scale) counts
     ob.parent = None
+    ob.matrix_world = world
     ob.modifiers.clear()
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     for o in list(bpy.context.scene.objects):
