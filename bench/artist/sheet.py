@@ -2,7 +2,7 @@
 
     blender -b --factory-startup -P bench/artist/sheet.py -- OUT.png SOURCE.obj \
         "label=path.obj" ["label=path.obj" ...] [--title TEXT] [--focus fx,fy,fz,size]
-        [--view x,y,z] [--cols 2] [--w 540] [--h 960]
+        [--view x,y,z] [--cols 2] [--w 540] [--h 960] [--up z|y]
 
 Each mesh is drawn as clay with its wireframe over it (workbench), the
 orthographic camera aimed at the focus point (fractions of SOURCE's
@@ -10,7 +10,8 @@ bounding box, 0-1 on each axis) with `size` (a fraction of the box's
 diagonal) across the panel's longer side, looking along --view (default
 front: from -Y). Panels are laid out in a grid, `--cols` across, each
 labelled at the top with its label and quad count; the sheet is tall
-for a phone at the defaults (2x2 of 540x960).
+for a phone at the defaults (2x2 of 540x960). `--up y` reads Y-up OBJs
+(the character bench's) instead of the artist cases' Z-up ones.
 """
 import os
 import sys
@@ -22,7 +23,8 @@ from mathutils import Vector
 
 def args():
     a = sys.argv[sys.argv.index("--") + 1:]
-    o = {"focus": "0.5,0.5,0.5,1.0", "view": "0.25,1,-0.08", "cols": "2", "w": "540", "h": "960", "title": ""}
+    o = {"focus": "0.5,0.5,0.5,1.0", "view": "0.25,1,-0.08", "cols": "2", "w": "540", "h": "960", "title": "",
+         "up": "z"}
     pos = []
     i = 0
     while i < len(a):
@@ -35,9 +37,15 @@ def args():
     return pos, o
 
 
+UP = "Z"
+
+
 def load(path):
     before = set(bpy.data.objects)
-    bpy.ops.wm.obj_import(filepath=path, forward_axis="Y", up_axis="Z")
+    if UP == "Y":
+        bpy.ops.wm.obj_import(filepath=path, forward_axis="NEGATIVE_Z", up_axis="Y")
+    else:
+        bpy.ops.wm.obj_import(filepath=path, forward_axis="Y", up_axis="Z")
     return next(o for o in bpy.data.objects if o not in before and o.type == "MESH")
 
 
@@ -47,23 +55,26 @@ def mat(name, rgb):
     return m
 
 
-def label(sc, cam, text, w, h, scale):
+def label(sc, cam, text, w, h, scale, depth):
     """A dark text line pinned to the top-left of the orthographic view."""
     cu = bpy.data.curves.new("t", "FONT")
     cu.body = text
-    cu.size = scale * 0.045
+    cu.size = scale * 0.04
     ob = bpy.data.objects.new("t", cu)
     ob.data.materials.append(mat("ink", (0.05, 0.05, 0.07)))
     sc.collection.objects.link(ob)
     ob.parent = cam
     aspect_w = scale * (w / max(w, h))
     aspect_h = scale * (h / max(w, h))
-    ob.location = (-aspect_w / 2 + scale * 0.03, aspect_h / 2 - scale * 0.07, -0.05 * scale)
+    # just past the camera's near clip plane, in front of everything else
+    ob.location = (-aspect_w / 2 + scale * 0.03, aspect_h / 2 - scale * 0.07, -depth)
     return ob
 
 
 def main():
+    global UP
     pos, o = args()
+    UP = o["up"].upper()
     out, source, items = pos[0], pos[1], pos[2:]
     w, h, cols = int(o["w"]), int(o["h"]), int(o["cols"])
     fx, fy, fz, size = (float(x) for x in o["focus"].split(","))
@@ -83,7 +94,8 @@ def main():
         sc.world.color = (0.93, 0.93, 0.92)
         sc.view_settings.view_transform = "Standard"
         src = load(source)
-        v = np.array([x.co[:] for x in src.data.vertices])
+        mw = src.matrix_world
+        v = np.array([(mw @ x.co)[:] for x in src.data.vertices])
         lo, hi = v.min(0), v.max(0)
         bpy.data.objects.remove(src, do_unlink=True)
         diag = float(np.linalg.norm(hi - lo))
@@ -99,9 +111,11 @@ def main():
         wire.data.materials.append(mat("wire", (0.08, 0.09, 0.12)))
         lens = [(ob.data.vertices[e.vertices[0]].co - ob.data.vertices[e.vertices[1]].co).length
                 for e in ob.data.edges]
+        lens = [x * max(ob.matrix_world.to_scale()) for x in lens]
         wm = wire.modifiers.new("w", "WIREFRAME")
         wm.thickness = float(np.median(lens)) * 0.07
         wm.use_replace = True
+        wm.use_even_offset = False  # even offset spikes at near-degenerate corners
         cam = bpy.data.objects.new("cam", bpy.data.cameras.new("cam"))
         cam.data.type = "ORTHO"
         scale = size * diag
@@ -115,7 +129,7 @@ def main():
         odd = len(ob.data.polygons) - quads
         text = f"{name}  {quads} quads" + (f", {odd} other" if odd else "")
         bpy.context.view_layer.update()
-        label(sc, cam, text, w, h, scale)
+        label(sc, cam, text, w, h, scale, 2.0 * cam.data.clip_start)
         sc.render.filepath = os.path.join(tmp, f"{k}.png")
         bpy.ops.render.render(write_still=True)
         panels.append(sc.render.filepath)

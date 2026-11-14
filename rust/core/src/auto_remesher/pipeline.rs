@@ -695,7 +695,8 @@ impl AutoRemesher {
                             &thread.remeshed_vertices,
                             Self::EXTENT_WIDTH_MULTIPLE * unit,
                         );
-                        (short > 0, if short > 0 { short } else { input_uncovered })
+                        let lost = short >= Self::EXTENT_MIN_VERTS;
+                        (lost, if lost { short } else { input_uncovered })
                     } else {
                         (input_failed, input_uncovered)
                     };

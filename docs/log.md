@@ -314,6 +314,26 @@ Gate floor (Mac, main): `cli_contract` was already red: the
 `remesh-nasty-nonmanifold` golden went stale with f6444713 (coverage
 retry now lands on retry 3 with 164 quads, golden says retry 1 / 157).
 
+**Game-character matrix (to-do 3, re-run).** The round-4 run was void
+because f's `~/rfwork/src` checkout no longer pulls (stuck at 4435846b);
+this one ran from a snapshot of this tree into a fresh work copy
+(`~/rfwork/chars_r5` on f), the thin-parts engine before its last two
+fixes. Four of the owner's characters at 14k triangles; tears on the
+hero's game clips (weightforge headline, % of surface; lower is better)
+/ silhouette error %:
+
+| character | ours | ours+rings | QuadWild | QuadriFlow | decimate |
+|---|---|---|---|---|---|
+| burim | 5.43 / 5.2 | **4.82** / 6.8 | no cut | 5.69 / 2.8 | 5.42 / 0.3 |
+| lysan | **0.81** / 3.3 | 1.05 / 3.3 | 1.48 / 3.2 (18k) | no cut | 1.25 / 0.4 |
+| maeva (coat off) | **1.60** / 3.2 | 1.77 / 3.1 | 1.67 / 3.3 (19k) | 1.84 / 2.9 | 1.97 / 0.4 |
+| pum | **3.39** / 7.7 | 3.97 / 8.2 | 3.71 / 4.7 (36k) | 4.26 / 5.5 | 3.68 / 0.6 |
+
+Ours tears least on all four (with rings on burim); the joint-ring pass
+helps only burim. Ours loses on outline: 3-8% against decimate's
+0.3-0.6% and QuadriFlow's 2.8-5.5% (pum worst). `table.py` crashed on a
+score row without `cand` (QuadWild's failed cut); fix next round.
+
 ## Round 4 (2026-11-13): the artist bench and the fast loop
 
 Owner's goal restated: a general quad remesher better than the paid tool,

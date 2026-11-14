@@ -87,7 +87,8 @@ The extremity check, on with the re-run, adds one failure to the
 verdict (folded into the input side): input vertices sticking out past
 the output by more than `EXTENT_WIDTH_MULTIPLE` (0.5) nominal quad
 widths along any of 13 directions (axes, face and body diagonals, both
-ways). The 3-width bars cannot see an end rounded off by about a quad
+ways), at least `EXTENT_MIN_VERTS` (10) of them: a sharp tip or corner
+no quad can reach is one or two vertices, a lost end is a region. The 3-width bars cannot see an end rounded off by about a quad
 (the femur's ball: 6% of its length gone). On the artist bench's floor
 outputs every case with a lost end receded 0.58-2.1 widths, every
 healthy organic case 0.02-0.25. A whole-mesh island that fails it gets

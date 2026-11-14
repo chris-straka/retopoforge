@@ -404,6 +404,13 @@ impl AutoRemesher {
     /// healthy organic case 0.02-0.25.
     pub(crate) const EXTENT_WIDTH_MULTIPLE: f64 = 0.5;
 
+    /// Input vertices that must stick out past the output for the
+    /// extremity check to fire: a lost end is a region (femur 2715, the
+    /// smallest real case on the artist bench a sword's tip with 30), a
+    /// sharp corner no quad can reach is one or two (a tetrahedron's
+    /// tips, a cube's corners).
+    pub(crate) const EXTENT_MIN_VERTS: usize = 10;
+
     /// Input vertices that stick out past the output by more than `bar`
     /// along the worst of 13 directions (3 axes, 6 face and 4 body
     /// diagonals, both ways): 0 when the output reaches every extreme.
