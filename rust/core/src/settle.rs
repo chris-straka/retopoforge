@@ -24,6 +24,9 @@ struct TriangleGrid<'a> {
     origin: Vector3,
     cell: f64,
     cells: HashMap<(i64, i64, i64), Vec<usize>>,
+    /// Triangles whose box covers too many cells to list in each (long
+    /// thin ones: hair strands); every query checks them directly.
+    oversize: Vec<usize>,
 }
 
 fn closest_on_triangle(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> Vector3 {
@@ -72,7 +75,7 @@ impl<'a> TriangleGrid<'a> {
                 origin[a] = origin[a].min(v[a]);
             }
         }
-        let mut grid = Self { vertices, triangles, origin, cell, cells: HashMap::new() };
+        let mut grid = Self { vertices, triangles, origin, cell, cells: HashMap::new(), oversize: Vec::new() };
         for (t, tri) in triangles.iter().enumerate() {
             if tri.len() < 3 {
                 continue;
@@ -85,6 +88,11 @@ impl<'a> TriangleGrid<'a> {
                 }
             }
             let (l, h) = (grid.key(&lo), grid.key(&hi));
+            let span = (h.0 - l.0 + 1) as i128 * (h.1 - l.1 + 1) as i128 * (h.2 - l.2 + 1) as i128;
+            if span > 64 {
+                grid.oversize.push(t);
+                continue;
+            }
             for x in l.0..=h.0 {
                 for y in l.1..=h.1 {
                     for z in l.2..=h.2 {
@@ -106,6 +114,14 @@ impl<'a> TriangleGrid<'a> {
         let c = self.key(p);
         let rings = (max_distance / self.cell).ceil() as i64 + 1;
         let mut best: Option<(Vector3, f64)> = None;
+        for &t in &self.oversize {
+            let tri = &self.triangles[t];
+            let q = closest_on_triangle(*p, self.vertices[tri[0]], self.vertices[tri[1]], self.vertices[tri[2]]);
+            let d = (q - *p).length();
+            if d <= max_distance && best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((q, d));
+            }
+        }
         for r in 0..=rings {
             if let Some((_, d)) = best
                 && (r - 1) as f64 * self.cell > d
@@ -249,6 +265,23 @@ pub fn settle_onto_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A triangle a thousand cells long goes to the overflow list (the
+    /// grid stays small) and is still found.
+    #[test]
+    fn long_thin_triangle_is_not_spread_over_the_grid() {
+        let v = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(1000.0, 1000.0, 1000.0),
+            Vector3::new(0.0, 0.01, 0.0),
+        ];
+        let t = vec![vec![0, 1, 2]];
+        let grid = TriangleGrid::new(&v, &t, 1.0);
+        assert!(grid.cells.is_empty());
+        assert_eq!(grid.oversize.len(), 1);
+        let (q, d) = grid.nearest(&Vector3::new(500.0, 500.0, 500.5), 2.0).unwrap();
+        assert!(d < 0.6 && (q.x() - 500.0).abs() < 1.0);
+    }
 
     /// A flat input square; an output grid floating above it with one
     /// vertex thrown far off: the spike comes back between its
