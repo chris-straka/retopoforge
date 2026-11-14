@@ -48,7 +48,9 @@ input decimated to max(6x budget, 150k) as meshkit's clean_copy does),
 decimate (Blender collapse: triangles), artist (animals only). Any tool
 `instant` (Instant Meshes, $INSTANT_MESHES) and `quadwild` (QuadWild +
 Bi-MDF, $QUADWILD = the release folder) are outside rivals run as black
-boxes. Any tool
+boxes; `quadwild.rings` is QuadWild with each joint's ring cut into its
+input and marked as a feature (bench/creature/qw_rings.py, a `.sharp`
+file). Any tool
 with `+lay` appended is that tool's cut laid back onto the source
 (bench/creature/lay.py), e.g. `retopo+lay`.
 
@@ -197,19 +199,26 @@ def cut_instant(dense, out, tris, log):
     return sh([env("INSTANT_MESHES"), "-o", out, "-f", str(max(50, tris // 2)), "-d", dense], log, timeout=3600)
 
 
-def cut_quadwild(dense, out, tris, log):
+def cut_quadwild(dense, out, tris, log, rings=False):
     """QuadWild + Bi-MDF (GPL-3, black box): its organic prep once per
     subject (cached), then quantization with scaleFact set so the quad
     count lands near the budget (count ~ 1/scaleFact^2, from a probe)."""
     import math
     import re
     qw = env("QUADWILD")
-    work = os.path.join(os.path.dirname(dense), "qw")
+    work = os.path.join(os.path.dirname(dense), "qw_rings" if rings else "qw")
     os.makedirs(work, exist_ok=True)
     src = os.path.join(work, "src.obj")
     rem = os.path.join(work, "src_rem_p0.obj")
     if not os.path.exists(rem):
-        shutil.copyfile(dense, src)
+        if rings:
+            # the joint rings cut in and handed to QuadWild as features
+            joints = os.path.join(os.path.dirname(dense), "guides", "joints.json")
+            blender("qw_rings.py", dense, joints, src, log=log)
+            if not os.path.exists(src):
+                return 1
+        else:
+            shutil.copyfile(dense, src)
         sh([os.path.join(qw, "quadwild"), src, "2", "config/prep_config/basic_setup_Organic.txt"], log,
            timeout=7200, cwd=qw)
         if not os.path.exists(rem):
@@ -266,8 +275,8 @@ def one_cut(s, d, tool, tris, a, log):
         tmp = f"{out}.try{attempt}.obj"
         if tool == "instant":
             code = cut_instant(dense, tmp, target, log)
-        elif tool == "quadwild":
-            code = cut_quadwild(dense, tmp, target, log)
+        elif tool in ("quadwild", "quadwild.rings"):
+            code = cut_quadwild(dense, tmp, target, log, rings=tool == "quadwild.rings")
         elif tool.startswith("retopo"):
             code = cut_retopo(dense, tmp, target, a.retopo_args if tool != "retopo" else "", log,
                               dict(x.split("=", 1) for x in a.retopo_env) if tool != "retopo" else None)
