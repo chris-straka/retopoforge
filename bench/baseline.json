@@ -8,14 +8,18 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.536,
+      "wall_seconds": 2.249,
       "input_verts": 49990,
       "input_faces": 99976,
-      "verts": 564,
-      "quads": 556,
-      "non_quads": 4,
+      "verts": 1018,
+      "quads": 1013,
+      "non_quads": 2,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 1013 quads, 2 non-quads, 1018 vertices in 2.23 s"
+      ]
     },
     {
       "model": "armadillo.obj",
@@ -25,14 +29,18 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 1.644,
+      "wall_seconds": 12.348,
       "input_verts": 49990,
       "input_faces": 99976,
-      "verts": 4607,
-      "quads": 4589,
-      "non_quads": 14,
+      "verts": 5102,
+      "quads": 5097,
+      "non_quads": 2,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 5097 quads, 2 non-quads, 5102 vertices in 12.32 s"
+      ]
     },
     {
       "model": "beast.obj",
@@ -42,14 +50,18 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.566,
+      "wall_seconds": 5.829,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 699,
-      "quads": 684,
-      "non_quads": 12,
+      "verts": 678,
+      "quads": 675,
+      "non_quads": 4,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 675 quads, 4 non-quads, 678 vertices in 5.82 s"
+      ]
     },
     {
       "model": "beast.obj",
@@ -59,14 +71,18 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 1.868,
+      "wall_seconds": 37.531,
       "input_verts": 32311,
       "input_faces": 32364,
-      "verts": 5405,
-      "quads": 5386,
-      "non_quads": 16,
+      "verts": 5091,
+      "quads": 5079,
+      "non_quads": 3,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 5079 quads, 3 non-quads, 5091 vertices in 37.48 s"
+      ]
     },
     {
       "model": "nefertiti.obj",
@@ -76,65 +92,81 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.363,
+      "wall_seconds": 2.843,
       "input_verts": 49971,
       "input_faces": 99938,
-      "verts": 1148,
-      "quads": 1143,
-      "non_quads": 2,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "nefertiti.obj",
-      "preset": "small",
-      "args": [
-        "--target-quads",
-        "5000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 1.576,
-      "input_verts": 49971,
-      "input_faces": 99938,
-      "verts": 5310,
-      "quads": 5302,
-      "non_quads": 6,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "fandisk.obj",
-      "preset": "tiny",
-      "args": [
-        "--target-quads",
-        "1000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 0.394,
-      "input_verts": 6475,
-      "input_faces": 12946,
-      "verts": 1518,
-      "quads": 1514,
-      "non_quads": 2,
-      "errors": [],
-      "error_count": 0
-    },
-    {
-      "model": "fandisk.obj",
-      "preset": "small",
-      "args": [
-        "--target-quads",
-        "5000"
-      ],
-      "exit_code": 0,
-      "wall_seconds": 1.221,
-      "input_verts": 6475,
-      "input_faces": 12946,
-      "verts": 5533,
-      "quads": 5531,
+      "verts": 1060,
+      "quads": 1059,
       "non_quads": 0,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 1059 quads, 0 non-quads, 1060 vertices in 2.83 s"
+      ]
+    },
+    {
+      "model": "nefertiti.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 8.813,
+      "input_verts": 49971,
+      "input_faces": 99938,
+      "verts": 5324,
+      "quads": 5322,
+      "non_quads": 0,
+      "errors": [],
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 5322 quads, 0 non-quads, 5324 vertices in 8.80 s"
+      ]
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 1.74,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 1218,
+      "quads": 1217,
+      "non_quads": 0,
+      "errors": [],
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 1217 quads, 0 non-quads, 1218 vertices in 1.73 s"
+      ]
+    },
+    {
+      "model": "fandisk.obj",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 6.472,
+      "input_verts": 6475,
+      "input_faces": 12946,
+      "verts": 4770,
+      "quads": 4767,
+      "non_quads": 2,
+      "errors": [],
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 4767 quads, 2 non-quads, 4770 vertices in 6.45 s"
+      ]
     },
     {
       "model": "xyzrgb_dragon.obj",
@@ -144,14 +176,18 @@
         "1000"
       ],
       "exit_code": 0,
-      "wall_seconds": 0.587,
+      "wall_seconds": 5.576,
       "input_verts": 125066,
       "input_faces": 249882,
-      "verts": 700,
-      "quads": 689,
-      "non_quads": 8,
+      "verts": 892,
+      "quads": 885,
+      "non_quads": 4,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "retopo: warning: island 0 failed the coverage check (63 input verts uncovered) and recovered on retry 1 (0 verts uncovered).",
+        "done: 885 quads, 4 non-quads, 892 vertices in 5.56 s"
+      ]
     },
     {
       "model": "xyzrgb_dragon.obj",
@@ -161,14 +197,60 @@
         "5000"
       ],
       "exit_code": 0,
-      "wall_seconds": 1.897,
+      "wall_seconds": 90.666,
       "input_verts": 125066,
       "input_faces": 249882,
-      "verts": 3788,
-      "quads": 3765,
-      "non_quads": 15,
+      "verts": 4999,
+      "quads": 4978,
+      "non_quads": 14,
       "errors": [],
-      "error_count": 0
+      "error_count": 0,
+      "stderr_tail": [
+        "retopo: warning: island 0 failed the coverage check (80 working verts uncovered); retries did not recover, kept the original.",
+        "done: 4978 quads, 14 non-quads, 4999 vertices in 90.63 s"
+      ]
+    },
+    {
+      "model": "tube",
+      "preset": "tiny",
+      "args": [
+        "--target-quads",
+        "1000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 1.303,
+      "input_verts": 1562,
+      "input_faces": 1584,
+      "verts": 1205,
+      "quads": 1203,
+      "non_quads": 0,
+      "errors": [],
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 1203 quads, 0 non-quads, 1205 vertices in 1.30 s"
+      ]
+    },
+    {
+      "model": "tube",
+      "preset": "small",
+      "args": [
+        "--target-quads",
+        "5000"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 6.869,
+      "input_verts": 1562,
+      "input_faces": 1584,
+      "verts": 5401,
+      "quads": 5398,
+      "non_quads": 2,
+      "errors": [],
+      "error_count": 0,
+      "stderr_tail": [
+        "100% done. Done",
+        "done: 5398 quads, 2 non-quads, 5401 vertices in 6.86 s"
+      ]
     }
   ]
 }

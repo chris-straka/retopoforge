@@ -90,7 +90,17 @@ impl AutoRemesher {
 
     pub(crate) fn initialize_voxel_size(&mut self) {
         let area = Self::calculate_mesh_area(&self.vertices, &self.triangles);
-        let triangle_area = area / self.target_triangle_count as f64;
+        // The working mesh is `working_refinement` times finer (in edge
+        // length) than the output; YIELD_COMPENSATION makes up the quads
+        // the finer cover loses to rounding (measured on bench/artist:
+        // 0.85x of the target at refinement 2 without it).
+        let r = self.working_refinement;
+        let yield_fix = if r > 1.0 {
+            Self::YIELD_COMPENSATION
+        } else {
+            1.0
+        };
+        let triangle_area = area / (self.target_triangle_count as f64 * r * r * yield_fix);
         self.voxel_size = (triangle_area / (0.86602540378 * 0.5)).sqrt();
         // (C++ AUTO_REMESHER_DEBUG stderr omitted: the flag is never
         // defined by the build; likewise at every site below.)

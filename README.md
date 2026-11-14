@@ -46,6 +46,12 @@ meshoptimizer was replaced by the native `retopo_core::decimator`).
 
 Flags: `--input`/`-i` and `--output`/`-o` (required), `--report`,
 `--target-quads` (default 50000), `--edge-scaling` (1.0–4.0),
+`--working-refinement` (1.0–4.0, default 2.0: the working mesh is twice
+as fine as the output, so small features survive; 1.0 is the old engine),
+`--keep-odd-faces` (by default the triangles and pentagons left by
+extraction are paired and re-cut into quads), `--no-exact-count` (by
+default a run that misses `--target-quads` by more than 8% is repeated
+once, aimed at the miss),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
 `--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,

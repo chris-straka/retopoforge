@@ -4,10 +4,10 @@ out_lod0.obj present
 out_lod1.obj present
 report: absent
 counts:
-out_lod0.obj quads=285 nonquads=2 verts=288
-out_lod1.obj quads=167 nonquads=4 verts=171
-LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=285 non-quads=2 vertices=288 time=T seconds
-LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=167 non-quads=4 vertices=171 time=T seconds
+out_lod0.obj quads=280 nonquads=0 verts=313
+out_lod1.obj quads=154 nonquads=2 verts=157
+LOD 0: target-quads=300 output=CASE/out_lod0.obj quads=280 non-quads=0 vertices=313 time=T seconds
+LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=154 non-quads=2 vertices=157 time=T seconds
 diagnostics:
-done: 167 quads, 4 non-quads, 171 vertices in T s
-done: 285 quads, 2 non-quads, 288 vertices in T s
+done: 154 quads, 2 non-quads, 157 vertices in T s
+done: 280 quads, 0 non-quads, 313 vertices in T s

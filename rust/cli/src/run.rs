@@ -225,6 +225,39 @@ fn density_with_skeleton(
 /// Apply the CLI configuration to a fresh remesher. `target_triangles`
 /// is the precomputed `2 * target_quads` (kept at the call sites: the
 /// single and multi paths cast from different integer types).
+/// A second run when the first lands more than 8% off the quad target
+/// (the engine's yield varies by shape: hard-surface pieces came in at
+/// 0.7x to 2.5x of the target): the target is scaled by the miss and the
+/// run repeated once; the closer of the two wins. `--no-exact-count`
+/// keeps the first run. Returns the remesher that holds the result.
+fn calibrated(
+    first: AutoRemesher,
+    config: &Config,
+    target_quads: usize,
+    rebuild: impl Fn(usize) -> AutoRemesher,
+) -> AutoRemesher {
+    let quads = |r: &AutoRemesher| r.remeshed_quads().len();
+    let got = quads(&first);
+    if config.exact_count_off || got == 0 || target_quads == 0 {
+        return first;
+    }
+    let miss = got as f64 / target_quads as f64;
+    if (miss - 1.0).abs() <= 0.08 {
+        return first;
+    }
+    let retarget = ((target_quads as f64) / miss).round().max(1.0) as usize;
+    let mut second = rebuild(retarget);
+    if !second.remesh() || quads(&second) == 0 {
+        return first;
+    }
+    let off = |q: usize| (q as f64 - target_quads as f64).abs();
+    if off(quads(&second)) < off(got) {
+        second
+    } else {
+        first
+    }
+}
+
 fn configure_remesher(
     remesher: &mut AutoRemesher,
     config: &Config,
@@ -240,6 +273,8 @@ fn configure_remesher(
     remesher.set_sharp_polylines(features);
     remesher.set_density_multipliers(density);
     remesher.set_dipoles(config.dipoles);
+    remesher.set_working_refinement(config.working_refinement);
+    remesher.set_fill_odd_faces(!config.keep_odd_faces);
     if config.edge_scaling > 0.0 {
         remesher.set_scaling(config.edge_scaling);
     }
@@ -296,6 +331,18 @@ fn remesh_loaded_mesh(
         result.error = "remeshing produced no result".to_string();
         return result;
     }
+    let remesher = calibrated(remesher, config, target_quads.max(0) as usize, |t| {
+        let mut r = AutoRemesher::new(vertices, triangles);
+        configure_remesher(
+            &mut r,
+            config,
+            constraints.guides.clone(),
+            constraints.features.clone(),
+            &density,
+            t.wrapping_mul(2),
+        );
+        r
+    });
 
     if config.verbose {
         for line in remesher.phase_report() {
@@ -905,8 +952,8 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
     configure_remesher(
         &mut remesher,
         config,
-        constraints.guides,
-        constraints.features,
+        constraints.guides.clone(),
+        constraints.features.clone(),
         &density,
         (config.target_quads as usize).wrapping_mul(2),
     );
@@ -919,6 +966,18 @@ pub(crate) fn run_single_mode(config: &Config) -> i32 {
         eprintln!("retopo: error: remeshing produced no result.");
         return 1;
     }
+    let remesher = calibrated(remesher, config, config.target_quads.max(0) as usize, |t| {
+        let mut r = AutoRemesher::new(&loaded.vertices, &loaded.triangles);
+        configure_remesher(
+            &mut r,
+            config,
+            constraints.guides.clone(),
+            constraints.features.clone(),
+            &density,
+            t.wrapping_mul(2),
+        );
+        r
+    });
 
     if config.verbose {
         for line in remesher.phase_report() {

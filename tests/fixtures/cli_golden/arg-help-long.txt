@@ -18,6 +18,15 @@ Sizing:
 Quality:
   --edge-scaling <factor>  Average edge length vs target size
                            (default: 1.0, range 1.0-4.0)
+  --working-refinement <factor>  Working-mesh edges per output
+                           edge; finer keeps small features
+                           (default: 2.0, range 1.0-4.0; 1 = old)
+  --keep-odd-faces         Leave the triangles and pentagons the
+                           extractor makes (default: paired up
+                           and re-cut into quads)
+  --no-exact-count         One run only, even when the quad count
+                           misses the target by more than 8%
+                           (default: a second run aimed at the miss)
   --sharp-edge <degrees>   Creases at/above this dihedral angle stay
                            sharp (default: 90.0, range 30-180)
   --smooth-normal <degrees>  Blend shading normals across edges below

@@ -1,55 +1,61 @@
-exit: Some(1)
+exit: Some(0)
 artifacts:
 out/a_lod0.obj present
 out/a_lod1.obj present
 out/b_lod0.obj present
-out/b_lod1.obj missing
+out/b_lod1.obj present
 out/c_lod0.glb present
 out/c_lod1.glb present
 report: present
 counts:
-out/a_lod0.obj quads=25 nonquads=2 verts=32
-out/a_lod1.obj quads=8 nonquads=2 verts=13
-out/b_lod0.obj quads=120 nonquads=0 verts=124
-FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=25 non-quads=2 vertices=32 time=T seconds
-FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=8 non-quads=2 vertices=13 time=T seconds
-FILE b.obj LOD 0: target-quads=150 output=CASE/out/b_lod0.obj quads=120 non-quads=0 vertices=124 time=T seconds
-FILE b.obj LOD 1: FAILED remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out/b_lod1.obj'. Try a larger --target-quads
-FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=67 non-quads=0 vertices=69 time=T seconds
-FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=45 non-quads=0 vertices=47 time=T seconds
+out/a_lod0.obj quads=134 nonquads=4 verts=142
+out/a_lod1.obj quads=111 nonquads=2 verts=116
+out/b_lod0.obj quads=174 nonquads=0 verts=178
+out/b_lod1.obj quads=72 nonquads=0 verts=76
+FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=134 non-quads=4 vertices=142 time=T seconds
+FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=111 non-quads=2 vertices=116 time=T seconds
+FILE b.obj LOD 0: target-quads=150 output=CASE/out/b_lod0.obj quads=174 non-quads=0 vertices=178 time=T seconds
+FILE b.obj LOD 1: target-quads=80 output=CASE/out/b_lod1.obj quads=72 non-quads=0 vertices=76 time=T seconds
+FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=148 non-quads=0 vertices=150 time=T seconds
+FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=50 non-quads=0 vertices=52 time=T seconds
 Target quads: 150
   Islands: 2
   Failed islands: 0
-  Quads: 25
-  Non-quads: 2
-  Vertices: 32
+  Quads: 134
+  Non-quads: 4
+  Vertices: 142
 Target quads: 80
   Islands: 2
   Failed islands: 0
-  Quads: 8
+  Quads: 111
   Non-quads: 2
-  Vertices: 13
+  Vertices: 116
 Target quads: 150
   Islands: 2
   Failed islands: 0
-  Quads: 120
+  Quads: 174
   Non-quads: 0
-  Vertices: 124
+  Vertices: 178
 Target quads: 80
-Failed: remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out/b_lod1.obj'. Try a larger --target-quads
+  Islands: 2
+  Failed islands: 0
+  Quads: 72
+  Non-quads: 0
+  Vertices: 76
 Target quads: 150
   Islands: 1
   Failed islands: 0
-  Quads: 67
+  Quads: 148
   Non-quads: 0
-  Vertices: 69
+  Vertices: 150
 Target quads: 80
   Islands: 1
   Failed islands: 0
-  Quads: 45
+  Quads: 50
   Non-quads: 0
-  Vertices: 47
+  Vertices: 52
 diagnostics:
-Failed files (1): b.obj
+Failed files: none
 note: skipped 1 non-mesh file in CASE/shared/indir
-retopo: error: b.obj: remeshing produced an empty mesh (all 2 islands dropped); nothing written to 'CASE/out/b_lod1.obj'. Try a larger --target-quads.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (20 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (51 working verts uncovered); retries did not recover, kept the original.

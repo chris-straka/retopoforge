@@ -221,7 +221,17 @@ impl AutoRemesher {
                 context.input_vertices = context.vertices.clone();
                 context.input_triangles = context.triangles.clone();
 
-                context.scaling = this.scaling;
+                // the cover spans `working_refinement` working edges per quad
+                let base = if this.scaling > 0.0 {
+                    this.scaling
+                } else {
+                    1.0
+                };
+                context.scaling = if this.working_refinement > 1.0 {
+                    base * this.working_refinement
+                } else {
+                    this.scaling
+                };
                 context.voxel_size = this.voxel_size;
                 context.adaptivity = this.adaptivity;
                 context.anisotropy = this.anisotropy;
@@ -896,6 +906,14 @@ impl AutoRemesher {
         // not per island.
         if self.symmetry_plane.valid() && !self.remeshed_vertices.is_empty() {
             Symmetry::symmetrize_vertices(&mut self.remeshed_vertices, &self.symmetry_plane);
+        }
+
+        if self.fill_odd_faces {
+            crate::quad_fill::pair_odd_faces(
+                &mut self.remeshed_vertices,
+                &mut self.remeshed_quads,
+                12,
+            );
         }
 
         let t_merge_end = Instant::now();

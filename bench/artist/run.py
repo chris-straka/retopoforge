@@ -54,13 +54,39 @@ bpy.ops.wm.obj_export(filepath=out, export_selected_objects=True, export_uv=Fals
 '''
 
 
+def jitter(dense, seed, folder, name):
+    """The shape with every vertex moved a hair (1e-5 of the diagonal): the
+    spread of scores over seeds is the noise a change has to beat."""
+    import random
+    os.makedirs(folder, exist_ok=True)
+    out = os.path.join(folder, f"{name}.s{seed}.obj")
+    if os.path.exists(out):
+        return out
+    rows = open(dense).read().split("\n")
+    vs = [[float(x) for x in r.split()[1:4]] for r in rows if r.startswith("v ")]
+    diag = sum((max(v[k] for v in vs) - min(v[k] for v in vs)) ** 2 for k in range(3)) ** 0.5
+    rng = random.Random(seed * 7919 + len(vs))
+    amp = 1e-5 * diag
+    with open(out, "w") as f:
+        for r in rows:
+            if r.startswith("v "):
+                x, y, z = (float(t) for t in r.split()[1:4])
+                f.write(f"v {x + rng.uniform(-amp, amp):.9f} {y + rng.uniform(-amp, amp):.9f} {z + rng.uniform(-amp, amp):.9f}\n")
+            elif r:
+                f.write(r + "\n")
+    return out
+
+
 def cut(case_dir, out, tool, a):
     case = json.load(open(os.path.join(case_dir, "case.json")))
     dense = os.path.join(case_dir, "dense.obj")
+    if a.seed:
+        dense = jitter(dense, a.seed, os.path.join(a.out, "_jitter"), case["name"])
     quads = case["quads"]
     t0 = time.time()
     if tool.startswith("retopo"):
-        argv = [a.retopo, "--input", dense, "--output", out, "--target-quads", str(quads), "--quiet"]
+        argv = [a.retopo, "--input", dense, "--output", out, "--target-quads",
+                str(int(round(quads * a.count_scale))), "--quiet"]
         argv += shlex.split(a.args)
         env = dict(os.environ, **dict(x.split("=", 1) for x in a.env))
         r = subprocess.run(argv, capture_output=True, text=True, timeout=600, env=env)
@@ -81,7 +107,10 @@ def main():
     ap.add_argument("--args", default="")
     ap.add_argument("--env", action="append", default=[])
     ap.add_argument("--set", default="fast")
+    ap.add_argument("--count-scale", type=float, default=1.0,
+                    help="retopo's --target-quads is the artist's count times this (with --edge-scaling k, use k*k)")
     ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--seed", type=int, default=0, help="jitter the shapes (noise floor); 0 = as they are")
     ap.add_argument("--blender", default="blender")
     a = ap.parse_args()
     a.out = os.path.abspath(a.out)

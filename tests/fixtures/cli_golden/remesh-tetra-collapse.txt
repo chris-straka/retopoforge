@@ -1,8 +1,12 @@
-exit: Some(1)
+exit: Some(0)
 artifacts:
-out.obj missing
+out.obj present
 report: absent
 counts:
+out.obj quads=2 nonquads=2 verts=5
+Islands: 1
+Failed islands: 0
+Quads: 2
+Non-quads: 2
+Vertices: 5
 diagnostics:
-retopo: error: remeshing produced an empty mesh (all 1 island dropped); nothing written to 'CASE/out.obj'. Try a larger --target-quads.
-retopo: warning: 1 of 1 islands produced no output and was dropped from the mesh.

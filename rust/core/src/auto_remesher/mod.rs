@@ -173,6 +173,8 @@ pub struct AutoRemesher {
     island_dipole_counts: Vec<usize>,
     dipoles: DipoleConfig,
     scaling: f64,
+    working_refinement: f64,
+    fill_odd_faces: bool,
     target_triangle_count: usize,
     voxel_size: f64,
     adaptivity: f64,
@@ -195,6 +197,14 @@ pub struct AutoRemesher {
 // impls: the only worker-mutated state sits behind the `ProgressState`
 // mutexes, and every other field is read-only during the parallel phases
 // (same sharing pattern as the C++ `const` reads from TBB workers).
+
+impl AutoRemesher {
+    /// See [`AutoRemesher::set_working_refinement`].
+    pub const DEFAULT_WORKING_REFINEMENT: f64 = 1.0;
+    /// Extra working density that keeps the quad count on target when the
+    /// working mesh is refined (see `initialize_voxel_size`).
+    pub const YIELD_COMPENSATION: f64 = 1.17;
+}
 
 impl AutoRemesher {
     pub const DEFAULT_SHARP_EDGE_DEGREES: f64 = 90.0;
@@ -231,6 +241,8 @@ impl AutoRemesher {
             // masked gains, unmasked/mild runs bit-identical via gating.
             dipoles: DipoleConfig::automatic(),
             scaling: 0.0,
+            working_refinement: Self::DEFAULT_WORKING_REFINEMENT,
+            fill_odd_faces: false,
             target_triangle_count: 0,
             voxel_size: 0.0,
             adaptivity: 1.0,
@@ -257,6 +269,35 @@ impl AutoRemesher {
     /// Mirrors `setScaling`.
     pub fn set_scaling(&mut self, scaling: f64) {
         self.scaling = scaling;
+    }
+
+    /// Pair the triangles and pentagons the extractor leaves and re-cut
+    /// each pair, with the quads between them, into quads only
+    /// (`crate::quad_fill`). Off by default (the original engine); the CLI
+    /// turns it on.
+    pub fn set_fill_odd_faces(&mut self, on: bool) {
+        self.fill_odd_faces = on;
+    }
+
+    /// Whether odd faces are paired up (see [`Self::set_fill_odd_faces`]).
+    pub fn fill_odd_faces(&self) -> bool {
+        self.fill_odd_faces
+    }
+
+    /// Working-mesh edges per output quad edge (default
+    /// [`Self::DEFAULT_WORKING_REFINEMENT`]; 1.0 is the original engine).
+    /// The working mesh the cross field and the parameterization live on is
+    /// made this many times finer than the output, and the cover is scaled
+    /// to match, so the quad count stays at the target. A feature smaller
+    /// than about two output quads (a femur's ball, a key's side loop) has
+    /// working triangles to hold it instead of vanishing in extraction.
+    /// Artist bench (`bench/artist`, 20 hand-made meshes): at 2.0 the share
+    /// of the artist's rings kept rose from 19-24% to 31-32% over noise
+    /// seeds, and shape error (p95) fell from 1.6-1.9% to 0.8-1.1%.
+    pub fn set_working_refinement(&mut self, refinement: f64) {
+        if refinement >= 1.0 {
+            self.working_refinement = refinement;
+        }
     }
 
     /// Mirrors `setProgressHandler` (the C++ pointer is nullable; `None`

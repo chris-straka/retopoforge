@@ -5,7 +5,7 @@ report: absent
 counts:
 Islands: 2
 Failed islands: 0
-Quads: 12
-Non-quads: 0
-Vertices: 16
+Quads: 37
+Non-quads: 2
+Vertices: 45
 diagnostics:

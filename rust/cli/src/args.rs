@@ -55,6 +55,9 @@ pub(crate) struct Config {
     pub(crate) lod_targets: Vec<i64>,
     pub(crate) target_quads: i32,
     pub(crate) edge_scaling: f64,
+    pub(crate) working_refinement: f64,
+    pub(crate) keep_odd_faces: bool,
+    pub(crate) exact_count_off: bool,
     pub(crate) sharp_edge_degrees: f64,
     pub(crate) smooth_normal_degrees: f64,
     pub(crate) adaptivity: f64,
@@ -83,6 +86,9 @@ impl Default for Config {
             lod_targets: Vec::new(),
             target_quads: 50000,
             edge_scaling: 1.0,
+            working_refinement: 2.0,
+            keep_odd_faces: false,
+            exact_count_off: false,
             sharp_edge_degrees: 90.0,
             smooth_normal_degrees: 0.0,
             adaptivity: 1.0,
@@ -378,6 +384,13 @@ fn clamp_ranges(config: &mut Config) {
         4.0,
     );
     clamp(
+        "--working-refinement",
+        "1.0-4.0",
+        &mut config.working_refinement,
+        1.0,
+        4.0,
+    );
+    clamp(
         "--sharp-edge",
         "30-180",
         &mut config.sharp_edge_degrees,
@@ -448,6 +461,16 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
             "--edge-scaling" => {
                 let text = take_value(inline, &mut rest, "--edge-scaling")?;
                 config.edge_scaling = parse_double(&text, "--edge-scaling")?;
+            }
+            "--keep-odd-faces" => {
+                config.keep_odd_faces = true;
+            }
+            "--no-exact-count" => {
+                config.exact_count_off = true;
+            }
+            "--working-refinement" => {
+                let text = take_value(inline, &mut rest, "--working-refinement")?;
+                config.working_refinement = parse_double(&text, "--working-refinement")?;
             }
             "--sharp-edge" => {
                 let text = take_value(inline, &mut rest, "--sharp-edge")?;
@@ -610,6 +633,15 @@ pub(crate) fn print_usage(all: bool) {
         "Quality:\n",
         "  --edge-scaling <factor>  Average edge length vs target size\n",
         "                           (default: 1.0, range 1.0-4.0)\n",
+        "  --working-refinement <factor>  Working-mesh edges per output\n",
+        "                           edge; finer keeps small features\n",
+        "                           (default: 2.0, range 1.0-4.0; 1 = old)\n",
+        "  --keep-odd-faces         Leave the triangles and pentagons the\n",
+        "                           extractor makes (default: paired up\n",
+        "                           and re-cut into quads)\n",
+        "  --no-exact-count         One run only, even when the quad count\n",
+        "                           misses the target by more than 8%\n",
+        "                           (default: a second run aimed at the miss)\n",
         "  --sharp-edge <degrees>   Creases at/above this dihedral angle stay\n",
         "                           sharp (default: 90.0, range 30-180)\n",
         "  --smooth-normal <degrees>  Blend shading normals across edges below\n",
