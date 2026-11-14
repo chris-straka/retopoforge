@@ -56,31 +56,47 @@ output-to-working distance is 2.2e-15 on beast@1000-native (vs 5.6e-2
 with jittered embedding), pinned by `coverage_retry.rs`. The coverage
 verdict likewise measures against the unjittered mesh every attempt.
 
-## Finer re-run (when no retry covers)
+## Finer re-run and the extremity check (CLI default)
 
 Jitter steers the parameterization, but a thin separate part (a rib,
 a key's bow, a ring) whose quads are wider than the part itself
 collapses on every seed: the artist bench's ribcage kept 6-10 quad
 boxes for 9 of its 24 ribs. So after the retries, an island that is
-still short, or that came out empty, is remeshed again as its own
-`AutoRemesher` from its input triangles (same settings, no symmetry,
-no odd-face pairing, no re-run of its own) at
-`FINER_RERUN_DENSITY` = 3x, then 6x, its area share of the target
-(at least `FINER_RERUN_MIN_TRIANGLES`). The first run whose own
-coverage checks are all quiet replaces the island
-(`CoverageReport.recovered`, `finer_rerun` = the multiple). When none
-is quiet, the candidate (the kept attempt or a re-run) with the
-smallest mean distance from the island's input vertices to its quads
-is kept: coverage verdicts are relative to each run's own quad width,
+still short, or that came out empty, and that is at most
+`FINER_RERUN_MAX_SHARE` (half) of the mesh's area, is remeshed again
+as its own `AutoRemesher` from its input triangles (same settings, no
+symmetry, no odd-face pairing, no re-run of its own). Targets, cheapest
+first: `FINER_RERUN_DENSITY` = 3x, then 6x, its area share of the
+target, then, for a closed part whose tube radius (2 x volume / area)
+needs more, what keeps `FINER_RERUN_AROUND` = 4 square quads round it;
+each capped at the island's input triangle count. A thin plate (a
+blade) also reads as a thin tube, which is why the tube size comes
+last. The engine's yield varies by shape (hard pieces up to 2.5x the
+target), so a covered re-run that overshoots its ask by more than
+`FINER_RERUN_MAX_OVERSHOOT` (1.25x) runs once more aimed at the miss,
+kept when it still covers. The first covered run replaces the island
+(`CoverageReport.recovered`, `finer_rerun` = its multiple of the fair
+share). When none covers, the candidate (the kept attempt or a re-run)
+with the smallest mean distance from the island's input vertices to its
+quads is kept: each coverage verdict is relative to its own quad width,
 so only an absolute measure compares runs of different density. The
 key's body showed why: cut alone from a 7-digit OBJ it covers, inside
-the whole key at full float precision it collapses to a 6-quad box at
-1x, 3x and 6x alike.
+the whole key at full float precision it collapses to a 6-quad box.
+
+The extremity check, on with the re-run, adds one failure to the
+verdict (folded into the input side): input vertices sticking out past
+the output by more than `EXTENT_WIDTH_MULTIPLE` (0.5) nominal quad
+widths along any of 13 directions (axes, face and body diagonals, both
+ways). The 3-width bars cannot see an end rounded off by about a quad
+(the femur's ball: 6% of its length gone). On the artist bench's floor
+outputs every case with a lost end receded 0.58-2.1 widths, every
+healthy organic case 0.02-0.25. A whole-mesh island that fails it gets
+the jittered retries only (more quads there would break the budget).
 
 The library default is off (the original engine, and the differential
-oracles); the CLI turns it on (`--no-finer-rerun` turns it off). The
-CLI's count-matching second run never replaces the first when it drops
-a part the first kept or adds a coverage shortfall.
+oracles); the CLI turns both on (`--no-finer-rerun` turns them off).
+The CLI's count-matching second run never replaces the first when it
+drops a part the first kept or adds a coverage shortfall.
 
 ## Why resolution-relative + count (calibration)
 

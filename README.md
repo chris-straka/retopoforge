@@ -53,7 +53,9 @@ extraction are paired and re-cut into quads), `--no-exact-count` (by
 default a run that misses `--target-quads` by more than 8% is repeated
 once, aimed at the miss), `--no-finer-rerun` (by default a separate
 part that no coverage retry covered, such as a rib or a key's bow that
-collapsed to a box, is remeshed again on its own 3x, then 6x, denser),
+collapsed to a box, is remeshed again on its own 3x, then 6x, denser,
+and an output that stops short of an end of the input by half a quad
+retries),
 `--sharp-edge` (30–180°), `--smooth-normal` (0–180°),
 `--adaptivity`/`--anisotropy` (0–1), `--model-type organic|hardsurface`,
 `--symmetry off|auto|x|y|z` (default `off`), `--guides <file>`,
