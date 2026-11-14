@@ -351,7 +351,11 @@ def pro_args(s, d, cand):
     if s["kind"] not in ("animal", "pro") or not s["tris"]:
         return []
     pro = os.path.join(d, "cand", f"artist@{s['tris']}.obj")
-    return ["--pro", pro] if os.path.exists(pro) else []
+    rig = os.path.join(d, "score", f"artist@{s['tris']}.rigged.glb")
+    out = ["--pro", pro] if os.path.exists(pro) else []
+    if os.path.exists(rig) and "artist@" not in os.path.basename(cand):
+        out += ["--pro-rigged", rig]
+    return out
 
 
 def remetrics(s, d, cand, log):

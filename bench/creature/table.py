@@ -34,6 +34,8 @@ SCORES = [
     ("joint_poles_mean", "poles", False),
     ("loop_recall", "pro-loops%", True),
     ("flow_deg", "flow", False),
+    ("pro_pose_d95", "bent-vs-pro%", False),
+    ("pro_d95", "rest-vs-pro%", False),
     ("posed_flips", "pflips", False),
     ("rest_flips", "rflips", False),
     ("dist_p95", "d95%", False),
@@ -43,7 +45,8 @@ SCORES = [
     ("open_edges", "open", False),
     ("tris", "tris", None),
 ]
-RIGGED = {"bend", "joint_loops_mean", "joints_ringed_pct", "joint_poles_mean", "posed_flips", "loop_recall"}
+RIGGED = {"bend", "joint_loops_mean", "joints_ringed_pct", "joint_poles_mean", "posed_flips", "loop_recall",
+          "pro_pose_d95"}
 
 
 def load(work):

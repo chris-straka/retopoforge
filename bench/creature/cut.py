@@ -11,8 +11,8 @@ quadriflow  Blender's QuadriFlow at TRIS/2 quads; the input is first
             non-manifold) gets Blender's voxel remesh first, its voxel
             sized so the shell has about that many faces.
 decimate    Blender's collapse decimate to TRIS triangles
-artist      IN is the artist's GLB: its mesh, welded, triangles paired back
-            into quads (TRIS ignored)
+artist      IN is the artist's GLB: its mesh, welded, its quads recovered
+            (consecutive triangle pairs; TRIS ignored)
 """
 import sys
 
@@ -105,12 +105,24 @@ def main():
         bm = bmesh.new()
         bm.from_mesh(ob.data)
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6 * max(ob.dimensions))
-        # an exported artist mesh is triangulated: pair its triangles back
-        # into the quads they were (Blender's Tris to Quads, 40 deg limits)
+        # An exporter writes each quad as two triangles one after the other,
+        # so the artist's quads are recovered exactly by pairing neighbours
+        # in file order that share an edge (and are not folded more than 60
+        # degrees); triangles the artist made stay triangles.
         import math
-        bmesh.ops.join_triangles(bm, faces=bm.faces, cmp_seam=False, cmp_sharp=False, cmp_uvs=False,
-                                 cmp_vcols=False, cmp_materials=False,
-                                 angle_face_threshold=math.radians(40), angle_shape_threshold=math.radians(40))
+        bm.faces.ensure_lookup_table()
+        join, i, n_faces = [], 0, len(bm.faces)
+        while i + 1 < n_faces:
+            f, g = bm.faces[i], bm.faces[i + 1]
+            shared = [e for e in f.edges if e in g.edges]
+            if len(f.verts) == 3 and len(g.verts) == 3 and len(shared) == 1 \
+                    and f.normal.angle(g.normal, math.pi) < math.radians(60):
+                join.append(shared[0])
+                i += 2
+            else:
+                i += 1
+        if join:
+            bmesh.ops.dissolve_edges(bm, edges=join, use_verts=False)
         bm.to_mesh(ob.data)
         bm.free()
     else:

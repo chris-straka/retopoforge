@@ -22,6 +22,12 @@ radius. Writes one JSON object:
       angle between each candidate face's normal and the source's normal
       where a ray along the face normal (either way, the nearer hit, 5% of
       the diagonal at most; else the nearest point) meets it, degrees
+  pro_d95, pro_pose_d95, pro_pose_worst (with --pro-rigged PRO.glb, the
+  professional mesh on the same rig)
+      distance from the candidate to the pro mesh (95th percentile, % of
+      the diagonal): at rest; with each joint bent, both meshes posed the
+      same way (mean over the poses); and the worst pose. The pro mesh
+      bent on its own rig is the truth for how the body should bend.
   flow_deg (with --pro PRO.obj, a professional mesh of the same body)
       mean angle between each of the candidate's quad edges and the
       nearer of the two edge directions of the pro quad under it, folded
@@ -60,12 +66,15 @@ from metrics_lib import coords, face_lists, imported, newell, with_faces_of  # n
 
 def args():
     a = sys.argv[sys.argv.index("--") + 1:]
-    o = {"bend": 60.0, "poses": True, "pro": None}
+    o = {"bend": 60.0, "poses": True, "pro": None, "pro_rigged": None}
     pos = []
     i = 0
     while i < len(a):
         if a[i] == "--bend":
             o["bend"] = float(a[i + 1])
+            i += 2
+        elif a[i] == "--pro-rigged":
+            o["pro_rigged"] = a[i + 1]
             i += 2
         elif a[i] == "--pro":
             o["pro"] = a[i + 1]
@@ -308,6 +317,28 @@ def main():
         amat = np.array(am)
         ainv = np.linalg.inv(amat)
         rest_n, _, _ = newell(cv, cf)
+        # the professional mesh on the same armature: the truth in each pose
+        pro_ob = None
+        pose_d95 = []
+        if opt["pro_rigged"]:
+            g = imported(lambda: bpy.ops.import_scene.gltf(filepath=opt["pro_rigged"], merge_vertices=True))
+            for x in g:
+                x.animation_data_clear()
+            pro_ob = max((x for x in g if x.type == "MESH"), key=lambda x: len(x.data.vertices))
+            mwp = pro_ob.matrix_world.copy()
+            pro_ob.parent = arm
+            pro_ob.matrix_world = mwp
+            for m in pro_ob.modifiers:
+                if m.type == "ARMATURE":
+                    m.object = arm
+            for x in g:
+                if x is not pro_ob:
+                    bpy.data.objects.remove(x, do_unlink=True)
+            bpy.context.view_layer.update()
+            pf_ = face_lists(pro_ob.data)
+            rest_bvh = BVHTree.FromPolygons([tuple(x) for x in coords(pro_ob)], pf_)
+            d0 = np.array([rest_bvh.find_nearest(tuple(x))[3] for x in cv])
+            out["pro_d95"] = round(pct(d0 / diag * 100, 95), 4)
         dg = bpy.context.evaluated_depsgraph_get()
         theta = math.radians(opt["bend"])
         for j in joints:
@@ -331,6 +362,14 @@ def main():
                 tm = ev.to_mesh()
                 pv = coords(cm, tm)
                 ev.to_mesh_clear()
+                if pro_ob is not None:
+                    pe = pro_ob.evaluated_get(dg)
+                    pm_ = pe.to_mesh()
+                    ppv = coords(pro_ob, pm_)
+                    pe.to_mesh_clear()
+                    pb_ = BVHTree.FromPolygons([tuple(x) for x in ppv], pf_)
+                    dd = np.array([pb_.find_nearest(tuple(x))[3] for x in pv])
+                    pose_d95.append(pct(dd / diag * 100, 95))
                 pn, _, _ = newell(pv, cf)
                 carried = np.where(f_in[:, None], rest_n @ rw.T, rest_n)
                 fl = int(((pn * carried).sum(1) < 0).sum())
@@ -341,6 +380,9 @@ def main():
                 n_flip_poses += fl > 0
             res[j["bone"]]["flips"] = jf
         bpy.context.view_layer.update()
+        if pose_d95:
+            out["pro_pose_d95"] = round(float(np.mean(pose_d95)), 4)
+            out["pro_pose_worst"] = round(float(np.max(pose_d95)), 4)
 
     out["joints"] = res
     nj = len(res)
