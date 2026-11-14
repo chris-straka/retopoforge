@@ -1107,15 +1107,18 @@ struct FinerOutput {
 }
 
 impl AutoRemesher {
-    /// Mean distance from the island's input vertices to a candidate's
-    /// quads: the one measure that compares cuts made at different
-    /// densities (each coverage verdict is relative to its own quad width).
-    fn mean_input_gap(ctx: &IslandContext, vertices: &[Vector3], quads: &[Vec<usize>]) -> f64 {
-        let gaps = Self::coverage_gaps(&ctx.input_vertices, vertices, quads);
+    /// 95th-percentile distance from the island's input vertices to a
+    /// candidate's quads: the one measure that compares cuts made at
+    /// different densities (each coverage verdict is relative to its own
+    /// quad width), taken in the tail because a lost region barely moves
+    /// the mean (the key's body: the lowest-mean run still had a hole).
+    fn input_gap_p95(ctx: &IslandContext, vertices: &[Vector3], quads: &[Vec<usize>]) -> f64 {
+        let mut gaps = Self::coverage_gaps(&ctx.input_vertices, vertices, quads);
         if gaps.is_empty() {
             return f64::INFINITY;
         }
-        gaps.iter().sum::<f64>() / gaps.len() as f64
+        gaps.sort_by(|a, b| a.total_cmp(b));
+        gaps[((gaps.len() - 1) as f64 * 0.95) as usize]
     }
 
     /// Tube radius of a closed island (`2 * volume / area`: exact for a
@@ -1191,7 +1194,7 @@ impl AutoRemesher {
     /// empty. A run counts when it produced quads and none of its own
     /// coverage checks stayed short; the first such run replaces the
     /// island's output. When none counts, the candidate (the kept attempt
-    /// or a re-run) nearest the input surface on average is kept: an
+    /// or a re-run) nearest the input surface (95th percentile) is kept: an
     /// island's tiling can hinge on sub-visible float noise (the key's
     /// body covers at one rounding of its input and collapses to a 6-quad
     /// box at the next), and a short re-run still beats that box.
@@ -1229,7 +1232,7 @@ impl AutoRemesher {
                     return;
                 }
                 let mut best_gap =
-                    Self::mean_input_gap(ctx, &thread.remeshed_vertices, &thread.remeshed_quads);
+                    Self::input_gap_p95(ctx, &thread.remeshed_vertices, &thread.remeshed_quads);
                 let area = Self::calculate_mesh_area(&ctx.input_vertices, &ctx.input_triangles);
                 // A part that is most of the mesh cannot take more quads
                 // without breaking the budget (the count-matching run
@@ -1272,8 +1275,7 @@ impl AutoRemesher {
                     }
                     covered = covered || covered_by(&sub);
                     let multiple = (asked as f64 / fair.max(1.0)).round().max(1.0);
-                    let gap =
-                        Self::mean_input_gap(ctx, &sub.remeshed_vertices, &sub.remeshed_quads);
+                    let gap = Self::input_gap_p95(ctx, &sub.remeshed_vertices, &sub.remeshed_quads);
                     if covered || gap < best_gap {
                         best_gap = gap;
                         job.output = Some(FinerOutput {

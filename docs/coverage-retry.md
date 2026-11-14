@@ -77,7 +77,7 @@ target), so a covered re-run that overshoots its ask by more than
 kept when it still covers. The first covered run replaces the island
 (`CoverageReport.recovered`, `finer_rerun` = its multiple of the fair
 share). When none covers, the candidate (the kept attempt or a re-run)
-with the smallest mean distance from the island's input vertices to its
+with the smallest 95th-percentile distance from the island's input vertices to its
 quads is kept: each coverage verdict is relative to its own quad width,
 so only an absolute measure compares runs of different density. The
 key's body showed why: cut alone from a 7-digit OBJ it covers, inside

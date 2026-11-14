@@ -249,6 +249,71 @@ Engine experiments (settle, hard rings v2, keep-pieces, patch back end)
 and the wider rival runs were stopped to free the machine; their branches
 and partial results stand as logged above.
 
+## Round 5 (2026-11-14): thin parts, density, the floor
+
+Floor (main at b033332a, artist fast set, 3 noise seeds, on f; seed 0
+matches the Mac run exactly): rings 32.1 / 31.2 / 31.9%, flow 11.8-12.1,
+shape p95 median 1.67 / 1.53 / 1.34%.
+
+**Thin separate parts (to-do 1).** Found: the coverage check did fire on
+the ribs and the key's pieces (worst gap 50-65% of the part), every
+jittered retry failed too, and attempt 0 (a 6-10 quad box) was kept
+silently. A single rib remeshed alone holds at about 3x its fair share
+of quads and collapses at 1x: the quads are wider than the part.
+Engine: `set_finer_rerun` (CLI default on, `--no-finer-rerun`): an
+island no retry covered, or one that came out empty, is remeshed again
+on its own from its input triangles at 3x, then 6x, its area share of
+the target; the first covered run replaces it, else the candidate
+nearest the input surface on average (the key's body covers at one
+float rounding of its input and boxes at the next: the same part, cut
+alone from a 7-digit OBJ, recovers). CLI: the count-matching second run
+never wins on count alone when it drops a part the first kept (the
+retargeted key run had lost its body entirely). Ribcage: 13 collapsed
+ribs now tubes, 6.5 s. Bench (first version, 3x/6x only; 3 seeds vs
+the floor): rings 33.0 / 33.0 / 34.2% vs 32.1 / 31.2 / 31.9; only three
+cases change, all better: ribcage rings 19-30 -> 38-56%, shape p95 5-8
+-> 2.1-3.5%; key shape 7.9-9.4 -> 2.0-3.0%; cauldron 3.1-3.7 -> 2.8-3.0%.
+Counts: ribcage 0.56-0.69x -> 1.16-1.53x of the artist's (the floor was
+short because the ribs were gone). Picture:
+`~/Games/hlh/tmp/retopoforge/r5/ribcage_before_after.png`. The femur is a different fault: no island fails;
+its ends come out 7% short (the ball and condyles rounded off at ~2.5
+quads across).
+
+**Density where artists put it (to-do 2).** New bench score `dens_err`
+(score.py): each cut face's area against the artist's face under it,
+log2, median taken off, area-weighted mean (artist 0; ours 0.9-1.5 on
+heads and hand, QuadWild 0.57-1.44). On the realistic head our face
+quads are ~5x too large relative to the artist's, ears, neck and the
+back too dense: curvature adaptivity puts quads on the ears, the artist
+on the face. Found: the engine barely realizes any density field: a 4x
+`--density` mask on the face front moved its density ~1.2x, with
+adaptivity off too, and forced dipoles (`--dipole-ratio 1.5
+--dipole-every 1`) changed nothing. Why: per-face scale enters only the
+least-squares cover; the cross field, which places the poles a size
+change needs, never sees it, so the solve averages the size out.
+
+**Adaptivity sweep** (curvature density, with the first re-run version;
+3 seeds; rings mean / shape p95 median): 0 -> 23.5% / 2.8; 0.25 -> 29.2
+/ 2.0; 0.5 -> 31.6 / 1.3; 0.75 -> 31.9 / 1.3; 1.0 (default) -> 33.4 /
+1.5. Default kept: it wins the headline; lower values trade rings for
+shape. Adaptivity 0 keeps the femur's ends but drops fingers.
+
+**Femur's ends**: curvature adaptivity gives a ball quads sized to its
+radius, so its cap is a couple of quads across and comes out 6% short
+of the input. New extremity check (see `docs/coverage-retry.md`):
+input vertices past the output by half a quad width along any of 13
+directions fail the verdict. On the floor outputs every bad-shape case
+receded 0.58-2.1 widths, every healthy organic case 0.02-0.25. First
+look on six cases (shape p95, before -> after): anvil 7.1 -> 1.6, femur
+9.0 -> 1.0, axe 3.0 -> 0.5 (but 2.1x the quads: its blade re-runs 3x
+denser), scapula 2.4 -> 1.8, generic head 2.1 -> 1.5, sword 1.0 -> 1.1.
+Re-runs now aim again when the engine's yield overshoots (the axe's
+first try landed at 9x), and only parts under half the mesh re-run.
+
+Gate floor (Mac, main): `cli_contract` was already red: the
+`remesh-nasty-nonmanifold` golden went stale with f6444713 (coverage
+retry now lands on retry 3 with 164 quads, golden says retry 1 / 157).
+
 ## Round 4 (2026-11-13): the artist bench and the fast loop
 
 Owner's goal restated: a general quad remesher better than the paid tool,
