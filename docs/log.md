@@ -215,3 +215,36 @@ was accepted on one of five. Neither moves the set; both stay available
 
 Bend 26.3 and 44.6 against retopo's 49.7 and 64.8 and decimate's 68.1
 and 75.1; surface p95 1.08 and 1.0%. Behind both so far.
+
+## Round 3 (2026-11-13): what should retopoforge be?
+
+Direction from the orchestrator: a game character or creature is judged
+by how it bends at the joints, its silhouette and its triangle budget,
+not by how square its faces are. Before more engine work, measure that
+and decide the tool's shape.
+
+**Scores** (per candidate, after rigging; `bench/creature/run.py --stages
+... after`):
+
+- `tears%`: weightforge's headline, the share of the surface inside
+  failing findings while the body moves: on the hero's game clips for
+  the owner's characters (`weights check --motion hero.glb`), on the
+  creature's own range of motion for creatures;
+- `outline%`: silhouette error against the download, eight views
+  (`silhouette.py`: area where the two outlines differ, as a share of
+  the source's outline);
+- triangles, held to the budget (10,000 creatures, 14,000 characters).
+
+Quad quality (loops, poles, edge flow) stays in the tables as secondary.
+
+**Candidates**: retopoforge as it is, Blender's QuadriFlow, Blender's
+Decimate (today's route), and each with a joint-ring pass
+(`ring_pass.py`): three planes cut across each limb joint (-0.5, 0, +0.5
+limb radii), placed from the reference skeleton, trunk joints skipped;
+the base cut is made smaller so the ringed mesh lands on the same budget.
+On one creature the rings cost 9% of the triangles on retopo's quads and
+22% on decimate's triangles before the base is re-cut.
+
+Engine experiments (settle, hard rings v2, keep-pieces, patch back end)
+and the wider rival runs were stopped to free the machine; their branches
+and partial results stand as logged above.
