@@ -23,6 +23,13 @@ CUTS_DIR/<name>.obj is the tool's remesh of dense.obj. Per case:
   odd         faces that are not quads.
   count_x     quads as a multiple of the artist's quad count.
   d95, dmax   two-sided distance to the dense shape, % of its diagonal.
+  dens_err    does the cut put its small quads where the artist did? Each
+              cut face's area against the artist's face under it, as log2
+              of the ratio; the median ratio (the count difference) is
+              taken off, and the area-weighted mean of what is left is the
+              score (0: the artist's density everywhere; 1: off by 2x in
+              area on average; a uniform cut of a face-heavy head scores
+              high).
 
 OUT.json holds every case and the medians and means over them.
 """
@@ -224,6 +231,34 @@ def poles(pro, cut):
     return ratio, 100.0 * near / len(pc), len(pa), len(pc)
 
 
+def face_areas(v, faces):
+    a = np.zeros(len(faces))
+    for k, f in enumerate(faces):
+        p = v[f]
+        for i in range(1, len(f) - 1):
+            a[k] += 0.5 * np.linalg.norm(np.cross(p[i] - p[0], p[i + 1] - p[0]))
+    return a
+
+
+def density_match(pro, cut):
+    if not pro.faces or not cut.faces:
+        return None
+    bvh = BVHTree.FromPolygons([tuple(x) for x in pro.v], pro.faces)
+    pa, ca = face_areas(pro.v, pro.faces), face_areas(cut.v, cut.faces)
+    _, cc = face_normals(cut.v, cut.faces)
+    logs, w = [], []
+    for k, c in enumerate(cc):
+        hit = bvh.find_nearest(tuple(c))
+        if hit[0] is None or pa[hit[2]] <= 0 or ca[k] <= 0:
+            continue
+        logs.append(math.log2(ca[k] / pa[hit[2]]))
+        w.append(ca[k])
+    if not logs:
+        return None
+    logs, w = np.array(logs), np.array(w)
+    return float(np.sum(np.abs(logs - np.median(logs)) * w) / np.sum(w))
+
+
 def distance(dense_v, dense_f, cut):
     diag = float(np.linalg.norm(np.ptp(dense_v, 0)))
     dbvh = BVHTree.FromPolygons([tuple(x) for x in dense_v], dense_f)
@@ -250,14 +285,15 @@ def score_case(d, cut_path):
     d95, dmax = distance(dv, df, cut)
     quads = sum(1 for f in cf if len(f) == 4)
     fl = flow(pro, cut)
+    de = density_match(pro, cut)
     r = lambda x, k=2: None if x is None else round(x, k)
     return {"name": case["name"], "kind": case["kind"], "rings_pct": r(rings, 1), "rings_pro": n_pro, "rings_cut": n_cut,
             "flow_deg": r(fl), "poles_x": r(ratio), "poles_near": r(near, 1), "poles_pro": n_pa, "poles": n_pc,
             "odd": len(cf) - quads, "quads": quads, "count_x": r(quads / max(1, case["quads"])),
-            "d95": r(d95, 3), "dmax": r(dmax, 3)}
+            "d95": r(d95, 3), "dmax": r(dmax, 3), "dens_err": r(de, 3)}
 
 
-KEYS = ["rings_pct", "flow_deg", "poles_x", "poles_near", "odd", "count_x", "d95", "dmax"]
+KEYS = ["rings_pct", "flow_deg", "poles_x", "poles_near", "odd", "count_x", "d95", "dmax", "dens_err"]
 
 
 def main():
