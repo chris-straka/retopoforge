@@ -377,6 +377,9 @@ pub struct CoverageReport {
     pub final_uncovered: usize,
     pub input_side: bool,
     pub kept_attempt: usize,
+    /// Density multiple of the finer re-run that covered the island (0 =
+    /// none ran or none covered; see `AutoRemesher::set_finer_rerun`).
+    pub finer_rerun: u32,
 }
 
 impl AutoRemesher {
@@ -394,6 +397,56 @@ impl AutoRemesher {
     /// Minimum uncovered working verts that count as a failed region
     /// (isolated spikes never fire the retry on their own).
     pub(crate) const COVERAGE_MIN_REGION_VERTS: usize = 25;
+
+    /// Extremity check bar, in nominal quad widths (see
+    /// [`Self::extent_shortfall`]). Artist bench (20 cases, floor
+    /// outputs): every case with a lost end recedes 0.58-2.1 widths, every
+    /// healthy organic case 0.02-0.25.
+    pub(crate) const EXTENT_WIDTH_MULTIPLE: f64 = 0.5;
+
+    /// Input vertices that stick out past the output by more than `bar`
+    /// along the worst of 13 directions (3 axes, 6 face and 4 body
+    /// diagonals, both ways): 0 when the output reaches every extreme.
+    /// Catches an end rounded off (the shape short by about a quad), which
+    /// the 3-width coverage bars are too coarse to see.
+    pub(crate) fn extent_shortfall(input: &[Vector3], output: &[Vector3], bar: f64) -> usize {
+        if input.is_empty() || output.is_empty() || !(bar > 0.0) {
+            return 0;
+        }
+        let s = std::f64::consts::FRAC_1_SQRT_2;
+        let t = 1.0 / 3f64.sqrt();
+        let dirs = [
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+            (s, s, 0.0),
+            (s, -s, 0.0),
+            (s, 0.0, s),
+            (s, 0.0, -s),
+            (0.0, s, s),
+            (0.0, s, -s),
+            (t, t, t),
+            (t, t, -t),
+            (t, -t, t),
+            (-t, t, t),
+        ];
+        let mut worst = 0usize;
+        for &(x, y, z) in &dirs {
+            let d = Vector3::new(x, y, z);
+            for sign in [1.0, -1.0] {
+                let reach = output
+                    .iter()
+                    .map(|p| sign * Vector3::dot_product(p, &d))
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let beyond = input
+                    .iter()
+                    .filter(|p| sign * Vector3::dot_product(p, &d) > reach + bar)
+                    .count();
+                worst = worst.max(beyond);
+            }
+        }
+        worst
+    }
 
     /// Minimum CONNECTED uncovered verts (working-triangle-adjacent)
     /// that count as a failed small region: the per-region catcher

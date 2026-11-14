@@ -53,7 +53,17 @@ fn print_coverage_warnings(reports: &[CoverageReport], batch_name: Option<&str>)
         } else {
             "working verts"
         };
-        if r.recovered {
+        if r.recovered && r.finer_rerun > 0 {
+            eprintln!(
+                "retopo: warning: {prefix}island {} failed the coverage check ({} {side} uncovered); retries did not recover, a {}x denser re-run of the island did.",
+                r.island_index, r.initial_uncovered, r.finer_rerun
+            );
+        } else if r.finer_rerun > 0 {
+            eprintln!(
+                "retopo: warning: {prefix}island {} failed the coverage check ({} {side} uncovered); no retry or denser re-run covered it, kept the {}x denser re-run (nearest the input).",
+                r.island_index, r.initial_uncovered, r.finer_rerun
+            );
+        } else if r.recovered {
             eprintln!(
                 "retopo: warning: {prefix}island {} failed the coverage check ({} {side} uncovered) and recovered on retry {} ({} verts uncovered).",
                 r.island_index, r.initial_uncovered, r.retries_made, r.final_uncovered
@@ -250,6 +260,19 @@ fn calibrated(
     if !second.remesh() || quads(&second) == 0 {
         return first;
     }
+    // A second run that drops a part the first kept (an island with no
+    // quads, or one more coverage shortfall) never wins on count alone:
+    // the key's body vanished in the retargeted run of the artist bench.
+    let dropped = |r: &AutoRemesher| {
+        r.island_output_quad_counts()
+            .iter()
+            .filter(|&&q| q == 0)
+            .count()
+    };
+    let short = |r: &AutoRemesher| r.coverage_reports().iter().filter(|c| !c.recovered).count();
+    if dropped(&second) > dropped(&first) || short(&second) > short(&first) {
+        return first;
+    }
     let off = |q: usize| (q as f64 - target_quads as f64).abs();
     if off(quads(&second)) < off(got) {
         second
@@ -275,6 +298,7 @@ fn configure_remesher(
     remesher.set_dipoles(config.dipoles);
     remesher.set_working_refinement(config.working_refinement);
     remesher.set_fill_odd_faces(!config.keep_odd_faces);
+    remesher.set_finer_rerun(!config.no_finer_rerun);
     if config.edge_scaling > 0.0 {
         remesher.set_scaling(config.edge_scaling);
     }

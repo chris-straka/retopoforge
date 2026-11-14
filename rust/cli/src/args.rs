@@ -58,6 +58,7 @@ pub(crate) struct Config {
     pub(crate) working_refinement: f64,
     pub(crate) keep_odd_faces: bool,
     pub(crate) exact_count_off: bool,
+    pub(crate) no_finer_rerun: bool,
     pub(crate) sharp_edge_degrees: f64,
     pub(crate) smooth_normal_degrees: f64,
     pub(crate) adaptivity: f64,
@@ -87,6 +88,7 @@ impl Default for Config {
             target_quads: 50000,
             edge_scaling: 1.0,
             working_refinement: 2.0,
+            no_finer_rerun: false,
             keep_odd_faces: false,
             exact_count_off: false,
             sharp_edge_degrees: 90.0,
@@ -468,6 +470,9 @@ pub(crate) fn parse_args(argv: &[String]) -> Result<Action, ArgsError> {
             "--no-exact-count" => {
                 config.exact_count_off = true;
             }
+            "--no-finer-rerun" => {
+                config.no_finer_rerun = true;
+            }
             "--working-refinement" => {
                 let text = take_value(inline, &mut rest, "--working-refinement")?;
                 config.working_refinement = parse_double(&text, "--working-refinement")?;
@@ -642,6 +647,9 @@ pub(crate) fn print_usage(all: bool) {
         "  --no-exact-count         One run only, even when the quad count\n",
         "                           misses the target by more than 8%\n",
         "                           (default: a second run aimed at the miss)\n",
+        "  --no-finer-rerun         Keep a part no retry covered as it is\n",
+        "                           (default: re-run it alone, 3x then 6x\n",
+        "                           denser, so thin parts are not boxes)\n",
         "  --sharp-edge <degrees>   Creases at/above this dihedral angle stay\n",
         "                           sharp (default: 90.0, range 30-180)\n",
         "  --smooth-normal <degrees>  Blend shading normals across edges below\n",

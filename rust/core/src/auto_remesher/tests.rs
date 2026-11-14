@@ -718,3 +718,145 @@ mod coverage_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod finer_rerun_tests {
+    use super::super::*;
+    use std::f64::consts::PI;
+
+    /// A ball of radius 2 and, apart from it, a thin ring (radius 1, tube
+    /// radius 0.04): at 200 quads the ring's fair share is a few quads
+    /// narrower than a quad, so it collapses on every jittered retry.
+    fn ring_beside_ball() -> (Vec<Vector3>, Vec<Vec<usize>>) {
+        let mut v: Vec<Vector3> = Vec::new();
+        let mut t: Vec<Vec<usize>> = Vec::new();
+        let n = 40;
+        v.push(Vector3::new(0.0, 0.0, 2.0));
+        for i in 1..n {
+            let th = PI * i as f64 / n as f64;
+            for j in 0..2 * n {
+                let ph = PI * j as f64 / n as f64;
+                v.push(Vector3::new(
+                    2.0 * th.sin() * ph.cos(),
+                    2.0 * th.sin() * ph.sin(),
+                    2.0 * th.cos(),
+                ));
+            }
+        }
+        v.push(Vector3::new(0.0, 0.0, -2.0));
+        let bottom = v.len() - 1;
+        let ring = |i: usize| 1 + (i - 1) * 2 * n;
+        for j in 0..2 * n {
+            t.push(vec![0, ring(1) + j, ring(1) + (j + 1) % (2 * n)]);
+            t.push(vec![
+                bottom,
+                ring(n - 1) + (j + 1) % (2 * n),
+                ring(n - 1) + j,
+            ]);
+        }
+        for i in 1..n - 1 {
+            for j in 0..2 * n {
+                let (a, c) = (ring(i) + j, ring(i + 1) + j);
+                let (d, e) = (ring(i + 1) + (j + 1) % (2 * n), ring(i) + (j + 1) % (2 * n));
+                t.push(vec![a, c, d]);
+                t.push(vec![a, d, e]);
+            }
+        }
+        let (nu, nv, base) = (96, 12, v.len());
+        for i in 0..nu {
+            for j in 0..nv {
+                let (u, w) = (
+                    2.0 * PI * i as f64 / nu as f64,
+                    2.0 * PI * j as f64 / nv as f64,
+                );
+                let r = 1.0 + 0.04 * w.cos();
+                v.push(Vector3::new(r * u.cos() + 4.5, r * u.sin(), 0.04 * w.sin()));
+            }
+        }
+        for i in 0..nu {
+            for j in 0..nv {
+                let a = base + i * nv + j;
+                let c = base + ((i + 1) % nu) * nv + j;
+                let d = base + ((i + 1) % nu) * nv + (j + 1) % nv;
+                let e = base + i * nv + (j + 1) % nv;
+                t.push(vec![a, c, d]);
+                t.push(vec![a, d, e]);
+            }
+        }
+        (v, t)
+    }
+
+    fn run(on: bool) -> AutoRemesher {
+        let (vertices, triangles) = ring_beside_ball();
+        let mut r = AutoRemesher::new(&vertices, &triangles);
+        r.set_target_triangle_count(400);
+        r.set_working_refinement(2.0);
+        r.set_finer_rerun(on);
+        r.set_quiet(true);
+        assert!(r.remesh());
+        r
+    }
+
+    #[test]
+    fn thin_ring_collapses_without_and_holds_with_the_rerun() {
+        let off = run(false);
+        assert!(
+            off.island_output_quad_counts()[1] < 20,
+            "the ring collapses at its fair share: {:?}",
+            off.island_output_quad_counts()
+        );
+        assert!(
+            off.coverage_reports()
+                .iter()
+                .any(|r| r.island_index == 1 && !r.recovered)
+        );
+        let on = run(true);
+        let report = on
+            .coverage_reports()
+            .iter()
+            .find(|r| r.island_index == 1)
+            .copied()
+            .expect("the ring's coverage fired");
+        assert!(report.recovered && report.finer_rerun > 0, "{report:?}");
+        // At least four quads round a tube of circumference 2*pi*0.04
+        // along a ring of length 2*pi: about 4 * 2*pi / (2*pi*0.04 / 4) / 4.
+        assert!(
+            on.island_output_quad_counts()[1] >= 300,
+            "{:?}",
+            on.island_output_quad_counts()
+        );
+        assert_eq!(
+            on.island_output_quad_counts()[0],
+            off.island_output_quad_counts()[0],
+            "the ball is untouched"
+        );
+    }
+
+    #[test]
+    fn thickness_of_a_closed_tube_and_targets() {
+        let (vertices, triangles) = ring_beside_ball();
+        // The ring alone (its own island's triangles, re-indexed).
+        let ring_tris: Vec<Vec<usize>> = triangles[triangles.len() - 2 * 96 * 12..].to_vec();
+        let area = AutoRemesher::calculate_mesh_area(&vertices, &ring_tris);
+        let r = AutoRemesher::closed_island_thickness(&vertices, &ring_tris, area).expect("closed");
+        assert!((r - 0.04).abs() < 0.004, "tube radius {r}");
+        // An open patch has no thickness.
+        assert!(AutoRemesher::closed_island_thickness(&vertices, &ring_tris[..10], area).is_none());
+        let targets = AutoRemesher::finer_rerun_targets(100.0, area, Some(r), 2304);
+        assert_eq!(targets.len(), 3, "{targets:?}");
+        assert!(
+            targets[0] == 300 && targets[1] == 600 && targets[2] > 600 && targets[2] <= 2304,
+            "{targets:?}"
+        );
+        // Thick parts: just the density steps.
+        assert_eq!(
+            AutoRemesher::finer_rerun_targets(100.0, area, None, 10_000),
+            vec![300, 600]
+        );
+        // Never below the floor.
+        assert_eq!(
+            AutoRemesher::finer_rerun_targets(1.0, area, None, 10_000),
+            vec![AutoRemesher::FINER_RERUN_MIN_TRIANGLES]
+        );
+    }
+}

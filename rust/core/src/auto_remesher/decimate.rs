@@ -106,7 +106,7 @@ impl AutoRemesher {
         // defined by the build; likewise at every site below.)
     }
 
-    fn calculate_mesh_area(vertices: &[Vector3], triangles: &[Vec<usize>]) -> f64 {
+    pub(crate) fn calculate_mesh_area(vertices: &[Vector3], triangles: &[Vec<usize>]) -> f64 {
         let mut area = 0.0;
         for it in triangles {
             area += Vector3::area(&vertices[it[0]], &vertices[it[1]], &vertices[it[2]]);

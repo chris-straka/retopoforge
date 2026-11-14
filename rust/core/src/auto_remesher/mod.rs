@@ -188,6 +188,7 @@ pub struct AutoRemesher {
     guide_polylines: Vec<Vec<Vector3>>,
     sharp_polylines: Vec<Vec<Vector3>>,
     density_multipliers: Vec<f64>,
+    finer_rerun: bool,
     quiet: bool,
     verbose: bool,
 }
@@ -204,6 +205,20 @@ impl AutoRemesher {
     /// Extra working density that keeps the quad count on target when the
     /// working mesh is refined (see `initialize_voxel_size`).
     pub const YIELD_COMPENSATION: f64 = 1.17;
+    /// Density steps of the finer re-run (times the island's fair share of
+    /// the target), tried in order (see [`Self::set_finer_rerun`]).
+    pub const FINER_RERUN_DENSITY: [f64; 2] = [3.0, 6.0];
+    /// Square quads round a thin closed part that the last finer re-run
+    /// asks for (4: the thinnest tube that is still a tube).
+    pub const FINER_RERUN_AROUND: f64 = 4.0;
+    /// Largest share of the mesh's area an island may have and still get a
+    /// finer re-run.
+    pub const FINER_RERUN_MAX_SHARE: f64 = 0.5;
+    /// A covered finer re-run whose quads exceed its ask by more than this
+    /// factor runs once more, aimed at the miss.
+    pub const FINER_RERUN_MAX_OVERSHOOT: f64 = 1.25;
+    /// Smallest target (triangles) a finer re-run asks for.
+    pub const FINER_RERUN_MIN_TRIANGLES: usize = 96;
 }
 
 impl AutoRemesher {
@@ -256,6 +271,7 @@ impl AutoRemesher {
             guide_polylines: Vec::new(),
             sharp_polylines: Vec::new(),
             density_multipliers: Vec::new(),
+            finer_rerun: false,
             quiet: false,
             verbose: false,
         }
@@ -277,6 +293,40 @@ impl AutoRemesher {
     /// turns it on.
     pub fn set_fill_odd_faces(&mut self, on: bool) {
         self.fill_odd_faces = on;
+    }
+
+    /// Re-run an island that no jittered retry covered as its own remesh
+    /// at [`Self::FINER_RERUN_DENSITY`] times its fair share of quads, and
+    /// keep the first covered result. Thin separate parts (a rib, a key's
+    /// bow, a femur's ball) collapse to a 6-quad box when the quads are
+    /// wider than the part; a denser cut holds them. Off by default (the
+    /// original engine); the CLI turns it on.
+    pub fn set_finer_rerun(&mut self, on: bool) {
+        self.finer_rerun = on;
+    }
+
+    /// Settings a finer re-run of one island inherits from its parent run
+    /// (no symmetry: one island is rarely its own mirror; the parent snaps
+    /// the merged output; no odd-face pairing: the parent pairs after the
+    /// merge; never a re-run of its own).
+    pub(crate) fn inherit_island_settings(&mut self, parent: &AutoRemesher, density: &[f64]) {
+        self.compute_remeshed_uvs = parent.compute_remeshed_uvs;
+        self.dipoles = parent.dipoles;
+        self.scaling = parent.scaling;
+        self.working_refinement = parent.working_refinement;
+        self.adaptivity = parent.adaptivity;
+        self.anisotropy = parent.anisotropy;
+        self.sharp_edge_degrees = parent.sharp_edge_degrees;
+        self.smooth_normal_degrees = parent.smooth_normal_degrees;
+        self.model_type = parent.model_type;
+        self.guide_polylines = parent.guide_polylines.clone();
+        self.sharp_polylines = parent.sharp_polylines.clone();
+        self.density_multipliers = density.to_vec();
+        self.finer_rerun = false;
+        self.fill_odd_faces = false;
+        self.symmetry_enabled = false;
+        self.quiet = true;
+        self.verbose = false;
     }
 
     /// Whether odd faces are paired up (see [`Self::set_fill_odd_faces`]).

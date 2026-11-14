@@ -56,6 +56,32 @@ output-to-working distance is 2.2e-15 on beast@1000-native (vs 5.6e-2
 with jittered embedding), pinned by `coverage_retry.rs`. The coverage
 verdict likewise measures against the unjittered mesh every attempt.
 
+## Finer re-run (when no retry covers)
+
+Jitter steers the parameterization, but a thin separate part (a rib,
+a key's bow, a ring) whose quads are wider than the part itself
+collapses on every seed: the artist bench's ribcage kept 6-10 quad
+boxes for 9 of its 24 ribs. So after the retries, an island that is
+still short, or that came out empty, is remeshed again as its own
+`AutoRemesher` from its input triangles (same settings, no symmetry,
+no odd-face pairing, no re-run of its own) at
+`FINER_RERUN_DENSITY` = 3x, then 6x, its area share of the target
+(at least `FINER_RERUN_MIN_TRIANGLES`). The first run whose own
+coverage checks are all quiet replaces the island
+(`CoverageReport.recovered`, `finer_rerun` = the multiple). When none
+is quiet, the candidate (the kept attempt or a re-run) with the
+smallest mean distance from the island's input vertices to its quads
+is kept: coverage verdicts are relative to each run's own quad width,
+so only an absolute measure compares runs of different density. The
+key's body showed why: cut alone from a 7-digit OBJ it covers, inside
+the whole key at full float precision it collapses to a 6-quad box at
+1x, 3x and 6x alike.
+
+The library default is off (the original engine, and the differential
+oracles); the CLI turns it on (`--no-finer-rerun` turns it off). The
+CLI's count-matching second run never replaces the first when it drops
+a part the first kept or adds a coverage shortfall.
+
 ## Why resolution-relative + count (calibration)
 
 Absolute bars fail both ways on the measured data:

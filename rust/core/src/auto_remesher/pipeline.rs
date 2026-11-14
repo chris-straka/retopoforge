@@ -677,6 +677,28 @@ impl AutoRemesher {
                         } else {
                             (false, 0, 0)
                         };
+                    // Extremity check (with the finer re-run, CLI
+                    // default): an output that stops short of the input
+                    // along some direction by half a quad width or more
+                    // lost an end (a femur's ball, a key's bow, a blade's
+                    // tip). Folded into the input side.
+                    let (input_failed, input_uncovered) = if this.finer_rerun
+                        && !input_failed
+                        && !working_failed
+                        && !thread.remeshed_quads.is_empty()
+                    {
+                        let unit = attempt_diag
+                            / (thread.remeshed_quads.len().max(expected_quads).max(1) as f64)
+                                .sqrt();
+                        let short = Self::extent_shortfall(
+                            &island.input_vertices,
+                            &thread.remeshed_vertices,
+                            Self::EXTENT_WIDTH_MULTIPLE * unit,
+                        );
+                        (short > 0, if short > 0 { short } else { input_uncovered })
+                    } else {
+                        (input_failed, input_uncovered)
+                    };
                     let attempt_failed = working_failed || input_failed;
                     let attempt_input_side = !working_failed && input_failed;
                     let attempt_empty = thread.remeshed_quads.is_empty();
@@ -806,10 +828,18 @@ impl AutoRemesher {
                         final_uncovered,
                         input_side: report_input_side,
                         kept_attempt,
+                        finer_rerun: 0,
                     });
                 }
                 this.update_progress(thread.island_index, 1.0, None);
             });
+        }
+        // Finer re-run (see `set_finer_rerun`): islands no jittered retry
+        // covered run again, each as its own remesh of its input triangles
+        // at a multiple of its fair share of the target; the first covered
+        // run replaces the kept attempt.
+        if self.finer_rerun {
+            self.rerun_uncovered_islands_finer(&mut parameterization_threads);
         }
         let t_parallel_end = Instant::now();
 
@@ -1057,5 +1087,224 @@ impl AutoRemesher {
         self.progress.report_direct(1.0, "Done");
 
         true
+    }
+}
+
+/// One island's finer re-run: its thread slot and the output that
+/// replaces the kept attempt, if any (vertices, quads, per-vertex uvs,
+/// density multiple, whether that run covered the island).
+struct FinerRerun {
+    thread: usize,
+    output: Option<FinerOutput>,
+}
+
+struct FinerOutput {
+    vertices: Vec<Vector3>,
+    quads: Vec<Vec<usize>>,
+    uvs: Vec<Vector2>,
+    multiple: u32,
+    covered: bool,
+}
+
+impl AutoRemesher {
+    /// Mean distance from the island's input vertices to a candidate's
+    /// quads: the one measure that compares cuts made at different
+    /// densities (each coverage verdict is relative to its own quad width).
+    fn mean_input_gap(ctx: &IslandContext, vertices: &[Vector3], quads: &[Vec<usize>]) -> f64 {
+        let gaps = Self::coverage_gaps(&ctx.input_vertices, vertices, quads);
+        if gaps.is_empty() {
+            return f64::INFINITY;
+        }
+        gaps.iter().sum::<f64>() / gaps.len() as f64
+    }
+
+    /// Tube radius of a closed island (`2 * volume / area`: exact for a
+    /// long tube, half the radius for a ball), or `None` when the island
+    /// has an open or non-manifold edge (no volume to speak of).
+    pub(crate) fn closed_island_thickness(
+        vertices: &[Vector3],
+        triangles: &[Vec<usize>],
+        area: f64,
+    ) -> Option<f64> {
+        if area <= 0.0 {
+            return None;
+        }
+        let mut edges: BTreeMap<(usize, usize), i32> = BTreeMap::new();
+        let mut volume = 0.0;
+        for t in triangles {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+            volume += Vector3::dot_product(
+                &vertices[t[0]],
+                &Vector3::cross_product(&vertices[t[1]], &vertices[t[2]]),
+            ) / 6.0;
+        }
+        if edges.values().any(|&n| n != 2) {
+            return None;
+        }
+        let radius = 2.0 * volume.abs() / area;
+        (radius > 0.0 && radius.is_finite()).then_some(radius)
+    }
+
+    /// Triangle targets of the finer re-runs for one island, in order: its
+    /// fair share times each [`AutoRemesher::FINER_RERUN_DENSITY`] step,
+    /// then, for a closed part of tube radius `thickness` that still needs
+    /// more, what it takes to stay a tube ([`AutoRemesher::FINER_RERUN_AROUND`]
+    /// square quads round it). Cheapest first: a thin plate (a blade) also
+    /// reads as a thin tube and would ask for far more than it needs. Each
+    /// is capped at the island's input triangle count (finer than the input
+    /// says nothing new) and at least [`AutoRemesher::FINER_RERUN_MIN_TRIANGLES`];
+    /// repeats are dropped.
+    pub(crate) fn finer_rerun_targets(
+        fair: f64,
+        area: f64,
+        thickness: Option<f64>,
+        input_triangles: usize,
+    ) -> Vec<usize> {
+        let cap = (input_triangles as f64).max(Self::FINER_RERUN_MIN_TRIANGLES as f64);
+        let fit = |t: f64| (t.min(cap) as usize).max(Self::FINER_RERUN_MIN_TRIANGLES);
+        let mut targets: Vec<usize> = Vec::new();
+        for multiple in Self::FINER_RERUN_DENSITY {
+            let t = fit(fair * multiple);
+            if targets.last() != Some(&t) {
+                targets.push(t);
+            }
+        }
+        if let Some(r) = thickness {
+            let edge = 2.0 * std::f64::consts::PI * r / Self::FINER_RERUN_AROUND;
+            let t = fit(2.0 * area / (edge * edge));
+            if targets.last().is_some_and(|&last| t > last) {
+                targets.push(t);
+            }
+        }
+        targets
+    }
+
+    /// The finer re-run pass (see [`AutoRemesher::set_finer_rerun`]): every
+    /// island whose coverage fired and stayed short after the jittered
+    /// retries is remeshed again on its own, from its input triangles, at
+    /// [`AutoRemesher::FINER_RERUN_DENSITY`] times its fair (area) share of
+    /// the target, raised for a thin closed part to what its thickness
+    /// needs (see `finer_rerun_targets`); so is an island that came out
+    /// empty. A run counts when it produced quads and none of its own
+    /// coverage checks stayed short; the first such run replaces the
+    /// island's output. When none counts, the candidate (the kept attempt
+    /// or a re-run) nearest the input surface on average is kept: an
+    /// island's tiling can hinge on sub-visible float noise (the key's
+    /// body covers at one rounding of its input and collapses to a 6-quad
+    /// box at the next), and a short re-run still beats that box.
+    /// Islands run in parallel; each re-run is serial.
+    fn rerun_uncovered_islands_finer(&self, threads: &mut [ParameterizationThread<'_>]) {
+        let mut jobs: Vec<FinerRerun> = threads
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| {
+                // Short after the retries, or no quads at all (the
+                // failed-island path: a part that collapsed to nothing).
+                t.coverage
+                    .as_ref()
+                    .is_some_and(|r| !r.recovered && r.final_uncovered > 0)
+                    || (t.remeshed_quads.is_empty() && !t.island.input_triangles.is_empty())
+            })
+            .map(|(i, _)| FinerRerun {
+                thread: i,
+                output: None,
+            })
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+        let total_area = Self::calculate_mesh_area(&self.vertices, &self.triangles);
+        if total_area <= 0.0 {
+            return;
+        }
+        {
+            let shared: &[ParameterizationThread<'_>] = threads;
+            parallel_each(&mut jobs, |_, job| {
+                let thread = &shared[job.thread];
+                let ctx = thread.island;
+                if ctx.input_triangles.is_empty() {
+                    return;
+                }
+                let mut best_gap =
+                    Self::mean_input_gap(ctx, &thread.remeshed_vertices, &thread.remeshed_quads);
+                let area = Self::calculate_mesh_area(&ctx.input_vertices, &ctx.input_triangles);
+                // A part that is most of the mesh cannot take more quads
+                // without breaking the budget (the count-matching run
+                // would take them back): only smaller parts re-run.
+                if area > Self::FINER_RERUN_MAX_SHARE * total_area {
+                    return;
+                }
+                let fair = self.target_triangle_count as f64 * area / total_area;
+                let run = |target: usize| -> Option<AutoRemesher> {
+                    let mut sub = AutoRemesher::new(&ctx.input_vertices, &ctx.input_triangles);
+                    sub.inherit_island_settings(self, &ctx.density);
+                    sub.set_target_triangle_count(target);
+                    (sub.remesh() && !sub.remeshed_quads.is_empty()).then_some(sub)
+                };
+                let covered_by =
+                    |sub: &AutoRemesher| sub.coverage_reports.iter().all(|r| r.recovered);
+                for target in Self::finer_rerun_targets(
+                    fair,
+                    area,
+                    Self::closed_island_thickness(&ctx.input_vertices, &ctx.input_triangles, area),
+                    ctx.input_triangles.len(),
+                ) {
+                    let Some(mut sub) = run(target) else {
+                        continue;
+                    };
+                    let mut covered = covered_by(&sub);
+                    let mut asked = target;
+                    // The engine's yield varies by shape (hard pieces come
+                    // in at up to 2.5x the target): a covered run that
+                    // overshoots goes again once, aimed at the miss, and
+                    // the aimed run is kept when it still covers.
+                    let miss = sub.remeshed_quads.len() as f64 * 2.0 / target as f64;
+                    if covered && miss > Self::FINER_RERUN_MAX_OVERSHOOT {
+                        let aimed =
+                            ((target as f64 / miss) as usize).max(Self::FINER_RERUN_MIN_TRIANGLES);
+                        if let Some(again) = run(aimed).filter(|s| covered_by(s)) {
+                            sub = again;
+                            asked = aimed;
+                        }
+                    }
+                    covered = covered || covered_by(&sub);
+                    let multiple = (asked as f64 / fair.max(1.0)).round().max(1.0);
+                    let gap =
+                        Self::mean_input_gap(ctx, &sub.remeshed_vertices, &sub.remeshed_quads);
+                    if covered || gap < best_gap {
+                        best_gap = gap;
+                        job.output = Some(FinerOutput {
+                            vertices: std::mem::take(&mut sub.remeshed_vertices),
+                            quads: std::mem::take(&mut sub.remeshed_quads),
+                            uvs: std::mem::take(&mut sub.remeshed_vertex_uvs),
+                            multiple: multiple.min(u32::MAX as f64) as u32,
+                            covered,
+                        });
+                    }
+                    if covered {
+                        return;
+                    }
+                }
+            });
+        }
+        for job in jobs {
+            let Some(out) = job.output else {
+                continue;
+            };
+            let thread = &mut threads[job.thread];
+            thread.remeshed_vertices = out.vertices;
+            thread.remeshed_quads = out.quads;
+            thread.captured_vertex_uvs = out.uvs;
+            if let Some(report) = thread.coverage.as_mut() {
+                report.finer_rerun = out.multiple;
+                if out.covered {
+                    report.recovered = true;
+                    report.final_uncovered = 0;
+                }
+            }
+        }
     }
 }

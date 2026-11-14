@@ -429,6 +429,7 @@ fn differential_replay() {
                     final_uncovered: 0,
                     input_side: false,
                     kept_attempt: 1,
+                    finer_rerun: 0,
                 }],
                 "{case}: case-99 coverage report skew"
             );
