@@ -416,17 +416,22 @@ def after_score(s, d, cand, log):
     if not os.path.exists(out):
         return
     res = json.load(open(out))
-    if "after" in res and "error" not in res["after"]:
+    after = dict(res.get("after") or {})
+    after.pop("error", None)
+    checker = os.environ.get("WEIGHTS_NEW")
+    checker = checker if checker and os.path.exists(checker) else None
+    has_tears = "tears_clips" in after or "tears_poses" in after
+    if "sil_err" in after and (has_tears or not checker or s["kind"] == "prop"):
         return
-    after = {}
     sj = os.path.join(sd, name + ".sil.json")
-    blender("silhouette.py", os.path.join(d, "dense.obj"), cand, sj, "--cache", os.path.join(d, "sil"), log=log)
+    if not os.path.exists(sj):
+        blender("silhouette.py", os.path.join(d, "dense.obj"), cand, sj, "--cache", os.path.join(d, "sil"), log=log)
     if os.path.exists(sj):
         sil = json.load(open(sj))
         after.update(sil_err=sil["sil_err"], sil_worst=sil["sil_worst"])
     rigged = os.path.join(sd, name + ".rigged.glb")
-    if os.path.exists(rigged) and os.environ.get("WEIGHTS_NEW"):
-        argv = [os.environ["WEIGHTS_NEW"], "check", rigged, "--json"]
+    if os.path.exists(rigged) and checker and not has_tears:
+        argv = [checker, "check", rigged, "--json"]
         rom = os.path.join(d, "ref", s["name"] + ".rom.ron")
         if os.path.exists(rom):
             argv += ["--poses", rom]
