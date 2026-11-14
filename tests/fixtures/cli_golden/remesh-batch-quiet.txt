@@ -31,3 +31,5 @@ Target quads: 100
 diagnostics:
 Failed files: none
 note: skipped 1 non-mesh file in CASE/shared/indir
+retopo: warning: FILE a.obj: island 0 failed the coverage check (36 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (24 working verts uncovered); retries did not recover, kept the original.

@@ -3,11 +3,10 @@ artifacts:
 out.obj present
 report: absent
 counts:
-out.obj quads=138 nonquads=0 verts=140
+out.obj quads=182 nonquads=0 verts=186
 Islands: 2
-Failed islands: 1
-Quads: 138
+Failed islands: 0
+Quads: 182
 Non-quads: 0
-Vertices: 140
+Vertices: 186
 diagnostics:
-retopo: warning: 1 of 2 islands produced no output and was dropped from the mesh.

@@ -27,6 +27,10 @@ Quality:
   --no-exact-count         One run only, even when the quad count
                            misses the target by more than 8%
                            (default: a second run aimed at the miss)
+  --no-finer-rerun         Keep a part no retry covered as it is
+                           (default: re-run it alone, 3x then 6x
+                           denser, so thin parts are not boxes;
+                           a cut short of an end retries too)
   --sharp-edge <degrees>   Creases at/above this dihedral angle stay
                            sharp (default: 90.0, range 30-180)
   --smooth-normal <degrees>  Blend shading normals across edges below

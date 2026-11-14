@@ -33,5 +33,8 @@ Failed files: none
 done: 12 quads, 0 non-quads, 16 vertices in T s
 done: 94 quads, 0 non-quads, 96 vertices in T s
 done: 96 quads, 0 non-quads, 100 vertices in T s
+fixHoleWithQuads failed, highest score(dot):-0.1786326694683166
 note: skipped 1 non-mesh file in CASE/shared/indir
 note: skipped: skip.txt
+retopo: warning: FILE a.obj: island 0 failed the coverage check (36 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (24 working verts uncovered); retries did not recover, kept the original.

@@ -16,8 +16,8 @@ FILE a.obj LOD 0: target-quads=150 output=CASE/out/a_lod0.obj quads=134 non-quad
 FILE a.obj LOD 1: target-quads=80 output=CASE/out/a_lod1.obj quads=111 non-quads=2 vertices=116 time=T seconds
 FILE b.obj LOD 0: target-quads=150 output=CASE/out/b_lod0.obj quads=174 non-quads=0 vertices=178 time=T seconds
 FILE b.obj LOD 1: target-quads=80 output=CASE/out/b_lod1.obj quads=72 non-quads=0 vertices=76 time=T seconds
-FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=148 non-quads=0 vertices=150 time=T seconds
-FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=50 non-quads=0 vertices=52 time=T seconds
+FILE c.glb LOD 0: target-quads=150 output=CASE/out/c_lod0.glb quads=150 non-quads=0 vertices=152 time=T seconds
+FILE c.glb LOD 1: target-quads=80 output=CASE/out/c_lod1.glb quads=74 non-quads=0 vertices=76 time=T seconds
 Target quads: 150
   Islands: 2
   Failed islands: 0
@@ -45,17 +45,21 @@ Target quads: 80
 Target quads: 150
   Islands: 1
   Failed islands: 0
-  Quads: 148
+  Quads: 150
   Non-quads: 0
-  Vertices: 150
+  Vertices: 152
 Target quads: 80
   Islands: 1
   Failed islands: 0
-  Quads: 50
+  Quads: 74
   Non-quads: 0
-  Vertices: 52
+  Vertices: 76
 diagnostics:
 Failed files: none
 note: skipped 1 non-mesh file in CASE/shared/indir
-retopo: warning: FILE a.obj: island 1 failed the coverage check (20 working verts uncovered); retries did not recover, kept the original.
-retopo: warning: FILE a.obj: island 1 failed the coverage check (51 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 0 failed the coverage check (1276 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 0 failed the coverage check (153 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (284 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (340 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE c.glb: island 0 failed the coverage check (41 working verts uncovered) and recovered on retry 2 (1 verts uncovered).
+retopo: warning: FILE c.glb: island 0 failed the coverage check (43 working verts uncovered) and recovered on retry 1 (0 verts uncovered).

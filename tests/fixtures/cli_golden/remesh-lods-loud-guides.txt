@@ -11,3 +11,4 @@ LOD 1: target-quads=150 output=CASE/out_lod1.obj quads=154 non-quads=2 vertices=
 diagnostics:
 done: 154 quads, 2 non-quads, 157 vertices in T s
 done: 280 quads, 0 non-quads, 313 vertices in T s
+retopo: warning: island 0 failed the coverage check (36 input verts uncovered); retries did not recover, kept the original.

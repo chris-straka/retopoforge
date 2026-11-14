@@ -33,3 +33,5 @@ FILE bad.obj: FAILED to load CASE/shared/indir/bad.obj
 Failed files (1): bad.obj
 note: skipped 1 non-mesh file in CASE/shared/indir
 retopo: error: cannot parse input 'CASE/shared/indir/bad.obj': Failed parse `f' line(e.g. zero value for face index. line 11.).
+retopo: warning: FILE a.obj: island 0 failed the coverage check (36 working verts uncovered); retries did not recover, kept the original.
+retopo: warning: FILE a.obj: island 1 failed the coverage check (24 working verts uncovered); retries did not recover, kept the original.
