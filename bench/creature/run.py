@@ -35,6 +35,9 @@ Stages, each skipped when its output exists (delete to redo):
   cut    WORK/<name>/cand/<tool>@<tris>.obj    each tool at the budget
   score  WORK/<name>/score/<tool>@<tris>.json  transfer + metrics + weights check
   remetrics  (only when asked) re-measure existing scores' metrics in place
+  after  (only when asked) what the game sees after rigging: tears on the
+         game's clips or the creature's range of motion (weightforge's
+         headline, $WEIGHTS_NEW, $HERO) and silhouette error
 
 Every tool cuts the same dense.obj; every candidate gets the reference's
 weights the same way (bench/creature/transfer.py), so only topology
@@ -53,7 +56,10 @@ boxes; `quadwild.rings` is QuadWild with each joint's ring cut into its
 input and marked as a feature (bench/creature/qw_rings.py, a `.sharp`
 file). Any tool
 with `+lay` appended is that tool's cut laid back onto the source
-(bench/creature/lay.py), e.g. `retopo+lay`. Any tool with `~sN` appended
+(bench/creature/lay.py), e.g. `retopo+lay`. Any tool with `+rings`
+appended gets the joint-ring pass (bench/creature/ring_pass.py: extra edge
+rings at each limb joint, placed from the reference skeleton), its base
+cut smaller so the ringed mesh lands on the same budget. Any tool with `~sN` appended
 (`retopo~s1`) is that tool on the source jittered with seed N: the spread
 over seeds is the noise floor a difference has to beat.
 
@@ -299,26 +305,46 @@ def one_cut(s, d, tool, tris, a, log):
             return None
         code = blender("cut.py", "artist", os.path.join(d, "clean.glb"), out, str(tris), log=log)
         return out if code == 0 and os.path.exists(out) else None
+    base_tool = tool.split("~s")[0]
+    ring = None
+    if "+rings" in base_tool:
+        # a joint-ring pass on top of any tool's cut (ring_pass.py); the
+        # base is cut smaller until the ringed mesh lands on the budget
+        base_tool, _, opts = base_tool.partition("+rings")
+        ring = ["--rings", opts] if opts else []
+        joints = os.path.join(d, "guides", "joints.json")
+        if not os.path.exists(joints):
+            return None
+
+    def raw(target, path):
+        if base_tool == "instant":
+            return cut_instant(dense, path, target, log)
+        if base_tool in ("quadwild", "quadwild.rings"):
+            return cut_quadwild(dense, path, target, log, rings=base_tool == "quadwild.rings")
+        if base_tool.startswith("retopo"):
+            plain = base_tool == "retopo"
+            return cut_retopo(dense, path, target, "" if plain else a.retopo_args, log,
+                              None if plain else dict(x.split("=", 1) for x in a.retopo_env))
+        return cut_blender(base_tool, dense, path, target, log)
+
     target = tris
     tries = []
+    tolerance = 0.04 if ring is not None else 0.08
     for attempt in range(3):
         tmp = f"{out}.try{attempt}.obj"
-        base_tool = tool.split("~s")[0]
-        if base_tool == "instant":
-            code = cut_instant(dense, tmp, target, log)
-        elif base_tool in ("quadwild", "quadwild.rings"):
-            code = cut_quadwild(dense, tmp, target, log, rings=base_tool == "quadwild.rings")
-        elif tool.startswith("retopo"):
-            plain = tool.split("~s")[0] == "retopo"
-            code = cut_retopo(dense, tmp, target, "" if plain else a.retopo_args, log,
-                              None if plain else dict(x.split("=", 1) for x in a.retopo_env))
+        if ring is None:
+            code = raw(target, tmp)
         else:
-            code = cut_blender(tool.split("~s")[0], dense, tmp, target, log)
+            have = os.path.join(cand, f"{base_tool}@{tris}.obj")
+            base = have if attempt == 0 and seed is None and os.path.exists(have) else tmp + ".base.obj"
+            code = 0 if base == have else raw(target, base)
+            if code == 0 and os.path.exists(base):
+                code = blender("ring_pass.py", base, joints, tmp, *ring, log=log)
         if code != 0 or not os.path.exists(tmp):
             break
         got, _ = obj_census(tmp)
         tries.append((abs(got - tris), attempt, tmp))
-        if abs(got - tris) <= 0.08 * tris or got == 0:
+        if abs(got - tris) <= tolerance * tris or got == 0:
             break
         target = max(200, int(target * tris / got))
     if not tries:
@@ -375,6 +401,52 @@ def one_score(s, d, cand, log):
         res["error"] = "metrics failed"
     json.dump(res, open(out, "w"), indent=1, sort_keys=True)
     return out
+
+
+def after_score(s, d, cand, log):
+    """What the game sees after rigging, added to an existing score:
+    `tears` (weightforge's headline: the share of the surface inside
+    failing findings, on the hero's game clips for a character, on the
+    creature's own range of motion otherwise; $WEIGHTS_NEW is the checker
+    with the headline, $HERO the rigged hero with the game's clips) and
+    `sil_err` (silhouette.py: outline against the source, eight views)."""
+    name = os.path.basename(cand)[:-4]
+    sd = os.path.join(d, "score")
+    out = os.path.join(sd, name + ".json")
+    if not os.path.exists(out):
+        return
+    res = json.load(open(out))
+    if "after" in res and "error" not in res["after"]:
+        return
+    after = {}
+    sj = os.path.join(sd, name + ".sil.json")
+    blender("silhouette.py", os.path.join(d, "dense.obj"), cand, sj, "--cache", os.path.join(d, "sil"), log=log)
+    if os.path.exists(sj):
+        sil = json.load(open(sj))
+        after.update(sil_err=sil["sil_err"], sil_worst=sil["sil_worst"])
+    rigged = os.path.join(sd, name + ".rigged.glb")
+    if os.path.exists(rigged) and os.environ.get("WEIGHTS_NEW"):
+        argv = [os.environ["WEIGHTS_NEW"], "check", rigged, "--json"]
+        rom = os.path.join(d, "ref", s["name"] + ".rom.ron")
+        if os.path.exists(rom):
+            argv += ["--poses", rom]
+        if s["kind"] == "character" and os.environ.get("HERO"):
+            argv += ["--motion", os.environ["HERO"]]
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=3600)
+        try:
+            w = json.loads(r.stdout)
+            for sec in w.get("headline", []):
+                key = "clips" if sec.get("name") == "game clips" else "poses"
+                after[f"tears_{key}"] = sec.get("tears_pct")
+                after[f"through_{key}"] = sec.get("through_cm2")
+                after[f"frames_{key}"] = sec.get("frames")
+                fails = [f for f in sec.get("findings", []) if f.get("severity") == "fail"]
+                after[f"top_{key}"] = [f"{f.get('kind')}: {f.get('part')} {f.get('area_cm2', 0):.0f} cm2" for f in fails[:3]]
+            after["score_new"] = w.get("score")
+        except ValueError:
+            after["error"] = (r.stderr or "")[-300:]
+    res["after"] = after
+    json.dump(res, open(out, "w"), indent=1, sort_keys=True)
 
 
 def pro_args(s, d, cand):
@@ -482,11 +554,19 @@ def main():
             return f"{s['name']} {tool}@{t}: no cut"
         if "remetrics" in stages:
             remetrics(s, d, cand, log)
-        if "score" in stages or "remetrics" in stages:
+        if "after" in stages:
+            one_score(s, d, cand, log)
+            after_score(s, d, cand, log)
+        if "score" in stages or "remetrics" in stages or "after" in stages:
             p = one_score(s, d, cand, log)
             r = json.load(open(p))
             m = r.get("metrics", {})
             b = r.get("bend", {})
+            af = r.get("after") or {}
+            if af:
+                return (f"{s['name']:20s} {tool}@{t}: tris {m.get('tris')} tears clips {af.get('tears_clips')} "
+                        f"poses {af.get('tears_poses')} sil {af.get('sil_err')} d95 {m.get('dist_p95')} "
+                        f"loops {m.get('joint_loops_mean')} {af.get('error', '')}")
             return (f"{s['name']:20s} {tool}@{t}: tris {m.get('tris')} loops {m.get('joint_loops_mean')} "
                     f"poles {m.get('joint_poles_mean')} flips {m.get('rest_flips')}/{m.get('posed_flips')} "
                     f"dist95 {m.get('dist_p95')} bend {b.get('score')} {r.get('error', '')}")

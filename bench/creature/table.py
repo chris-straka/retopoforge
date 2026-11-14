@@ -28,6 +28,8 @@ import statistics
 
 # (key, label, higher_is_better)
 SCORES = [
+    ("tears", "tears%", False),
+    ("sil_err", "outline%", False),
     ("bend", "bend", True),
     ("joint_loops_mean", "loops", True),
     ("joints_ringed_pct", "ringed%", True),
@@ -46,7 +48,7 @@ SCORES = [
     ("tris", "tris", None),
 ]
 RIGGED = {"bend", "joint_loops_mean", "joints_ringed_pct", "joint_poles_mean", "posed_flips", "loop_recall",
-          "pro_pose_d95"}
+          "pro_pose_d95", "tears"}
 
 
 def load(work):
@@ -60,6 +62,15 @@ def load(work):
         if b.get("score") is not None:
             m["bend"] = b["score"]
             m["bend_fails"] = b.get("fails")
+        af = r.get("after") or {}
+        if af.get("sil_err") is not None:
+            m["sil_err"] = af["sil_err"]
+        # tears: on the game's clips where the subject has them, else on
+        # its own range of motion
+        t_ = af.get("tears_clips") if af.get("tears_clips") is not None else af.get("tears_poses")
+        if t_ is not None:
+            m["tears"] = t_
+            m["tears_clips"], m["tears_poses"] = af.get("tears_clips"), af.get("tears_poses")
         tool, _, tris = r["cand"].partition("@")
         rows[(r["subject"], tool)] = {"kind": r["kind"], "budget": int(tris or 0), **m}
     # loops where the pro has them: share of the artist's ringed joints
