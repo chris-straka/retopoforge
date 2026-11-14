@@ -151,3 +151,67 @@ no symmetry 83.0, 286, 1.72%. The old snap's damage (vertices dragged to
 far partners) shows as the flips and the shape error; the fix removes it
 and keeps most of symmetry's bend gain. One model only: kept on its
 branch until more symmetric subjects (the pro lane's humans) are scored.
+
+### Bench faults found and fixed this round (rule 3: fix the benchmark first)
+
+- **QuadriFlow "refused" creatures and characters; the fault was ours.**
+  Blender's QuadriFlow rejects any mesh with an edge shorter than 1e-4
+  units, with the message "needs to be manifold". A dense creature one
+  unit tall always has such edges. The bench now runs QuadriFlow at 100
+  units across and scales back. Round 1's "QuadriFlow refused three of
+  five" is withdrawn; re-run in progress.
+- **The game's clips had not run on the characters.** `motionforge
+  animate` refused the game's clip file (it holds only a skeleton). The
+  clip file is on the same standard skeleton as the rigs, so the clips
+  are now copied onto each candidate by bone name
+  (`bench/creature/clips_onto.py`, 31 clips) and `weights check` samples
+  them. The first character table (below) is on the standard pose set
+  only.
+- **The pro lane had thrown the pros' quads away.** A GLB stores
+  triangles; the first try at pairing them back (Blender's Tris to Quads)
+  left half the vertices irregular and found no loops on meshes that
+  plainly have them. An exporter writes each quad as two consecutive
+  triangles, so pairing neighbours in file order recovers the artist's
+  quads exactly: 99-100% quads on the Quaternius humans and Cesium Man,
+  98% on Phileas, 86% on the knight. The MPFB base turned out to be a
+  decimated copy (half triangles): not a topology truth, removed.
+- **The bend checker says little on pro meshes** (it scores the artists'
+  own rigs 3-70, median 7). The pro lane's bend measure is now the truth
+  itself: every joint is bent the same way on the candidate and on the
+  pro mesh (same rig), and the distance between the two bent surfaces is
+  the score (`bent-vs-pro%`).
+- A mesh lost its parent's transform when unparented (prep and cuts);
+  kept now.
+
+### First character table (standard poses only, before the fixes above)
+
+Four of the owner's characters at 14,000 triangles, the human route's
+rig: retopo 42.0 / 68.4 / 63.7 / 55.5, decimate 53.6 / 69.4 / 62.1 /
+70.2. Decimate ahead on three, retopo by 1.6 on one. Retopo's surface
+error (p95) 0.37-1.47% against decimate's 0.04-0.06%. Re-running on the
+game's clips with QuadriFlow included.
+
+### Hard joint rings, first version (`exp/joint-rings`): no loops yet
+
+Rings were cut into the working mesh and survive the isotropic stage
+(694 ring vertices in, 694 out on a test animal; 14 of 14 rings pinned),
+but only about 45% of ring edges got an alignment mark (the feature path
+marks an edge only within 10 degrees of the cross field), so each ring is
+in pieces and no loop closes (loops at joints 0 on all five creatures).
+Bend rose on four of five creatures (median 68.5 -> 73.8) while the
+joint picture got messier (more irregular vertices at the ring): score
+and picture disagree, and a single run cannot tell a 5-point move from
+noise. So: (1) the bend score's spread is being measured (three jittered
+seeds of the baseline), (2) version 2 marks every ring edge by its ring
+tag. Stays in work.
+
+### `--skeleton` density and symmetry on creatures
+
+`--skeleton` changed one creature of four so far (64.8 -> 66.6). Symmetry
+was accepted on one of five. Neither moves the set; both stay available
+(they are per-model tools by the owner's rule), nothing to tune yet.
+
+### Instant Meshes (first two creatures)
+
+Bend 26.3 and 44.6 against retopo's 49.7 and 64.8 and decimate's 68.1
+and 75.1; surface p95 1.08 and 1.0%. Behind both so far.
