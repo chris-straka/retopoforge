@@ -53,7 +53,9 @@ boxes; `quadwild.rings` is QuadWild with each joint's ring cut into its
 input and marked as a feature (bench/creature/qw_rings.py, a `.sharp`
 file). Any tool
 with `+lay` appended is that tool's cut laid back onto the source
-(bench/creature/lay.py), e.g. `retopo+lay`.
+(bench/creature/lay.py), e.g. `retopo+lay`. Any tool with `~sN` appended
+(`retopo~s1`) is that tool on the source jittered with seed N: the spread
+over seeds is the noise floor a difference has to beat.
 
 Environment: BLENDER, RETOPO, WEIGHTS, and for the `ref` stage the
 creature route's (CREATURE_ROUTE, CREATURE_RIG_BIN, SKINTOKENS_BIN,
@@ -252,6 +254,27 @@ def cut_blender(how, dense, out, tris, log):
     return blender("cut.py", how, dense, out, str(tris), log=log)
 
 
+def jittered(dense, seed):
+    import random
+    out = f"{dense[:-4]}.s{seed}.obj"
+    if os.path.exists(out):
+        return out
+    rows = open(dense).read().split("\n")
+    vs = [tuple(float(x) for x in r.split()[1:4]) for r in rows if r.startswith("v ")]
+    diag = sum((max(v[k] for v in vs) - min(v[k] for v in vs)) ** 2 for k in range(3)) ** 0.5
+    rng = random.Random(seed)
+    amp = 1e-5 * diag
+    with open(out, "w") as f:
+        for r in rows:
+            if r.startswith("v "):
+                x, y, z = (float(t) for t in r.split()[1:4])
+                f.write(f"v {x + rng.uniform(-amp, amp):.8f} {y + rng.uniform(-amp, amp):.8f} "
+                        f"{z + rng.uniform(-amp, amp):.8f}\n")
+            elif r:
+                f.write(r + "\n")
+    return out
+
+
 def one_cut(s, d, tool, tris, a, log):
     cand = os.path.join(d, "cand")
     os.makedirs(cand, exist_ok=True)
@@ -259,6 +282,12 @@ def one_cut(s, d, tool, tris, a, log):
     if os.path.exists(out):
         return out
     dense = os.path.join(d, "dense.obj")
+    seed = None
+    if "~s" in tool:
+        # a noise seed: the same tool on the source with every vertex moved
+        # a hair (1e-5 of the diagonal), to measure the scores' spread
+        seed = int(tool.rsplit("~s", 1)[1])
+        dense = jittered(dense, seed)
     if tool.endswith("+lay"):
         base = one_cut(s, d, tool[:-4], tris, a, log)
         if not base:
@@ -279,8 +308,9 @@ def one_cut(s, d, tool, tris, a, log):
         elif tool in ("quadwild", "quadwild.rings"):
             code = cut_quadwild(dense, tmp, target, log, rings=tool == "quadwild.rings")
         elif tool.startswith("retopo"):
-            code = cut_retopo(dense, tmp, target, a.retopo_args if tool != "retopo" else "", log,
-                              dict(x.split("=", 1) for x in a.retopo_env) if tool != "retopo" else None)
+            plain = tool.split("~s")[0] == "retopo"
+            code = cut_retopo(dense, tmp, target, "" if plain else a.retopo_args, log,
+                              None if plain else dict(x.split("=", 1) for x in a.retopo_env))
         else:
             code = cut_blender(tool, dense, tmp, target, log)
         if code != 0 or not os.path.exists(tmp):
