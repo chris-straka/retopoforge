@@ -334,6 +334,35 @@ helps only burim. Ours loses on outline: 3-8% against decimate's
 0.3-0.6% and QuadriFlow's 2.8-5.5% (pum worst). `table.py` crashed on a
 score row without `cand` (QuadWild's failed cut); fix next round.
 
+**Final engine, artist fast set** (3 seeds on f, vs the floor; QuadWild
+for scale): rings 35.6 / 32.6 / 35.9%, mean **34.7** (floor 31.7,
+QuadWild 32.2); flow 12.0 deg (floor 11.9, QuadWild 13.1); shape p95
+mean **1.44%** (floor 2.79, QuadWild 0.82), median 1.02 / 1.00 / 0.90
+(floor 1.67 / 1.53 / 1.34); count 1.16x the artist's (floor 0.97x,
+QuadWild 1.19x). Shape fixes: anvil 10.6 -> 2.0, femur 8.8 -> 0.9,
+ribcage 6.6 -> 2.0 (rings 25 -> 55%), axe 2.8 -> 0.6, cauldron 3.5 ->
+0.8. Cost: quads over budget on the thin-part cases (axe 2.15x, key 1.7x,
+cauldron 1.6x, ribcage 1.5x, femur 1.3x), part of their rings gain is
+those quads; bench time ~65 s -> ~210 s. Still wrong: the key's curled
+side loops (non-manifold junctions) vanish (shape p95 ~7.7).
+Two fixes after the first bench: the fallback picks the re-run with the
+lowest 95th-percentile gap (a lost region barely moves the mean), and
+a re-run never returns fewer quads than the island had (the CLI golden's
+two tetrahedra went 96 -> 35 without it); the extremity check needs 10
+input verts past the output, since a sharp tip no quad reaches is one or
+two verts and a lost end is a region.
+
+**Gates (Mac).** cargo fmt and every cargo test green (goldens
+regenerated: --help, nasty-floaters keeps both islands, a tetra LOD 50 ->
+74 of 80; the single tetra at 50 keeps its 12-quad first run because the
+37-quad count-matched run left a coverage shortfall; grid-density was
+stale on main already). Deform baseline re-pinned (8 seeds): the
+fold-through-bbox proxy moves beyond the seed spread on armadillo
+(flips 91 -> 112 small, 244 -> 307 tiny), nefertiti (17 -> 28) and
+fandisk (small shifts); the proxy is the old bbox one, and the tears
+test on the game clips (the measure that matters) improved. run.py:
+baseline.json re-pinned on y8 (macOS arm64; z gave the same count): every count is the same or nearer its target (nefertiti tiny 1059 -> 997 and small 5322 -> 5219, dragon tiny 885 -> 948, armadillo small 5097 -> 5128 of 5000); `--check` passes against it.
+
 ## Round 4 (2026-11-13): the artist bench and the fast loop
 
 Owner's goal restated: a general quad remesher better than the paid tool,
