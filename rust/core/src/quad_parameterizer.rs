@@ -443,6 +443,38 @@ fn compute_corner_constraints(
     corner_constraints
 }
 
+/// Every ring edge (both ends on one ring) gets an alignment mark,
+/// U or V by whichever field direction lies closer to it: the feature
+/// path marks only edges within 10 degrees of the field, which left about
+/// half of each ring unmarked and the ring in pieces (RETOPO_RINGS_DEBUG).
+fn mark_ring_edges(
+    mesh: &SurfaceMesh,
+    field: &[Vector3],
+    normals: &[Vector3],
+    tags: &[u32],
+    constraints: &mut [EdgeConstraint],
+) {
+    for c in 0..mesh.corner_count() {
+        if constraints[c] != EdgeConstraint::ConstraintNone {
+            continue;
+        }
+        let a = mesh.corner_vertex(c);
+        let b = mesh.corner_vertex(mesh.next_corner(c));
+        if a >= tags.len() || b >= tags.len() || tags[a] == 0 || tags[a] != tags[b] {
+            continue;
+        }
+        let f = mesh.corner_face(c);
+        let edge = unit(mesh.edge_vector(c), Vector3::new(1.0, 0.0, 0.0));
+        let d = unit(field[f], edge);
+        let dr = unit(Vector3::cross_product(&normals[f], &d), Vector3::new(0.0, 1.0, 0.0));
+        constraints[c] = if Vector3::dot_product(&edge, &d).abs() >= Vector3::dot_product(&edge, &dr).abs() {
+            EdgeConstraint::AlignV
+        } else {
+            EdgeConstraint::AlignU
+        };
+    }
+}
+
 /// One integer per joint ring: the first ring edge (both ends tagged with
 /// the same ring) that already carries an alignment mark is upgraded to
 /// the full integer mark, on both of its corners. The alignment marks
@@ -1754,6 +1786,7 @@ impl QuadParameterizer {
         let mut corner_constraints =
             compute_corner_constraints(&mesh, &field, &normals, hard_edge_degrees, sharps);
         if let Some(tags) = ring_tags {
+            mark_ring_edges(&mesh, &field, &normals, tags, &mut corner_constraints);
             pin_one_integer_per_ring(&mesh, tags, &mut corner_constraints);
         }
         if track_directional_scale {
