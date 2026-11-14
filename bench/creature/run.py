@@ -303,16 +303,17 @@ def one_cut(s, d, tool, tris, a, log):
     tries = []
     for attempt in range(3):
         tmp = f"{out}.try{attempt}.obj"
-        if tool == "instant":
+        base_tool = tool.split("~s")[0]
+        if base_tool == "instant":
             code = cut_instant(dense, tmp, target, log)
-        elif tool in ("quadwild", "quadwild.rings"):
-            code = cut_quadwild(dense, tmp, target, log, rings=tool == "quadwild.rings")
+        elif base_tool in ("quadwild", "quadwild.rings"):
+            code = cut_quadwild(dense, tmp, target, log, rings=base_tool == "quadwild.rings")
         elif tool.startswith("retopo"):
             plain = tool.split("~s")[0] == "retopo"
             code = cut_retopo(dense, tmp, target, "" if plain else a.retopo_args, log,
                               None if plain else dict(x.split("=", 1) for x in a.retopo_env))
         else:
-            code = cut_blender(tool, dense, tmp, target, log)
+            code = cut_blender(tool.split("~s")[0], dense, tmp, target, log)
         if code != 0 or not os.path.exists(tmp):
             break
         got, _ = obj_census(tmp)
