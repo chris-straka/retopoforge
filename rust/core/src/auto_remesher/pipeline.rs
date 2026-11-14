@@ -1241,11 +1241,15 @@ impl AutoRemesher {
                     return;
                 }
                 let fair = self.target_triangle_count as f64 * area / total_area;
+                // A re-run is finer by definition: one that comes back with
+                // fewer quads than the island already has never counts (a
+                // coarse box keeps its corners exactly and would pass).
+                let floor = thread.remeshed_quads.len().max(1);
                 let run = |target: usize| -> Option<AutoRemesher> {
                     let mut sub = AutoRemesher::new(&ctx.input_vertices, &ctx.input_triangles);
                     sub.inherit_island_settings(self, &ctx.density);
                     sub.set_target_triangle_count(target);
-                    (sub.remesh() && !sub.remeshed_quads.is_empty()).then_some(sub)
+                    (sub.remesh() && sub.remeshed_quads.len() > floor).then_some(sub)
                 };
                 let covered_by =
                     |sub: &AutoRemesher| sub.coverage_reports.iter().all(|r| r.recovered);
